@@ -1,0 +1,37 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    # 기본 체크아웃 및 GitHub 작업은 workspace에서 수행
+    defaults:
+      run:
+        working-directory: .
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to Server Directory
+      run: |
+        # 배포 타겟 디렉토리 설정 (사용자 요청 경로)
+        TARGET_DIR="/home/mc365/RealtimeVoiceChat/realtime-voice-chat-front"
+        
+        echo "Deploying to $TARGET_DIR..."
+        
+        # rsync를 사용하여 파일 동기화
+        # -a: 아카이브 모드 (권한, 시간 등 보존)
+        # -v: 상세 출력
+        # --exclude: .git, actions-runner 폴더 등 제외
+        # actions-runner가 타겟 안에 있으므로 덮어쓰지 않도록 주의 (소스에는 없으므로 기본적으로 안전하지만 명시적 제외가 좋음)
+        rsync -av . "$TARGET_DIR" --exclude '.git' --exclude 'actions-runner' --exclude 'node_modules'
+        
+        # 타겟 디렉토리로 이동하여 Docker Compose 실행
+        cd "$TARGET_DIR"
+        docker compose build
+        docker compose up -d --remove-orphans
+        docker compose ps

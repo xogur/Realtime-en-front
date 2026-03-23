@@ -1,0 +1,497 @@
+[
+  {
+    "category": "Idle",
+    "animations": [
+      {
+        "id": "m_idle_01",
+        "name": "Idle 1",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_001.glb"
+      },
+      {
+        "id": "m_idle_02",
+        "name": "Idle 2",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_002.glb"
+      },
+      {
+        "id": "m_idle_var_01",
+        "name": "Idle Var 1",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_Variations_001.glb"
+      },
+      {
+        "id": "m_idle_var_02",
+        "name": "Idle Var 2",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_Variations_002.glb"
+      },
+      {
+        "id": "m_idle_var_03",
+        "name": "Idle Var 3",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_Variations_003.glb"
+      },
+      {
+        "id": "m_idle_var_04",
+        "name": "Idle Var 4",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_Variations_004.glb"
+      },
+      {
+        "id": "m_idle_var_05",
+        "name": "Idle Var 5",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_Variations_005.glb"
+      },
+      {
+        "id": "m_idle_var_06",
+        "name": "Idle Var 6",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_Variations_006.glb"
+      },
+      {
+        "id": "m_idle_var_07",
+        "name": "Idle Var 7",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_Variations_007.glb"
+      },
+      {
+        "id": "m_idle_var_08",
+        "name": "Idle Var 8",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_Variations_008.glb"
+      },
+      {
+        "id": "m_idle_var_09",
+        "name": "Idle Var 9",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_Variations_009.glb"
+      },
+      {
+        "id": "m_idle_var_10",
+        "name": "Idle Var 10",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_Variations_010.glb"
+      },
+      {
+        "id": "f_idle_01",
+        "name": "Soft Idle 1",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/F_Standing_Idle_001.glb"
+      },
+      {
+        "id": "f_idle_var_01",
+        "name": "Soft Var 1",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/F_Standing_Idle_Variations_001.glb"
+      },
+      {
+        "id": "f_idle_var_02",
+        "name": "Soft Var 2",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/F_Standing_Idle_Variations_002.glb"
+      },
+      {
+        "id": "f_idle_var_03",
+        "name": "Soft Var 3",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/F_Standing_Idle_Variations_003.glb"
+      },
+      {
+        "id": "f_idle_var_04",
+        "name": "Soft Var 4",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/F_Standing_Idle_Variations_004.glb"
+      },
+      {
+        "id": "f_idle_var_05",
+        "name": "Soft Var 5",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/F_Standing_Idle_Variations_005.glb"
+      },
+      {
+        "id": "f_idle_var_06",
+        "name": "Soft Var 6",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/F_Standing_Idle_Variations_006.glb"
+      },
+      {
+        "id": "f_idle_var_07",
+        "name": "Soft Var 7",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/F_Standing_Idle_Variations_007.glb"
+      },
+      {
+        "id": "f_idle_var_08",
+        "name": "Soft Var 8",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/F_Standing_Idle_Variations_008.glb"
+      },
+      {
+        "id": "f_idle_var_09",
+        "name": "Soft Var 9",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/F_Standing_Idle_Variations_009.glb"
+      }
+    ]
+  },
+  {
+    "category": "Dance",
+    "animations": [
+      {
+        "id": "m_dance_01",
+        "name": "Power Beat",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/M_Dances_001.glb"
+      },
+      {
+        "id": "m_dance_02",
+        "name": "Power Bounce",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/M_Dances_002.glb"
+      },
+      {
+        "id": "m_dance_03",
+        "name": "Drip Move",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/M_Dances_003.glb"
+      },
+      {
+        "id": "m_dance_04",
+        "name": "Heart Eyes Move",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/M_Dances_004.glb"
+      },
+      {
+        "id": "m_dance_05",
+        "name": "Pump It",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/M_Dances_005.glb"
+      },
+      {
+        "id": "m_dance_06",
+        "name": "Twist",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/M_Dances_006.glb"
+      },
+      {
+        "id": "m_dance_07",
+        "name": "Sprint Move",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/M_Dances_007.glb"
+      },
+      {
+        "id": "m_dance_08",
+        "name": "Mass Groove",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/M_Dances_008.glb"
+      },
+      {
+        "id": "m_dance_09",
+        "name": "Pump It Dance",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/M_Dances_009.glb"
+      },
+      {
+        "id": "m_dance_11",
+        "name": "Swag Move",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/M_Dances_011.glb"
+      },
+      {
+        "id": "f_dance_01",
+        "name": "Spin Vibe",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/F_Dances_001.glb"
+      },
+      {
+        "id": "f_dance_04",
+        "name": "Side Bounce",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/F_Dances_004.glb"
+      },
+      {
+        "id": "f_dance_05",
+        "name": "Cheer Dance",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/F_Dances_005.glb"
+      },
+      {
+        "id": "f_dance_06",
+        "name": "Dhoom Dance",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/F_Dances_006.glb"
+      },
+      {
+        "id": "f_dance_07",
+        "name": "Backward Jump",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/dance/F_Dances_007.glb"
+      }
+    ]
+  },
+  {
+    "category": "Locomotion",
+    "animations": [
+      {
+        "id": "m_walk_01",
+        "name": "Casual Walk",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Walk_001.glb"
+      },
+      {
+        "id": "m_walk_02",
+        "name": "Confident Walk",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Walk_002.glb"
+      },
+      {
+        "id": "m_run_01",
+        "name": "Sprint Run",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Run_001.glb"
+      },
+      {
+        "id": "m_jog_01",
+        "name": "Light Jog",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Jog_001.glb"
+      },
+      {
+        "id": "m_jog_03",
+        "name": "Steady Jog",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Jog_003.glb"
+      },
+      {
+        "id": "m_walk_back",
+        "name": "Backwards Walk",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Walk_Backwards_001.glb"
+      },
+      {
+        "id": "m_run_back",
+        "name": "Backwards Run",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Run_Backwards_002.glb"
+      },
+      {
+        "id": "m_jog_back",
+        "name": "Backwards Jog",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Jog_Backwards_001.glb"
+      },
+      {
+        "id": "m_walk_jump_1",
+        "name": "Walk Hop",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Walk_Jump_001.glb"
+      },
+      {
+        "id": "m_walk_jump_2",
+        "name": "Walk Leap",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Walk_Jump_002.glb"
+      },
+      {
+        "id": "m_walk_jump_3",
+        "name": "Walk Hurdle",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Walk_Jump_003.glb"
+      },
+      {
+        "id": "m_run_jump_1",
+        "name": "Run Jump",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Run_Jump_001.glb"
+      },
+      {
+        "id": "m_run_jump_2",
+        "name": "Sprint Leap",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Run_Jump_002.glb"
+      },
+      {
+        "id": "m_jog_jump_1",
+        "name": "Jog Hop",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Jog_Jump_001.glb"
+      },
+      {
+        "id": "m_jog_jump_2",
+        "name": "Jog Skips",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Jog_Jump_002.glb"
+      },
+      {
+        "id": "f_walk_02",
+        "name": "Elegant Walk",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/F_Walk_002.glb"
+      },
+      {
+        "id": "f_walk_03",
+        "name": "Catwalk",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/F_Walk_003.glb"
+      },
+      {
+        "id": "f_run_01",
+        "name": "Light Run",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/F_Run_001.glb"
+      },
+      {
+        "id": "f_jog_01",
+        "name": "Easy Jog",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/F_Jog_001.glb"
+      },
+      {
+        "id": "f_walk_strafe_l",
+        "name": "Side Step Left",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/F_Walk_Strafe_Left_001.glb"
+      },
+      {
+        "id": "f_walk_strafe_r",
+        "name": "Side Step Right",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/F_Walk_Strafe_Right_001.glb"
+      },
+      {
+        "id": "m_walk_strafe_l",
+        "name": "Strafe Left",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Walk_Strafe_Left_002.glb"
+      },
+      {
+        "id": "m_walk_strafe_r",
+        "name": "Strafe Right",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Walk_Strafe_Right_002.glb"
+      },
+      {
+        "id": "m_crouch",
+        "name": "Stealth Walk",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/M_Crouch_Walk_003.glb"
+      },
+      {
+        "id": "f_crouch",
+        "name": "Low Sneak",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/locomotion/F_Crouch_Walk_001.glb"
+      }
+    ]
+  },
+  {
+    "category": "Expression",
+    "animations": [
+      {
+        "id": "m_expr_01",
+        "name": "Friendly Wave",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_001.glb"
+      },
+      {
+        "id": "m_expr_02",
+        "name": "You There",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_002.glb"
+      },
+      {
+        "id": "m_expr_04",
+        "name": "Awkward Agreement",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_004.glb"
+      },
+      {
+        "id": "m_expr_05",
+        "name": "What's Going On?",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_005.glb"
+      },
+      {
+        "id": "m_expr_06",
+        "name": "Tired Stretch",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_006.glb"
+      },
+      {
+        "id": "m_expr_07",
+        "name": "Conceilied Laughter",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_007.glb"
+      },
+      {
+        "id": "m_expr_08",
+        "name": "You Come Here",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_008.glb"
+      },
+      {
+        "id": "m_expr_09",
+        "name": "Come Here Kid",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_009.glb"
+      },
+      {
+        "id": "m_expr_10",
+        "name": "Come Here Everyone",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_010.glb"
+      },
+      {
+        "id": "m_expr_11",
+        "name": "No Freaking Way",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_011.glb"
+      },
+      {
+        "id": "m_expr_12",
+        "name": "Cheerful Approval",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_012.glb"
+      },
+      {
+        "id": "m_expr_13",
+        "name": "Waving Hello",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_013.glb"
+      },
+      {
+        "id": "m_expr_14",
+        "name": "Checking Surroundings",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_014.glb"
+      },
+      {
+        "id": "m_expr_15",
+        "name": "Referee Warning",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_015.glb"
+      },
+      {
+        "id": "m_expr_16",
+        "name": "You Thumbs Down",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_016.glb"
+      },
+      {
+        "id": "m_expr_17",
+        "name": "Side Thumbs Down",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_017.glb"
+      },
+      {
+        "id": "m_expr_18",
+        "name": "You're Finished",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_018.glb"
+      },
+      {
+        "id": "m_talk_01",
+        "name": "Oh God, Why Me?",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Talking_Variations_001.glb"
+      },
+      {
+        "id": "m_talk_02",
+        "name": "What Are You Doing?",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Talking_Variations_002.glb"
+      },
+      {
+        "id": "m_talk_03",
+        "name": "What Am I doing?",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Talking_Variations_003.glb"
+      },
+      {
+        "id": "m_talk_04",
+        "name": "No Way",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Talking_Variations_004.glb"
+      },
+      {
+        "id": "m_talk_05",
+        "name": "What's Going On?",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Talking_Variations_005.glb"
+      },
+      {
+        "id": "m_talk_06",
+        "name": "I have no idea",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Talking_Variations_006.glb"
+      },
+      {
+        "id": "m_talk_07",
+        "name": "What's going on here?",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Talking_Variations_007.glb"
+      },
+      {
+        "id": "m_talk_08",
+        "name": "Let's stop",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Talking_Variations_008.glb"
+      },
+      {
+        "id": "m_talk_09",
+        "name": "Fed Up Moment",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Talking_Variations_009.glb"
+      },
+      {
+        "id": "m_talk_10",
+        "name": "What's This? Hold On",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Talking_Variations_010.glb"
+      },
+      {
+        "id": "f_talk_01",
+        "name": "Great Job Clap",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/F_Talking_Variations_001.glb"
+      },
+      {
+        "id": "f_talk_02",
+        "name": "Chill Stretch",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/F_Talking_Variations_002.glb"
+      },
+      {
+        "id": "f_talk_03",
+        "name": "This Is Me",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/F_Talking_Variations_003.glb"
+      },
+      {
+        "id": "f_talk_04",
+        "name": "Empathize",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/F_Talking_Variations_004.glb"
+      },
+      {
+        "id": "f_talk_05",
+        "name": "Loose Hands Stretch",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/F_Talking_Variations_005.glb"
+      },
+      {
+        "id": "f_talk_06",
+        "name": "Take It Easy",
+        "url": "https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/F_Talking_Variations_006.glb"
+      }
+    ]
+  }
+]
