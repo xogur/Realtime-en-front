@@ -13,7 +13,7 @@ interface AppState {
     isRecording: boolean;
     isPlaying: boolean;
     volume: number; // 0 to 1, for visualizer
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+    messages: Array<{ role: 'user' | 'assistant'; content: string; suggestions?: string[] }>;
     partialMessage: string;
     setPartialMessage: (message: string) => void;
     isChatOpen: boolean;
@@ -48,6 +48,7 @@ interface AppState {
     voice: string;
     speed: number;
     textScale: number;
+    showKoreanInterpretation: boolean;
     avatarName: 'model' | 'avatar';
 
     setConnecting: (status: boolean) => void;
@@ -56,9 +57,12 @@ interface AppState {
     setPlaying: (status: boolean) => void;
     setVolume: (volume: number) => void;
     addMessage: (role: 'user' | 'assistant', content: string) => void;
+    appendToLastAssistantMessage: (content: string) => void;
+    setLastAssistantSuggestions: (suggestions: string[]) => void;
     setVoice: (voice: string) => void;
     setSpeed: (speed: number) => void;
     setTextScale: (scale: number) => void;
+    toggleKoreanInterpretation: () => void;
     setAvatarName: (name: 'model' | 'avatar') => void;
 
     socket: WebSocket | null;
@@ -76,12 +80,15 @@ export const AVATAR_VOICE_MAP: Record<string, string> = {
     'Aiden': 'aiden',
     'Uncle_Fu': 'uncle_fu',
     'Dylan': 'dylan',
-    'Serena': 'serena', 
-    'Eric': 'eric', 
-    'Ono_Anna': 'ono_anna', 
-    'model': 'sohee', 
-    'avatar': 'sohee',
+    'Serena': 'serena',
+    'Eric': 'eric',
+    'Ono_Anna': 'ono_anna',
+    'model': 'ryan',
+    'avatar': 'ryan',
 };
+
+export const DEFAULT_AVATAR_ID = 'Ryan';
+export const DEFAULT_VOICE_ID = AVATAR_VOICE_MAP[DEFAULT_AVATAR_ID];
 
 export const useStore = create<AppState>((set) => ({
     isConnecting: false,
@@ -92,11 +99,12 @@ export const useStore = create<AppState>((set) => ({
     messages: [],
     partialMessage: '',
     isChatOpen: false, // Default closed
-    voice: 'Sohee', // Updated default to match avatar ID
+    voice: DEFAULT_VOICE_ID,
     speed: 0.8,
     textScale: 1.0,
+    showKoreanInterpretation: true,
     avatarName: 'avatar',
-    currentAvatarId: 'Sohee',
+    currentAvatarId: DEFAULT_AVATAR_ID,
     lipSyncMode: 'heuristic',
     ttsSegments: {},
     lipSyncDebugEnabled: false,
@@ -109,14 +117,44 @@ export const useStore = create<AppState>((set) => ({
     setVolume: (volume) => set({ volume }),
     addMessage: (role, content) =>
         set((state) => ({ messages: [...state.messages, { role, content }] })),
+    appendToLastAssistantMessage: (content) =>
+        set((state) => {
+            const messages = [...state.messages];
+            for (let index = messages.length - 1; index >= 0; index -= 1) {
+                if (messages[index].role === 'assistant') {
+                    messages[index] = {
+                        ...messages[index],
+                        content: `${messages[index].content}\n\n${content}`,
+                    };
+                    return { messages };
+                }
+            }
+            return state;
+        }),
+    setLastAssistantSuggestions: (suggestions) =>
+        set((state) => {
+            const messages = [...state.messages];
+            for (let index = messages.length - 1; index >= 0; index -= 1) {
+                if (messages[index].role === 'assistant') {
+                    messages[index] = {
+                        ...messages[index],
+                        suggestions,
+                    };
+                    return { messages };
+                }
+            }
+            return state;
+        }),
     setPartialMessage: (message) => set({ partialMessage: message }),
     clearMessages: () => set({ messages: [] }),
     setVoice: (voice) => set({ voice }),
     setSpeed: (speed) => set({ speed }),
     setTextScale: (textScale) => set({ textScale }),
+    toggleKoreanInterpretation: () =>
+        set((state) => ({ showKoreanInterpretation: !state.showKoreanInterpretation })),
     setAvatarName: (name) => set({ avatarName: name }),
     setCurrentAvatar: (id) => {
-        const voiceId = AVATAR_VOICE_MAP[id] || 'Sohee';
+        const voiceId = AVATAR_VOICE_MAP[id] || DEFAULT_VOICE_ID;
         set({ currentAvatarId: id, voice: voiceId });
     },
     toggleChat: () => set((state) => ({ isChatOpen: !state.isChatOpen })),

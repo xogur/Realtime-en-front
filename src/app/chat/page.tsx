@@ -8,7 +8,7 @@ export default function ChatPopout() {
 
     return (
         <main className="w-full h-screen overflow-hidden relative" style={{
-            backgroundImage: 'url("/background/chat_backgroud.png")',
+            backgroundImage: 'url("/background/chat_backgroud_back.png")',
             backgroundSize: 'cover',
             backgroundPosition: 'center'
         }}>

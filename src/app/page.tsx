@@ -56,7 +56,7 @@ export default function Home() {
 
   return (
     <main className="relative h-screen w-full overflow-hidden text-zinc-900 flex flex-col" style={{
-      backgroundImage: 'url("/background/cozy_background.png")',
+      backgroundImage: 'url("/background/cozy_background_back.png")',
       backgroundSize: 'cover',
       backgroundPosition: 'center'
     }}>
@@ -73,7 +73,7 @@ export default function Home() {
           className="max-w-5xl mx-auto flex flex-col items-center sm:items-start text-center sm:text-left space-y-1"
         >
           <h1 className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-zinc-900 to-zinc-600">
-            Realtime Voice Chat
+            ULJU AI Consultant
           </h1>
           <p className="text-sm md:text-lg text-zinc-500 font-bold uppercase tracking-widest">
             Project UXROOM

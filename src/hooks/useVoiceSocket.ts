@@ -22,6 +22,9 @@ const EMOTION_TAG_MAP: Record<string, Emotion> = {
 type SocketMessage = {
   type: string;
   content?: string;
+  korean_content?: string;
+  suggestions?: string[];
+  generation_id?: number | string | null;
   response_id?: string;
   segment_id?: string;
   sample_rate?: number;
@@ -31,6 +34,26 @@ type SocketMessage = {
   timeline?: TtsVisemeTimeline;
   reason?: string;
 };
+
+function getDefaultWsUrl(): string {
+  if (typeof window === 'undefined') {
+    return 'ws://localhost:18003/ws';
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.hostname}:18003/ws`;
+}
+
+function getConfiguredWsUrl(): string {
+  const configuredUrl = process.env.NEXT_PUBLIC_WS_URL;
+  let wsUrl = configuredUrl && configuredUrl.trim().length > 0 ? configuredUrl : getDefaultWsUrl();
+
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:' && wsUrl.startsWith('ws://')) {
+    wsUrl = wsUrl.replace('ws://', 'wss://');
+  }
+
+  return wsUrl;
+}
 
 function sanitizeModelText(text: string): string {
   return text
@@ -57,15 +80,35 @@ function parseTaggedEmotion(text: string): { emotion: Emotion; displayMessage: s
   };
 }
 
+function formatAssistantDisplayMessage(englishText: string, koreanText?: string): string {
+  const english = sanitizeModelText(englishText);
+  const korean = sanitizeModelText(koreanText ?? '');
+  if (!korean) {
+    return english;
+  }
+  return `${english}\n\n한국어 해석: ${korean}`;
+}
+
+function normalizeReplySuggestions(data: SocketMessage): string[] {
+  const rawSuggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
+  return rawSuggestions
+    .map((suggestion) => sanitizeModelText(String(suggestion)))
+    .filter((suggestion) => suggestion.length > 0)
+    .slice(0, 3);
+}
+
 export function useVoiceSocket() {
   const socketRef = useRef<WebSocket | null>(null);
   const isConnecting = useRef(false);
   const isDisconnecting = useRef(false);
+  const activeGenerationIdRef = useRef<string | null>(null);
 
   const setConnecting = useStore((state) => state.setConnecting);
   const setConnected = useStore((state) => state.setConnected);
   const isConnected = useStore((state) => state.isConnected);
   const addMessage = useStore((state) => state.addMessage);
+  const appendToLastAssistantMessage = useStore((state) => state.appendToLastAssistantMessage);
+  const setLastAssistantSuggestions = useStore((state) => state.setLastAssistantSuggestions);
   const setThinking = useStore((state) => state.setThinking);
   const setSocket = useStore((state) => state.setSocket);
   const upsertTtsSegment = useStore((state) => state.upsertTtsSegment);
@@ -74,7 +117,15 @@ export function useVoiceSocket() {
   const setLipSyncMode = useStore((state) => state.setLipSyncMode);
   const clearMessages = useStore((state) => state.clearMessages);
 
-  const { playPcmChunk, clearQueue } = useAudioPlayer();
+  const notifyTtsPlaybackStopped = useCallback(() => {
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'tts_stop' }));
+    }
+  }, []);
+
+  const { playPcmChunk, clearQueue } = useAudioPlayer({
+    onPlaybackIdle: notifyTtsPlaybackStopped,
+  });
   const { startRecording, stopRecording, setOnDataAvailable } = useAudioRecorder();
 
   const cleanupSocket = useCallback(() => {
@@ -102,10 +153,28 @@ export function useVoiceSocket() {
     [clearQueue, clearTtsSegments, setLipSyncMode],
   );
 
+  const getGenerationId = useCallback((data: SocketMessage): string | null => {
+    if (data.generation_id === undefined || data.generation_id === null) {
+      return null;
+    }
+    return String(data.generation_id);
+  }, []);
+
+  const isCurrentGeneration = useCallback(
+    (data: SocketMessage): boolean => {
+      const generationId = getGenerationId(data);
+      return !generationId || !activeGenerationIdRef.current || generationId === activeGenerationIdRef.current;
+    },
+    [getGenerationId],
+  );
+
   const handleTtsChunk = useCallback(
     (data: SocketMessage) => {
+      if (!isCurrentGeneration(data)) return;
+
       const chunk: TtsAudioChunk = {
         content: data.content ?? '',
+        generationId: getGenerationId(data) ?? undefined,
         responseId: data.response_id,
         segmentId: data.segment_id,
         sampleRate: data.sample_rate,
@@ -119,33 +188,60 @@ export function useVoiceSocket() {
       useStore.getState().setThinking(false);
       playPcmChunk(chunk);
     },
-    [playPcmChunk],
+    [getGenerationId, isCurrentGeneration, playPcmChunk],
   );
 
   const handlePartialAssistantAnswer = useCallback(
     (data: SocketMessage) => {
+      if (!isCurrentGeneration(data)) return;
+
       const rawText = data.content ?? '';
       const { emotion, displayMessage } = parseTaggedEmotion(rawText);
       useStore.getState().setThinking(false);
       useStore.getState().setEmotion(emotion);
       useStore.getState().setPartialMessage(displayMessage);
     },
-    [],
+    [isCurrentGeneration],
   );
 
   const handleFinalAssistantAnswer = useCallback(
     (data: SocketMessage) => {
+      if (!isCurrentGeneration(data)) return;
+
       const rawText = data.content ?? '';
       const { emotion, displayMessage } = parseTaggedEmotion(rawText);
-      addMessage('assistant', displayMessage);
+      addMessage('assistant', formatAssistantDisplayMessage(displayMessage, data.korean_content));
       useStore.getState().setPartialMessage('');
       useStore.getState().setEmotion(emotion);
     },
-    [addMessage],
+    [addMessage, isCurrentGeneration],
+  );
+
+  const handleAssistantTranslation = useCallback(
+    (data: SocketMessage) => {
+      if (!isCurrentGeneration(data)) return;
+
+      const korean = sanitizeModelText(data.content ?? '');
+      if (!korean) return;
+      appendToLastAssistantMessage(`한국어 해석: ${korean}`);
+    },
+    [appendToLastAssistantMessage, isCurrentGeneration],
+  );
+
+  const handleAssistantReplySuggestions = useCallback(
+    (data: SocketMessage) => {
+      if (!isCurrentGeneration(data)) return;
+
+      const suggestions = normalizeReplySuggestions(data);
+      if (suggestions.length === 0) return;
+      setLastAssistantSuggestions(suggestions);
+    },
+    [isCurrentGeneration, setLastAssistantSuggestions],
   );
 
   const handleSegmentStart = useCallback(
     (data: SocketMessage) => {
+      if (!isCurrentGeneration(data)) return;
       if (!data.segment_id || !data.response_id) return;
       upsertTtsSegment({
         responseId: data.response_id,
@@ -155,11 +251,12 @@ export function useVoiceSocket() {
         emotion: data.emotion ? EMOTION_TAG_MAP[data.emotion] ?? 'neutral' : undefined,
       });
     },
-    [upsertTtsSegment],
+    [isCurrentGeneration, upsertTtsSegment],
   );
 
   const handleSegmentTimeline = useCallback(
     (data: SocketMessage) => {
+      if (!isCurrentGeneration(data)) return;
       const timeline = data.timeline;
       if (!timeline?.segmentId) return;
       patchTtsSegment(timeline.segmentId, {
@@ -170,15 +267,16 @@ export function useVoiceSocket() {
       });
       setLipSyncMode('timeline');
     },
-    [patchTtsSegment, setLipSyncMode],
+    [isCurrentGeneration, patchTtsSegment, setLipSyncMode],
   );
 
   const handleSegmentEnd = useCallback(
     (data: SocketMessage) => {
+      if (!isCurrentGeneration(data)) return;
       if (!data.segment_id) return;
       patchTtsSegment(data.segment_id, {});
     },
-    [patchTtsSegment],
+    [isCurrentGeneration, patchTtsSegment],
   );
 
   const connect = useCallback(() => {
@@ -188,12 +286,7 @@ export function useVoiceSocket() {
     isConnecting.current = true;
     setConnecting(true);
 
-    let wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://uxroom.asuscomm.com:18002/ws';
-    if (typeof window !== 'undefined' && window.location.protocol === 'https:' && wsUrl.startsWith('ws://')) {
-      wsUrl = wsUrl.replace('ws://', 'wss://');
-    }
-
-    const ws = new WebSocket(wsUrl);
+    const ws = new WebSocket(getConfiguredWsUrl());
 
     ws.onopen = () => {
       isConnecting.current = false;
@@ -224,6 +317,7 @@ export function useVoiceSocket() {
             handleSegmentEnd(data);
             break;
           case 'tts_flush':
+            if (!isCurrentGeneration(data)) break;
             flushActiveTts(data.response_id);
             break;
           case 'partial_user_request':
@@ -232,14 +326,29 @@ export function useVoiceSocket() {
             handlePartialAssistantAnswer(data);
             break;
           case 'final_user_request':
+            activeGenerationIdRef.current = getGenerationId(data);
             setThinking(true);
+            useStore.getState().setPartialMessage('');
             addMessage('user', sanitizeModelText(data.content ?? ''));
             break;
           case 'final_assistant_answer':
             handleFinalAssistantAnswer(data);
             break;
+          case 'assistant_translation':
+            handleAssistantTranslation(data);
+            break;
+          case 'assistant_reply_suggestions':
+            handleAssistantReplySuggestions(data);
+            break;
+          case 'stt_provider_status':
+            console.info('STT provider status:', data.content);
+            break;
+          case 'stt_provider_error':
+            console.error('STT provider error:', data.content);
+            break;
           case 'stop_tts':
           case 'tts_interruption':
+            if (!isCurrentGeneration(data)) break;
             flushActiveTts(data.response_id);
             if (socketRef.current?.readyState === WebSocket.OPEN) {
               socketRef.current.send(JSON.stringify({ type: 'tts_stop' }));
@@ -258,6 +367,7 @@ export function useVoiceSocket() {
       setConnecting(false);
       setConnected(false);
       setSocket(null);
+      activeGenerationIdRef.current = null;
       flushActiveTts();
       stopRecording();
     };
@@ -268,18 +378,23 @@ export function useVoiceSocket() {
       setConnecting(false);
       setConnected(false);
       setSocket(null);
+      activeGenerationIdRef.current = null;
     };
 
     socketRef.current = ws;
   }, [
     addMessage,
     flushActiveTts,
+    handleAssistantReplySuggestions,
+    handleAssistantTranslation,
     handleFinalAssistantAnswer,
     handlePartialAssistantAnswer,
     handleSegmentEnd,
     handleSegmentStart,
     handleSegmentTimeline,
     handleTtsChunk,
+    getGenerationId,
+    isCurrentGeneration,
     setConnected,
     setConnecting,
     setSocket,
@@ -292,6 +407,7 @@ export function useVoiceSocket() {
     if (isDisconnecting.current) return;
     isDisconnecting.current = true;
     cleanupSocket();
+    activeGenerationIdRef.current = null;
     flushActiveTts();
     setConnected(false);
     setSocket(null);
@@ -347,6 +463,7 @@ export function useVoiceSocket() {
       socketRef.current.send(JSON.stringify({ type: 'clear_history' }));
     }
     clearMessages();
+    activeGenerationIdRef.current = null;
     useStore.getState().setPartialMessage('');
     addMessage('assistant', '(시스템) 대화 내용이 초기화되었습니다.');
   }, [addMessage, clearMessages]);

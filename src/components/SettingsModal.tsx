@@ -1,6 +1,6 @@
 
 import { useRef, useEffect, useState } from 'react';
-import { useStore } from '@/stores/useStore';
+import { DEFAULT_AVATAR_ID, useStore } from '@/stores/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Settings, User, Sliders, Type } from 'lucide-react';
 import { AVATARS, Avatar } from '@/lib/avatarConstants';
@@ -28,7 +28,7 @@ function AvatarThumbnail({ avatar }: { avatar: Avatar }) {
                     sizes="(max-width: 768px) 33vw, 20vw"
                     className="object-cover"
                     onError={() => setHasError(true)}
-                    priority={avatar.id === 'Sohee'} // 첫 번째 아바타는 우선순위 부여
+                    priority={avatar.id === DEFAULT_AVATAR_ID} // 첫 번째 아바타는 우선순위 부여
                 />
             ) : null}
             

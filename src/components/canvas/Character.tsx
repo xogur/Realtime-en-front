@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useGLTF, useAnimations } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
-import { useStore } from '@/stores/useStore';
+import { DEFAULT_AVATAR_ID, useStore } from '@/stores/useStore';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
 import { getNextAnimationUrl, PRIMARY_IDLE_IDS } from '@/lib/animationUtils';
@@ -32,8 +32,8 @@ const DEFAULT_ANIMS = {
 };
 
 try {
-    useGLTF.preload(AVATAR_CONFIGS['Sohee'].file);
-    useGLTF.preload(AVATAR_CONFIGS['Ryan']?.file || AVATAR_CONFIGS['Sohee'].file);
+    useGLTF.preload(AVATAR_CONFIGS[DEFAULT_AVATAR_ID].file);
+    useGLTF.preload(AVATAR_CONFIGS['Sohee']?.file || AVATAR_CONFIGS[DEFAULT_AVATAR_ID].file);
     useGLTF.preload(DEFAULT_ANIMS.idle);
     useGLTF.preload(DEFAULT_ANIMS.thinking);
     useGLTF.preload(DEFAULT_ANIMS.talking);
@@ -58,7 +58,7 @@ function applyMorph(
 
 export const Character = React.memo(function Character() {
     const currentAvatarId = useStore((state) => state.currentAvatarId);
-    const config = AVATAR_CONFIGS[currentAvatarId] || AVATAR_CONFIGS['Sohee'];
+    const config = AVATAR_CONFIGS[currentAvatarId] || AVATAR_CONFIGS[DEFAULT_AVATAR_ID];
 
     const group = useRef<THREE.Group>(null);
     const headMeshRef = useRef<THREE.SkinnedMesh | null>(null);

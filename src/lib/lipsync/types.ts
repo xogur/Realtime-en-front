@@ -104,6 +104,7 @@ export interface ScheduledTtsSegment {
 
 export interface TtsAudioChunk {
   content: string;
+  generationId?: string;
   responseId?: string;
   segmentId?: string;
   sampleRate?: number;

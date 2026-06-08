@@ -24,16 +24,25 @@ function decodeBase64Pcm(base64Data: string, sampleRate?: number): DecodedChunk 
   };
 }
 
-export function useAudioPlayer() {
+interface AudioPlayerOptions {
+  onPlaybackIdle?: () => void;
+}
+
+export function useAudioPlayer(options: AudioPlayerOptions = {}) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const startTimeRef = useRef(0);
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const onPlaybackIdleRef = useRef(options.onPlaybackIdle);
 
   const setPlaying = useStore((state) => state.setPlaying);
   const setAudioAnalyser = useStore((state) => state.setAudioAnalyser);
   const upsertTtsSegment = useStore((state) => state.upsertTtsSegment);
   const clearTtsSegments = useStore((state) => state.clearTtsSegments);
+
+  useEffect(() => {
+    onPlaybackIdleRef.current = options.onPlaybackIdle;
+  }, [options.onPlaybackIdle]);
 
   useEffect(() => {
     const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -116,6 +125,7 @@ export function useAudioPlayer() {
         }
         if (activeSourcesRef.current.length === 0) {
           setPlaying(false);
+          onPlaybackIdleRef.current?.();
         }
       };
     },
@@ -126,6 +136,7 @@ export function useAudioPlayer() {
     (responseId?: string) => {
       activeSourcesRef.current.forEach((source) => {
         try {
+          source.onended = null;
           source.stop();
         } catch {
           // Intentionally ignored for already-stopped sources.

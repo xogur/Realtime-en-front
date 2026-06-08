@@ -1,8 +1,10 @@
 services:
   frontend:
     build: .
+    image: realtimechat-en-frontend:latest
+    container_name: realtimechat-en-frontend-app
     restart: unless-stopped
     ports:
-      - "3003:3003"
+      - "${FRONTEND_HOST_PORT:-3004}:3003"
     environment:
       - NODE_ENV=production

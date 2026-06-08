@@ -2,10 +2,24 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MessageSquare, Send, ExternalLink } from 'lucide-react';
+import { X, MessageSquare, Send, ExternalLink, Languages } from 'lucide-react';
 
 interface ChatOverlayProps {
     standalone?: boolean;
+}
+
+const KOREAN_INTERPRETATION_LABEL = '한국어 해석:';
+
+function splitAssistantMessage(content: string): { english: string; korean: string | null } {
+    const labelIndex = content.indexOf(KOREAN_INTERPRETATION_LABEL);
+    if (labelIndex === -1) {
+        return { english: content, korean: null };
+    }
+
+    return {
+        english: content.slice(0, labelIndex).trimEnd(),
+        korean: content.slice(labelIndex + KOREAN_INTERPRETATION_LABEL.length).trim(),
+    };
 }
 
 export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
@@ -14,12 +28,15 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
     const messages = useStore((state) => state.messages);
     const toggleChat = useStore((state) => state.toggleChat);
     const scrollRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
     const [inputValue, setInputValue] = useState('');
     const socket = useStore((state) => state.socket);
     const isThinking = useStore((state) => state.isThinking);
     const partialMessage = useStore((state) => state.partialMessage);
     const textScale = useStore((state) => state.textScale);
     const setTextScale = useStore((state) => state.setTextScale);
+    const showKoreanInterpretation = useStore((state) => state.showKoreanInterpretation);
+    const toggleKoreanInterpretation = useStore((state) => state.toggleKoreanInterpretation);
 
     // Auto-scroll to bottom of messages
     useEffect(() => {
@@ -64,6 +81,11 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
         }
     };
 
+    const handleSuggestionClick = (suggestion: string) => {
+        setInputValue(suggestion);
+        inputRef.current?.focus();
+    };
+
     return (
         <AnimatePresence>
             {isChatOpen && (
@@ -86,6 +108,17 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
                         </div>
                         <div className="flex items-center gap-2">
                             {/* Text Sizing Controls */}
+                            <button
+                                onClick={toggleKoreanInterpretation}
+                                className={`p-1.5 rounded-full transition-colors ${showKoreanInterpretation
+                                    ? 'bg-[#483c2d]/15 text-[#483c2d]'
+                                    : 'hover:bg-[#483c2d]/10 text-[#6b5a4a]/50'
+                                    }`}
+                                title={showKoreanInterpretation ? 'Hide Korean interpretation' : 'Show Korean interpretation'}
+                                aria-pressed={showKoreanInterpretation}
+                            >
+                                <Languages className="w-4 h-4" />
+                            </button>
                             <div className="flex items-center bg-[#483c2d]/10 rounded-full px-2 py-1 mr-2 gap-1">
                                 <button
                                     onClick={() => setTextScale(Math.max(0.5, textScale - 0.1))}
@@ -139,24 +172,53 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
                                 <p className="text-[#483c2d]/30 text-xs font-medium">Start speaking or type below!</p>
                             </div>
                         ) : (
-                            messages.map((msg, idx) => (
-                                <motion.div
-                                    key={idx}
-                                    initial={{ opacity: 0, y: 10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                                >
-                                    <div
-                                        className={`max-w-[85%] md:max-w-[75%] p-3.5 rounded-2xl leading-relaxed whitespace-pre-wrap break-words shadow-sm ${msg.role === 'user'
-                                            ? 'bg-[#6b5a4a] text-[#fdf8f4] font-medium rounded-br-none shadow-md'
-                                            : 'bg-white/70 text-[#483c2d] border border-white/50 rounded-bl-none'
-                                            }`}
-                                        style={{ fontSize: `calc(clamp(14px, 1.5vw, 18px) * ${textScale})` }}
+                            messages.map((msg, idx) => {
+                                const assistantParts = msg.role === 'assistant' ? splitAssistantMessage(msg.content) : null;
+                                return (
+                                    <motion.div
+                                        key={idx}
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                                     >
-                                        {msg.content}
-                                    </div>
-                                </motion.div>
-                            ))
+                                        <div
+                                            className={`max-w-[85%] md:max-w-[75%] p-3.5 rounded-2xl leading-relaxed whitespace-pre-wrap break-words shadow-sm ${msg.role === 'user'
+                                                ? 'bg-[#6b5a4a] text-[#fdf8f4] font-medium rounded-br-none shadow-md'
+                                                : 'bg-white/70 text-[#483c2d] border border-white/50 rounded-bl-none'
+                                                }`}
+                                            style={{ fontSize: `calc(clamp(14px, 1.5vw, 18px) * ${textScale})` }}
+                                        >
+                                            {assistantParts ? (
+                                                <>
+                                                    <div>{assistantParts.english}</div>
+                                                    {showKoreanInterpretation && assistantParts.korean && (
+                                                        <div className="mt-3 border-t border-[#483c2d]/10 pt-2 text-[#6b5a4a]">
+                                                            <span className="font-semibold">한국어 해석:</span> {assistantParts.korean}
+                                                        </div>
+                                                    )}
+                                                    {msg.suggestions && msg.suggestions.length > 0 && (
+                                                        <div className="mt-3 flex flex-wrap gap-2">
+                                                            {msg.suggestions.map((suggestion) => (
+                                                                <button
+                                                                    key={suggestion}
+                                                                    type="button"
+                                                                    onClick={() => handleSuggestionClick(suggestion)}
+                                                                    className="max-w-full rounded-full border border-[#6b5a4a]/20 bg-[#fdf8f4]/80 px-3 py-1.5 text-left text-[0.82em] font-medium leading-snug text-[#483c2d] transition-colors hover:bg-[#f4ece4] focus:outline-none focus:ring-2 focus:ring-[#6b5a4a]/30"
+                                                                    title="입력창에 넣기"
+                                                                >
+                                                                    {suggestion}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                msg.content
+                                            )}
+                                        </div>
+                                    </motion.div>
+                                );
+                            })
                         )}
 
                         {/* 임시 메시지 (타이핑 효과) */}
@@ -195,6 +257,7 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
                     <div className="p-4 border-t border-[#483c2d]/10 bg-[#f4ece4]/80 backdrop-blur-md">
                         <div className="flex items-center gap-3">
                             <input
+                                ref={inputRef}
                                 type="text"
                                 value={inputValue}
                                 onChange={(e) => setInputValue(e.target.value)}
