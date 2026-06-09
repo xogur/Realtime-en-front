@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useStore } from '@/stores/useStore';
+import { useStore, type TurnEvaluation } from '@/stores/useStore';
 import { useAudioPlayer } from './useAudioPlayer';
 import { useAudioRecorder } from './useAudioRecorder';
 import type { Emotion, TtsAudioChunk, TtsVisemeTimeline } from '@/lib/lipsync/types';
@@ -19,11 +19,16 @@ const EMOTION_TAG_MAP: Record<string, Emotion> = {
   neutral: 'neutral',
 };
 
+const KOREAN_INTERPRETATION_LABEL = '한국어 해석:';
+
 type SocketMessage = {
   type: string;
   content?: string;
   korean_content?: string;
   suggestions?: string[];
+  evaluation?: TurnEvaluation;
+  turnId?: string;
+  code?: string;
   generation_id?: number | string | null;
   response_id?: string;
   segment_id?: string;
@@ -33,6 +38,10 @@ type SocketMessage = {
   emotion?: string;
   timeline?: TtsVisemeTimeline;
   reason?: string;
+};
+
+type ConnectOptions = {
+  startRecording?: boolean;
 };
 
 function getDefaultWsUrl(): string {
@@ -86,7 +95,7 @@ function formatAssistantDisplayMessage(englishText: string, koreanText?: string)
   if (!korean) {
     return english;
   }
-  return `${english}\n\n한국어 해석: ${korean}`;
+  return `${english}\n\n${KOREAN_INTERPRETATION_LABEL} ${korean}`;
 }
 
 function normalizeReplySuggestions(data: SocketMessage): string[] {
@@ -109,6 +118,8 @@ export function useVoiceSocket() {
   const addMessage = useStore((state) => state.addMessage);
   const appendToLastAssistantMessage = useStore((state) => state.appendToLastAssistantMessage);
   const setLastAssistantSuggestions = useStore((state) => state.setLastAssistantSuggestions);
+  const setTurnEvaluation = useStore((state) => state.setTurnEvaluation);
+  const setTurnEvaluationUnavailable = useStore((state) => state.setTurnEvaluationUnavailable);
   const setThinking = useStore((state) => state.setThinking);
   const setSocket = useStore((state) => state.setSocket);
   const upsertTtsSegment = useStore((state) => state.upsertTtsSegment);
@@ -159,6 +170,11 @@ export function useVoiceSocket() {
     }
     return String(data.generation_id);
   }, []);
+
+  const getTurnId = useCallback(
+    (data: SocketMessage): string | null => data.turnId ?? getGenerationId(data),
+    [getGenerationId],
+  );
 
   const isCurrentGeneration = useCallback(
     (data: SocketMessage): boolean => {
@@ -223,7 +239,7 @@ export function useVoiceSocket() {
 
       const korean = sanitizeModelText(data.content ?? '');
       if (!korean) return;
-      appendToLastAssistantMessage(`한국어 해석: ${korean}`);
+      appendToLastAssistantMessage(`${KOREAN_INTERPRETATION_LABEL} ${korean}`);
     },
     [appendToLastAssistantMessage, isCurrentGeneration],
   );
@@ -237,6 +253,27 @@ export function useVoiceSocket() {
       setLastAssistantSuggestions(suggestions);
     },
     [isCurrentGeneration, setLastAssistantSuggestions],
+  );
+
+  const handleTurnEvaluation = useCallback(
+    (data: SocketMessage) => {
+      if (!isCurrentGeneration(data)) return;
+      const turnId = getTurnId(data);
+      if (!turnId || !data.evaluation) return;
+      setTurnEvaluation(turnId, data.evaluation);
+    },
+    [getTurnId, isCurrentGeneration, setTurnEvaluation],
+  );
+
+  const handleTurnEvaluationError = useCallback(
+    (data: SocketMessage) => {
+      if (!isCurrentGeneration(data)) return;
+      const turnId = getTurnId(data);
+      if (!turnId) return;
+      setTurnEvaluationUnavailable(turnId);
+      console.warn('Turn evaluation unavailable:', data.code ?? 'provider_error');
+    },
+    [getTurnId, isCurrentGeneration, setTurnEvaluationUnavailable],
   );
 
   const handleSegmentStart = useCallback(
@@ -279,9 +316,11 @@ export function useVoiceSocket() {
     [isCurrentGeneration, patchTtsSegment],
   );
 
-  const connect = useCallback(() => {
+  const connect = useCallback((options?: ConnectOptions) => {
     if (isConnecting.current || isDisconnecting.current) return;
     if (socketRef.current?.readyState === WebSocket.OPEN) return;
+
+    const shouldStartRecording = options?.startRecording ?? true;
 
     isConnecting.current = true;
     setConnecting(true);
@@ -293,7 +332,9 @@ export function useVoiceSocket() {
       setConnecting(false);
       setConnected(true);
       setSocket(ws);
-      startRecording();
+      if (shouldStartRecording) {
+        startRecording();
+      }
 
       const currentVoice = useStore.getState().voice;
       ws.send(JSON.stringify({ type: 'set_voice', voice: currentVoice }));
@@ -329,7 +370,7 @@ export function useVoiceSocket() {
             activeGenerationIdRef.current = getGenerationId(data);
             setThinking(true);
             useStore.getState().setPartialMessage('');
-            addMessage('user', sanitizeModelText(data.content ?? ''));
+            addMessage('user', sanitizeModelText(data.content ?? ''), activeGenerationIdRef.current ?? undefined);
             break;
           case 'final_assistant_answer':
             handleFinalAssistantAnswer(data);
@@ -339,6 +380,12 @@ export function useVoiceSocket() {
             break;
           case 'assistant_reply_suggestions':
             handleAssistantReplySuggestions(data);
+            break;
+          case 'turn_evaluation':
+            handleTurnEvaluation(data);
+            break;
+          case 'turn_evaluation_error':
+            handleTurnEvaluationError(data);
             break;
           case 'stt_provider_status':
             console.info('STT provider status:', data.content);
@@ -393,6 +440,8 @@ export function useVoiceSocket() {
     handleSegmentStart,
     handleSegmentTimeline,
     handleTtsChunk,
+    handleTurnEvaluation,
+    handleTurnEvaluationError,
     getGenerationId,
     isCurrentGeneration,
     setConnected,

@@ -7,13 +7,52 @@ import type {
     Emotion,
 } from '@/lib/lipsync/types';
 
+export type TurnEvaluation = {
+    rubricVersion: string;
+    turnId: string;
+    provider: string;
+    model: string;
+    createdAt: string;
+    scores: {
+        grammar: number;
+        vocabulary: number;
+        relevance: number;
+        fluency: number;
+        overall: number;
+    };
+    feedback: {
+        summary: string;
+        strength: string;
+        improvement: string;
+        nextPractice: string;
+    };
+    correction: {
+        original: string;
+        suggested: string;
+        reason: string;
+    };
+    capabilities: {
+        pronunciation: string;
+    };
+    confidence: string;
+};
+
+export type ChatMessage = {
+    id?: string;
+    role: 'user' | 'assistant';
+    content: string;
+    suggestions?: string[];
+    evaluation?: TurnEvaluation;
+    evaluationStatus?: 'pending' | 'ready' | 'unavailable';
+};
+
 interface AppState {
     isConnecting: boolean;
     isConnected: boolean;
     isRecording: boolean;
     isPlaying: boolean;
     volume: number; // 0 to 1, for visualizer
-    messages: Array<{ role: 'user' | 'assistant'; content: string; suggestions?: string[] }>;
+    messages: ChatMessage[];
     partialMessage: string;
     setPartialMessage: (message: string) => void;
     isChatOpen: boolean;
@@ -56,9 +95,11 @@ interface AppState {
     setRecording: (status: boolean) => void;
     setPlaying: (status: boolean) => void;
     setVolume: (volume: number) => void;
-    addMessage: (role: 'user' | 'assistant', content: string) => void;
+    addMessage: (role: 'user' | 'assistant', content: string, id?: string) => void;
     appendToLastAssistantMessage: (content: string) => void;
     setLastAssistantSuggestions: (suggestions: string[]) => void;
+    setTurnEvaluation: (turnId: string, evaluation: TurnEvaluation) => void;
+    setTurnEvaluationUnavailable: (turnId: string) => void;
     setVoice: (voice: string) => void;
     setSpeed: (speed: number) => void;
     setTextScale: (scale: number) => void;
@@ -115,8 +156,18 @@ export const useStore = create<AppState>((set) => ({
     setRecording: (status) => set({ isRecording: status }),
     setPlaying: (status) => set({ isPlaying: status }),
     setVolume: (volume) => set({ volume }),
-    addMessage: (role, content) =>
-        set((state) => ({ messages: [...state.messages, { role, content }] })),
+    addMessage: (role, content, id) =>
+        set((state) => ({
+            messages: [
+                ...state.messages,
+                {
+                    id,
+                    role,
+                    content,
+                    evaluationStatus: role === 'user' ? 'pending' : undefined,
+                },
+            ],
+        })),
     appendToLastAssistantMessage: (content) =>
         set((state) => {
             const messages = [...state.messages];
@@ -139,6 +190,64 @@ export const useStore = create<AppState>((set) => ({
                     messages[index] = {
                         ...messages[index],
                         suggestions,
+                    };
+                    return { messages };
+                }
+            }
+            return state;
+        }),
+    setTurnEvaluation: (turnId, evaluation) =>
+        set((state) => {
+            const messages = [...state.messages];
+            for (let index = messages.length - 1; index >= 0; index -= 1) {
+                if (messages[index].role === 'user' && messages[index].id === turnId) {
+                    messages[index] = {
+                        ...messages[index],
+                        evaluation,
+                        evaluationStatus: 'ready',
+                    };
+                    return { messages };
+                }
+            }
+            for (let index = messages.length - 1; index >= 0; index -= 1) {
+                if (
+                    messages[index].role === 'user' &&
+                    messages[index].evaluationStatus !== 'ready' &&
+                    !messages[index].evaluation
+                ) {
+                    messages[index] = {
+                        ...messages[index],
+                        id: turnId,
+                        evaluation,
+                        evaluationStatus: 'ready',
+                    };
+                    return { messages };
+                }
+            }
+            return state;
+        }),
+    setTurnEvaluationUnavailable: (turnId) =>
+        set((state) => {
+            const messages = [...state.messages];
+            for (let index = messages.length - 1; index >= 0; index -= 1) {
+                if (messages[index].role === 'user' && messages[index].id === turnId) {
+                    messages[index] = {
+                        ...messages[index],
+                        evaluationStatus: 'unavailable',
+                    };
+                    return { messages };
+                }
+            }
+            for (let index = messages.length - 1; index >= 0; index -= 1) {
+                if (
+                    messages[index].role === 'user' &&
+                    messages[index].evaluationStatus === 'pending' &&
+                    !messages[index].evaluation
+                ) {
+                    messages[index] = {
+                        ...messages[index],
+                        id: turnId,
+                        evaluationStatus: 'unavailable',
                     };
                     return { messages };
                 }

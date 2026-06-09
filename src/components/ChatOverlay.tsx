@@ -8,17 +8,21 @@ interface ChatOverlayProps {
     standalone?: boolean;
 }
 
-const KOREAN_INTERPRETATION_LABEL = '한국어 해석:';
+const KOREAN_INTERPRETATION_LABELS = ['한국어 해석:', 'Korean:'];
 
 function splitAssistantMessage(content: string): { english: string; korean: string | null } {
-    const labelIndex = content.indexOf(KOREAN_INTERPRETATION_LABEL);
+    const matchedLabel = KOREAN_INTERPRETATION_LABELS
+        .map((label) => ({ label, index: content.indexOf(label) }))
+        .filter((candidate) => candidate.index !== -1)
+        .sort((a, b) => a.index - b.index)[0];
+    const labelIndex = matchedLabel?.index ?? -1;
     if (labelIndex === -1) {
         return { english: content, korean: null };
     }
 
     return {
         english: content.slice(0, labelIndex).trimEnd(),
-        korean: content.slice(labelIndex + KOREAN_INTERPRETATION_LABEL.length).trim(),
+        korean: content.slice(labelIndex + matchedLabel.label.length).trim(),
     };
 }
 
@@ -46,32 +50,24 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
     }, [messages, isChatOpen, partialMessage, isThinking]);
 
     const handleSendMessage = () => {
-        if (!inputValue.trim()) return;
+        const text = inputValue.trim();
+        if (!text) return;
 
-        if (standalone) {
-            const channel = new BroadcastChannel('uxroom_chat_sync');
-            channel.postMessage({ type: 'SEND_MESSAGE', payload: inputValue.trim() });
-            channel.close();
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'user_text_message',
+                text,
+            }));
             setInputValue('');
             return;
         }
 
-        if (!socket || socket.readyState !== WebSocket.OPEN) return;
-
-        // Send text message to server
-        socket.send(JSON.stringify({
-            type: 'user_text_message',
-            text: inputValue.trim()
-        }));
-
-        // Optimistically add user message (optional, but good for feedback)
-        // Note: Server might also send back 'final_user_request' which could duplicate if we are not careful.
-        // However, based on the plan, server will handle it.
-        // Let's rely on server's 'final_user_request' echo or just add it here if consistent.
-        // The server plan says: "callbacks.on_final(text)" which triggers "final_user_request" back to client.
-        // So we might NOT want to add it here to avoid duplication, OR we depend on the server echo.
-        // Let's clear input first.
-        setInputValue('');
+        if (standalone) {
+            const channel = new BroadcastChannel('uxroom_chat_sync');
+            channel.postMessage({ type: 'SEND_MESSAGE', payload: text });
+            channel.close();
+            setInputValue('');
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -268,7 +264,7 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
                             />
                             <button
                                 onClick={handleSendMessage}
-                                disabled={!inputValue.trim() || !socket}
+                                disabled={!inputValue.trim() || (!standalone && !socket)}
                                 className="p-3.5 bg-[#6b5a4a] disabled:bg-[#6b5a4a]/40 disabled:opacity-80 disabled:cursor-not-allowed rounded-2xl transition-all duration-300 shadow-md hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 flex items-center justify-center group"
                             >
                                 <Send className="w-5 h-5 text-white group-hover:rotate-[-10deg] group-hover:scale-110 group-hover:translate-x-0.5 transition-transform" />

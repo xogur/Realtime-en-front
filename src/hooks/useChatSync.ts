@@ -1,7 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 
+type ChatSyncState = {
+    hasMainWindow: boolean;
+};
+
 export function useChatSync(isMainWindow: boolean) {
+    const [hasMainWindow, setHasMainWindow] = useState(isMainWindow);
+
     useEffect(() => {
         const channel = new BroadcastChannel('uxroom_chat_sync');
 
@@ -25,7 +31,9 @@ export function useChatSync(isMainWindow: boolean) {
 
             // Listen for messages from popout window
             channel.onmessage = (event) => {
-                if (event.data.type === 'SEND_MESSAGE') {
+                if (event.data.type === 'PING_MAIN_WINDOW') {
+                    channel.postMessage({ type: 'MAIN_WINDOW_READY' });
+                } else if (event.data.type === 'SEND_MESSAGE') {
                     const socket = useStore.getState().socket;
                     if (socket && socket.readyState === WebSocket.OPEN) {
                         socket.send(JSON.stringify({
@@ -50,6 +58,16 @@ export function useChatSync(isMainWindow: boolean) {
             // Popout window listens to channel and updates its store
             channel.onmessage = (event) => {
                 const { type, payload } = event.data;
+                if (type === 'MAIN_WINDOW_READY') {
+                    setHasMainWindow(true);
+                    return;
+                }
+
+                if (!type.startsWith('SYNC_')) {
+                    return;
+                }
+                setHasMainWindow(true);
+
                 if (type === 'SYNC_MESSAGES') {
                     useStore.setState({ messages: payload });
                 } else if (type === 'SYNC_PARTIAL_MESSAGE') {
@@ -62,6 +80,7 @@ export function useChatSync(isMainWindow: boolean) {
             };
 
             // Request initial state upon mounting
+            channel.postMessage({ type: 'PING_MAIN_WINDOW' });
             channel.postMessage({ type: 'REQUEST_INITIAL_STATE' });
 
             return () => {
@@ -69,4 +88,6 @@ export function useChatSync(isMainWindow: boolean) {
             };
         }
     }, [isMainWindow]);
+
+    return { hasMainWindow } satisfies ChatSyncState;
 }
