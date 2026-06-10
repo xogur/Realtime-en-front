@@ -69,7 +69,7 @@ export function useChatSync(isMainWindow: boolean) {
                 setHasMainWindow(true);
 
                 if (type === 'SYNC_MESSAGES') {
-                    useStore.setState({ messages: payload });
+                    useStore.getState().syncMessages(payload);
                 } else if (type === 'SYNC_PARTIAL_MESSAGE') {
                     useStore.setState({ partialMessage: payload });
                 } else if (type === 'SYNC_THINKING') {

@@ -118,6 +118,7 @@ export function useVoiceSocket() {
   const addMessage = useStore((state) => state.addMessage);
   const appendToLastAssistantMessage = useStore((state) => state.appendToLastAssistantMessage);
   const setLastAssistantSuggestions = useStore((state) => state.setLastAssistantSuggestions);
+  const assignLatestPendingUserTurnId = useStore((state) => state.assignLatestPendingUserTurnId);
   const setTurnEvaluation = useStore((state) => state.setTurnEvaluation);
   const setTurnEvaluationUnavailable = useStore((state) => state.setTurnEvaluationUnavailable);
   const setThinking = useStore((state) => state.setThinking);
@@ -184,8 +185,24 @@ export function useVoiceSocket() {
     [getGenerationId],
   );
 
+  const bindActiveGenerationToPendingUser = useCallback(
+    (data: SocketMessage) => {
+      const generationId = getGenerationId(data);
+      if (!generationId) return;
+
+      if (!activeGenerationIdRef.current) {
+        activeGenerationIdRef.current = generationId;
+      }
+      if (generationId === activeGenerationIdRef.current) {
+        assignLatestPendingUserTurnId(generationId);
+      }
+    },
+    [assignLatestPendingUserTurnId, getGenerationId],
+  );
+
   const handleTtsChunk = useCallback(
     (data: SocketMessage) => {
+      bindActiveGenerationToPendingUser(data);
       if (!isCurrentGeneration(data)) return;
 
       const chunk: TtsAudioChunk = {
@@ -204,11 +221,12 @@ export function useVoiceSocket() {
       useStore.getState().setThinking(false);
       playPcmChunk(chunk);
     },
-    [getGenerationId, isCurrentGeneration, playPcmChunk],
+    [bindActiveGenerationToPendingUser, getGenerationId, isCurrentGeneration, playPcmChunk],
   );
 
   const handlePartialAssistantAnswer = useCallback(
     (data: SocketMessage) => {
+      bindActiveGenerationToPendingUser(data);
       if (!isCurrentGeneration(data)) return;
 
       const rawText = data.content ?? '';
@@ -217,11 +235,12 @@ export function useVoiceSocket() {
       useStore.getState().setEmotion(emotion);
       useStore.getState().setPartialMessage(displayMessage);
     },
-    [isCurrentGeneration],
+    [bindActiveGenerationToPendingUser, isCurrentGeneration],
   );
 
   const handleFinalAssistantAnswer = useCallback(
     (data: SocketMessage) => {
+      bindActiveGenerationToPendingUser(data);
       if (!isCurrentGeneration(data)) return;
 
       const rawText = data.content ?? '';
@@ -230,7 +249,7 @@ export function useVoiceSocket() {
       useStore.getState().setPartialMessage('');
       useStore.getState().setEmotion(emotion);
     },
-    [addMessage, isCurrentGeneration],
+    [addMessage, bindActiveGenerationToPendingUser, isCurrentGeneration],
   );
 
   const handleAssistantTranslation = useCallback(
@@ -257,23 +276,21 @@ export function useVoiceSocket() {
 
   const handleTurnEvaluation = useCallback(
     (data: SocketMessage) => {
-      if (!isCurrentGeneration(data)) return;
       const turnId = getTurnId(data);
       if (!turnId || !data.evaluation) return;
       setTurnEvaluation(turnId, data.evaluation);
     },
-    [getTurnId, isCurrentGeneration, setTurnEvaluation],
+    [getTurnId, setTurnEvaluation],
   );
 
   const handleTurnEvaluationError = useCallback(
     (data: SocketMessage) => {
-      if (!isCurrentGeneration(data)) return;
       const turnId = getTurnId(data);
       if (!turnId) return;
-      setTurnEvaluationUnavailable(turnId);
+      setTurnEvaluationUnavailable(turnId, data.code ?? 'provider_error');
       console.warn('Turn evaluation unavailable:', data.code ?? 'provider_error');
     },
-    [getTurnId, isCurrentGeneration, setTurnEvaluationUnavailable],
+    [getTurnId, setTurnEvaluationUnavailable],
   );
 
   const handleSegmentStart = useCallback(
