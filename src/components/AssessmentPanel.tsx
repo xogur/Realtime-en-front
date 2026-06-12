@@ -9,10 +9,10 @@ import {
     Plus,
     Printer,
     RotateCcw,
+    SlidersHorizontal,
     Sparkles,
     Target,
-    TrendingDown,
-    TrendingUp,
+    X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
@@ -257,17 +257,6 @@ function getTierProgress(
         pendingMissionBonus,
         latestPendingMissionBonus: developerLpDeltas.length > 0 ? 0 : latestPendingMissionBonus,
     });
-}
-
-function getTierTone(tierId: TierId, score: number | null): string {
-    if (tierId === 'master') return '최고 티어 달성';
-    if (tierId === 'diamond') return '고급 표현 유지 중';
-    if (tierId === 'platinum') return '균형 잡힌 응답';
-    if (tierId === 'gold') return '답변 확장 중';
-    if (tierId === 'silver') return '문장 안정화 중';
-    if (tierId === 'bronze') return '기초 습관 형성 중';
-    if (score === null) return '첫 응답을 기다리는 중';
-    return '기초 다지기 단계';
 }
 
 function getScoreAccent(score: number): string {
@@ -849,28 +838,28 @@ function ActiveMissionsPanel({ missions }: { missions: PracticeMission[] }) {
     const missionSlots = [0, 1, 2];
 
     return (
-        <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-[#483c2d]/10 bg-white/80 p-3 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
+        <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-[#483c2d]/10 bg-white/80 p-3 shadow-sm">
+            <div className="flex shrink-0 items-center justify-between gap-3">
                 <div className="min-w-0">
                     <p className="flex items-center gap-1 text-xs font-black uppercase tracking-normal text-[#6b5a4a]/70">
                         <Target className="h-3.5 w-3.5" />
                         미션
                     </p>
-                    <p className="mt-1 text-sm font-bold text-[#483c2d]">각 미션은 교정과 평가와 별도로 갱신됩니다.</p>
+                    <p className="mt-0.5 text-xs font-bold text-[#483c2d]">교정과 평가와 별도로 갱신됩니다.</p>
                 </div>
                 <span className="shrink-0 rounded-full bg-[#f1eadf] px-2.5 py-1 text-xs font-black text-[#6b5a4a]">{missions.length}/3</span>
             </div>
-            <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-3">
+            <div className="mt-2 grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden sm:grid-cols-3">
                 {missionSlots.map((slotIndex) => {
                     const mission = missions[slotIndex];
 
                     if (!mission) {
                         return (
-                            <div key={`mission-slot-${slotIndex}`} className="min-h-[118px] rounded-md border border-dashed border-[#483c2d]/15 bg-[#fffaf5]/55 px-3 py-2">
+                            <div key={`mission-slot-${slotIndex}`} className="min-h-0 overflow-hidden rounded-md border border-dashed border-[#483c2d]/15 bg-[#fffaf5]/55 px-3 py-2">
                                 <span className="rounded-full bg-[#f1eadf] px-2 py-0.5 text-[11px] font-black text-[#6b5a4a]">
                                     미션 {slotIndex + 1}
                                 </span>
-                                <p className="mt-3 text-xs font-semibold leading-relaxed text-[#6b5a4a]/75">
+                                <p className="mt-2 line-clamp-2 text-xs font-semibold leading-snug text-[#6b5a4a]/75">
                                     다음 응답 평가 후 새 미션이 표시됩니다.
                                 </p>
                             </div>
@@ -878,26 +867,26 @@ function ActiveMissionsPanel({ missions }: { missions: PracticeMission[] }) {
                     }
 
                     return (
-                        <div key={mission.id} className="min-h-[118px] rounded-md border border-[#483c2d]/10 bg-[#fffaf5]/90 px-3 py-2">
-                            <div className="flex flex-wrap items-center gap-2">
+                        <div key={mission.id} className="min-h-0 overflow-hidden rounded-md border border-[#483c2d]/10 bg-[#fffaf5]/90 px-3 py-2">
+                            <div className="flex items-center gap-1.5 overflow-hidden">
                                 <span className="rounded-full bg-[#edf5ed] px-2 py-0.5 text-[11px] font-black text-[#29452c]">
                                     미션 {slotIndex + 1}
                                 </span>
-                                <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-black text-[#6b5a4a]">
+                                <span className="min-w-0 truncate rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-black text-[#6b5a4a]">
                                     {mission.title}
                                 </span>
                                 <span className="text-[11px] font-black text-[#3d6f4a]">+{mission.rewardLp} LP</span>
                             </div>
-                            <p className="mt-1 break-words text-sm font-black leading-snug text-[#483c2d]">
+                            <p className="mt-1 line-clamp-2 break-words text-sm font-black leading-snug text-[#483c2d]">
                                 {mission.target}
                             </p>
                             {mission.usageContext && (
-                                <p className="mt-1 break-words text-[11px] font-semibold leading-snug text-[#6b5a4a]">
+                                <p className="mt-1 truncate text-[11px] font-semibold leading-snug text-[#6b5a4a]">
                                     상황: {mission.usageContext}
                                 </p>
                             )}
                             {mission.exampleSentence && (
-                                <p className="mt-1 break-words rounded bg-white/70 px-2 py-1 text-[12px] font-bold leading-snug text-[#29452c]">
+                                <p className="mt-1 truncate rounded bg-white/70 px-2 py-1 text-[11px] font-bold leading-snug text-[#29452c]">
                                     예문: {mission.exampleSentence}
                                 </p>
                             )}
@@ -907,6 +896,16 @@ function ActiveMissionsPanel({ missions }: { missions: PracticeMission[] }) {
             </div>
         </section>
     );
+}
+
+function getTierSummary(tierId: TierId): string {
+    if (tierId === 'master') return '자연스럽고 자신감 있는 대화를 이어가고 있어요.';
+    if (tierId === 'diamond') return '정확하고 다양한 표현을 안정적으로 사용해요.';
+    if (tierId === 'platinum') return '유창성과 정확성의 균형이 좋은 단계예요.';
+    if (tierId === 'gold') return '이유와 예시로 답변을 풍부하게 만들고 있어요.';
+    if (tierId === 'silver') return '문장 구조가 점점 안정되고 있어요.';
+    if (tierId === 'bronze') return '기본 표현을 꾸준히 쌓아가는 단계예요.';
+    return '첫 대화 습관을 만들어가는 중이에요.';
 }
 
 function getWeakestMetric(metrics: MetricSnapshot[]) {
@@ -1041,9 +1040,9 @@ function TierBadge({ tier, size = 104 }: { tier: TierConfig; size?: number }) {
 
 function MiniTierBadge({ tier }: { tier: TierConfig }) {
     return (
-        <div className="flex flex-col items-center gap-1">
-            <TierBadge tier={tier} size={38} />
-            <span className="text-[10px] font-bold text-[#6b5a4a]/75">{tier.label}</span>
+        <div className="flex min-w-0 flex-col items-center gap-0.5">
+            <TierBadge tier={tier} size={30} />
+            <span className="max-w-full truncate text-[9px] font-bold text-[#6b5a4a]/75">{tier.label}</span>
         </div>
     );
 }
@@ -1551,6 +1550,7 @@ export function AssessmentPanel() {
     const addMissionCandidates = useStore((state) => state.addMissionCandidates);
     const showDeveloperLpControls = process.env.NODE_ENV !== 'production';
     const [developerLpDeltas, setDeveloperLpDeltas] = useState<number[]>([]);
+    const [developerControlsOpen, setDeveloperControlsOpen] = useState(false);
     const [nowEpochMs, setNowEpochMs] = useState(() => Date.now());
     const [detailTab, setDetailTab] = useState<AssessmentDetailTab>('feedback');
 
@@ -1590,7 +1590,7 @@ export function AssessmentPanel() {
         };
     }, [messages]);
 
-    const { userMessages, turns, latestTurn, sessionScore, metricAverages, pendingCount, skippedCount, unavailableMessages } = assessment;
+    const { userMessages, turns, latestTurn, sessionScore, trend, metricAverages, pendingCount, skippedCount, unavailableMessages } = assessment;
     const previousTurns = turns.slice(0, -1).reverse();
     const weakestMetric = metricAverages.length > 0 ? getWeakestMetric(metricAverages) : null;
     const latestCorrectionMessage = [...userMessages]
@@ -1680,6 +1680,19 @@ export function AssessmentPanel() {
         return () => window.clearInterval(timer);
     }, [evaluationBatchStatus]);
 
+    useEffect(() => {
+        if (!showDeveloperLpControls) return;
+
+        const toggleDeveloperControls = (event: KeyboardEvent) => {
+            if (!event.ctrlKey || !event.shiftKey || event.key.toLowerCase() !== 'l') return;
+            event.preventDefault();
+            setDeveloperControlsOpen((open) => !open);
+        };
+
+        window.addEventListener('keydown', toggleDeveloperControls);
+        return () => window.removeEventListener('keydown', toggleDeveloperControls);
+    }, [showDeveloperLpControls]);
+
     return (
         <aside className="relative flex h-full min-h-0 flex-col border-t border-[#483c2d]/10 bg-[#f4ece4]/75 backdrop-blur-xl print:border-0 print:bg-white lg:border-l lg:border-t-0">
             <MissionSuccessCelebration celebrations={missionCelebrations} />
@@ -1688,21 +1701,34 @@ export function AssessmentPanel() {
                 printRoot,
             ) : null}
 
-            <div className="flex items-center justify-between border-b border-[#483c2d]/10 px-5 py-4 print:hidden">
+            <div className="flex items-center justify-between border-b border-[#483c2d]/10 px-5 py-3 print:hidden">
                 <div className="flex items-center gap-2">
                     <Activity className="h-5 w-5 text-[#6b5a4a]" />
                     <h2 className="font-bold tracking-tight text-[#483c2d]">영어 코치</h2>
                 </div>
-                <button
-                    type="button"
-                    onClick={() => window.print()}
-                    disabled={turns.length === 0}
-                    className="rounded-full p-2 text-[#6b5a4a] transition-colors hover:bg-[#483c2d]/10 focus:outline-none focus:ring-2 focus:ring-[#6b5a4a]/30 disabled:cursor-not-allowed disabled:opacity-40"
-                    title={turns.length === 0 ? '출력할 평가가 없습니다' : '평가 리포트 출력'}
-                    aria-label="평가 리포트 출력"
-                >
-                    <Printer className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                    {showDeveloperLpControls && (
+                        <button
+                            type="button"
+                            onClick={() => setDeveloperControlsOpen((open) => !open)}
+                            className={`rounded-full p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-[#9a4b36]/25 ${developerControlsOpen ? 'bg-[#f8e5d7] text-[#7a3b28]' : 'text-[#6b5a4a] hover:bg-[#483c2d]/10'}`}
+                            title={`${developerControlsOpen ? '개발 LP 도구 숨기기' : '개발 LP 도구 열기'} (Ctrl+Shift+L)`}
+                            aria-label={developerControlsOpen ? '개발 LP 도구 숨기기' : '개발 LP 도구 열기'}
+                        >
+                            <SlidersHorizontal className="h-4 w-4" />
+                        </button>
+                    )}
+                    <button
+                        type="button"
+                        onClick={() => window.print()}
+                        disabled={turns.length === 0}
+                        className="rounded-full p-2 text-[#6b5a4a] transition-colors hover:bg-[#483c2d]/10 focus:outline-none focus:ring-2 focus:ring-[#6b5a4a]/30 disabled:cursor-not-allowed disabled:opacity-40"
+                        title={turns.length === 0 ? '출력할 평가가 없습니다' : '평가 리포트 출력'}
+                        aria-label="평가 리포트 출력"
+                    >
+                        <Printer className="h-4 w-4" />
+                    </button>
+                </div>
             </div>
 
             <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4 print:hidden xl:p-5">
@@ -1719,51 +1745,73 @@ export function AssessmentPanel() {
                         아바타와 영어로 대화하면 응답마다 자동으로 코칭이 붙습니다. 대화는 끊지 않고, 이 패널에서 점수와 교정 근거만 조용히 업데이트합니다.
                     </section>
                 ) : (
-                    <div className="mt-4 grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-2 lg:grid-rows-[minmax(210px,1fr)_minmax(170px,auto)_minmax(220px,1fr)] lg:overflow-hidden">
+                    <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-2 lg:grid-rows-[minmax(0,2fr)_minmax(0,3fr)_minmax(0,5fr)] lg:overflow-hidden">
                         <div className="contents">
-                            <section className="order-2 flex min-h-0 flex-col overflow-y-auto rounded-lg border border-white/50 bg-white/70 shadow-sm">
-                                <div className="relative p-4">
-                                    <div className="absolute right-0 top-0 h-28 w-28 rounded-bl-full bg-white/45" />
-                                    <div className="relative flex items-center gap-4">
-                                        <TierBadge tier={tier.tier} />
+                            <section className="order-2 flex min-h-0 flex-col overflow-hidden rounded-lg border border-white/50 bg-white/70 shadow-sm">
+                                <div className="relative flex-1 p-3">
+                                    <div className="absolute right-0 top-0 h-20 w-20 rounded-bl-full bg-white/45" />
+                                    <div className="relative z-10 mb-1.5 flex min-w-0 items-center gap-2" aria-live="polite">
+                                        <p className="shrink-0 text-[11px] font-semibold uppercase text-[#6b5a4a]/70">
+                                            자동 코칭 티어
+                                        </p>
+                                        <p className="min-w-0 flex-1 truncate text-right text-[11px] font-bold text-[#6b5a4a]" title={getTierSummary(tier.tier.id)}>
+                                            {getTierSummary(tier.tier.id)}
+                                        </p>
+                                        <div
+                                            className={`inline-flex min-w-12 shrink-0 items-center justify-center rounded px-2 py-1 font-mono text-xs font-black tabular-nums ${trend > 0
+                                            ? 'bg-[#e5f7df] text-[#16733a]'
+                                            : trend < 0
+                                                ? 'bg-[#f7e8e3] text-[#b33b28]'
+                                                : 'bg-[#f1eadf] text-[#6b5a4a]'}`}
+                                            aria-label={turns.length < 2
+                                                ? '첫 점수 반영'
+                                                : trend > 0
+                                                    ? `${Math.abs(trend)}점 상승`
+                                                    : trend < 0
+                                                        ? `${Math.abs(trend)}점 하락`
+                                                        : '점수 변동 없음'}
+                                            title={turns.length < 2
+                                                ? '첫 점수 반영'
+                                                : trend > 0
+                                                    ? `${Math.abs(trend)}점 상승`
+                                                    : trend < 0
+                                                        ? `${Math.abs(trend)}점 하락`
+                                                        : '점수 변동 없음'}
+                                        >
+                                            {turns.length < 2
+                                                ? '—'
+                                                : trend > 0
+                                                    ? `▲ ${Math.abs(trend)}`
+                                                    : trend < 0
+                                                        ? `▼ ${Math.abs(trend)}`
+                                                        : '— 0'}
+                                        </div>
+                                    </div>
+                                    <div className="relative flex items-center gap-3">
+                                        <TierBadge tier={tier.tier} size={64} />
                                         <div className="min-w-0 flex-1">
-                                            <p className="text-xs font-semibold uppercase tracking-normal text-[#6b5a4a]/70">자동 코칭 티어</p>
-                                            <div className="mt-1 flex flex-wrap items-end gap-x-2 gap-y-1">
-                                                <span className="break-words text-4xl font-black leading-none" style={{ color: tier.tier.text }}>
+                                            <div className="flex min-w-0 items-end gap-2">
+                                                <span className="min-w-0 truncate text-2xl font-black leading-none" style={{ color: tier.tier.text }}>
                                                     {tier.tier.label}
                                                 </span>
-                                                <span className="pb-1 text-sm font-bold text-[#6b5a4a]">{tier.lp} LP</span>
+                                                <span className="text-xs font-bold text-[#6b5a4a]">{tier.lp} LP</span>
                                             </div>
-                                            <p className="mt-1 text-xs font-semibold leading-relaxed text-[#6b5a4a]">{tier.tier.subtitle}</p>
-                                            <p className="mt-1 text-xs font-bold" style={{ color: tier.tier.text }}>
-                                                {getTierTone(tier.tier.id, sessionScore)}
-                                            </p>
-                                            <div className="mt-3 h-3 overflow-hidden rounded-full border border-[#5b4939]/20 bg-[#cbb8a3] shadow-inner">
+                                            <div className="mt-2 h-2 overflow-hidden rounded-full border border-[#5b4939]/20 bg-[#cbb8a3] shadow-inner">
                                                 <div
                                                     className="h-full rounded-full shadow-[0_0_10px_rgba(34,197,94,0.55)] transition-all duration-500"
                                                     style={{ width: `${tier.progress}%`, background: 'linear-gradient(90deg, #f97316 0%, #facc15 48%, #22c55e 100%)' }}
                                                 />
                                             </div>
-                                            <div className="mt-2 flex items-center justify-between gap-3 text-xs font-black text-[#483c2d]">
+                                            <div className="mt-1.5 flex items-center justify-between gap-3 text-[11px] font-black text-[#483c2d]">
                                                 <span>총 {tier.totalLp} LP</span>
                                                 <span>{tier.nextTier ? `${tier.nextTier.label}까지 ${tier.nextTierRemainingLp} LP` : '최고 티어'}</span>
                                             </div>
                                         </div>
                                     </div>
-
-                                    <div className="relative mt-4 flex items-center justify-between gap-2 rounded-md bg-[#fdf8f4]/80 px-3 py-2">
-                                        <div className="text-xs font-semibold text-[#6b5a4a]">
-                                            더 높은 배지를 얻으려면 응답에 이유나 예시를 한 문장 더 붙여보세요.
-                                        </div>
-                                        <p className={`shrink-0 flex items-center gap-1 text-xs font-bold ${tier.latestDelta < 0 ? 'text-[#9a4b36]' : 'text-[#3d6f4a]'}`}>
-                                            {tier.latestDelta < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />}
-                                            {tier.latestDelta > 0 ? '+' : ''}{tier.latestDelta} LP
-                                        </p>
-                                    </div>
                                 </div>
 
-                                <div className="border-t border-[#483c2d]/10 bg-[#f8f1ea]/80 px-4 py-3">
-                                    <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
+                                <div className="border-t border-[#483c2d]/10 bg-[#f8f1ea]/80 px-3 py-2">
+                                    <div className="grid grid-cols-7 gap-1">
                                         {TIERS.map((item) => (
                                             <MiniTierBadge key={item.id} tier={item} />
                                         ))}
@@ -1771,18 +1819,32 @@ export function AssessmentPanel() {
                                 </div>
                             </section>
 
-                            {showDeveloperLpControls && (
-                                <section className="order-5 rounded-lg border border-dashed border-[#9a4b36]/45 bg-[#fff7ed] p-4 shadow-sm lg:col-span-2">
+                            {showDeveloperLpControls && developerControlsOpen && (
+                                <section className="absolute inset-x-4 top-16 z-40 rounded-lg border border-dashed border-[#9a4b36]/45 bg-[#fff7ed] p-4 shadow-xl xl:inset-x-5">
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <div>
-                                            <h3 className="text-sm font-black text-[#7a3b28]">Dev LP Controls</h3>
+                                            <h3 className="flex items-center gap-2 text-sm font-black text-[#7a3b28]">
+                                                Dev LP Controls
+                                                <span className="rounded bg-[#f8e5d7] px-1.5 py-0.5 text-[10px]">Ctrl+Shift+L</span>
+                                            </h3>
                                             <p className="mt-1 text-xs font-semibold text-[#8a5a42]">
                                                 Test-only LP events. They reset on reload and are not saved to evaluation data.
                                             </p>
                                         </div>
-                                        <div className="text-right text-xs font-black text-[#7a3b28]">
-                                            <p>조정 {developerLpTotal > 0 ? '+' : ''}{developerLpTotal} LP</p>
-                                            <p className="mt-1 text-[#8a5a42]">이벤트 {developerLpDeltas.length}</p>
+                                        <div className="flex items-center gap-3">
+                                            <div className="text-right text-xs font-black text-[#7a3b28]">
+                                                <p>조정 {developerLpTotal > 0 ? '+' : ''}{developerLpTotal} LP</p>
+                                                <p className="mt-1 text-[#8a5a42]">이벤트 {developerLpDeltas.length}</p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setDeveloperControlsOpen(false)}
+                                                className="rounded p-1.5 text-[#7a3b28] transition-colors hover:bg-[#f8e5d7] focus:outline-none focus:ring-2 focus:ring-[#9a4b36]/25"
+                                                title="개발 LP 도구 숨기기"
+                                                aria-label="개발 LP 도구 숨기기"
+                                            >
+                                                <X className="h-4 w-4" />
+                                            </button>
                                         </div>
                                     </div>
                                     <div className="mt-3 grid grid-cols-5 gap-2">
@@ -1865,15 +1927,15 @@ export function AssessmentPanel() {
                             </div>
 
                             {(latestFeedbackTurn || latestRealtimeCorrection || latestCorrectionMessage) && (
-                                <section className="order-1 min-h-0 overflow-y-auto rounded-lg border border-[#3d6f4a]/20 bg-white/80 shadow-sm">
-                                    <div className="bg-[#edf5ed] px-4 py-3">
+                                <section className="order-1 min-h-0 overflow-hidden rounded-lg border border-[#3d6f4a]/20 bg-[#edf5ed] shadow-sm">
+                                    <div className="h-full overflow-hidden px-4 py-3">
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
                                                 <p className="flex items-center gap-1 text-xs font-black uppercase tracking-normal text-[#29452c]">
                                                     <Sparkles className="h-3.5 w-3.5" />
                                                     다음엔 이렇게 말해보세요
                                                 </p>
-                                                <p className="mt-2 break-words text-xl font-black leading-snug text-[#243f27]">
+                                                <p className="mt-1 line-clamp-2 break-words text-lg font-black leading-snug text-[#243f27]">
                                                     {latestFeedbackTurn
                                                         ? getRetrySentence(latestFeedbackTurn)
                                                         : latestRealtimeCorrection?.correction?.suggested
@@ -1893,7 +1955,7 @@ export function AssessmentPanel() {
                                         {(latestFeedbackTurn
                                             ? getCoachReason(latestFeedbackTurn.evaluation, latestFeedbackTurn.message.correction)
                                             : latestRealtimeCorrection?.correction?.reason || latestCorrectionMessage?.correction?.reason) && (
-                                            <p className="mt-2 break-words text-xs font-semibold leading-relaxed text-[#3f6543]">
+                                            <p className="mt-1 line-clamp-2 break-words text-xs font-semibold leading-snug text-[#3f6543]">
                                                 {latestFeedbackTurn
                                                     ? getCoachReason(latestFeedbackTurn.evaluation, latestFeedbackTurn.message.correction)
                                                     : latestRealtimeCorrection?.correction?.reason || latestCorrectionMessage?.correction?.reason}
@@ -1926,7 +1988,7 @@ export function AssessmentPanel() {
                                     </div>
 
                                     {latestFeedbackTurn && (
-                                    <div className="p-4">
+                                    <div className="hidden p-4">
                                         <div className="min-w-0">
                                             {latestMissionResults.length > 0 && (
                                                 <div className="rounded-md bg-[#f8f1ea]/85 p-3">
@@ -1994,7 +2056,7 @@ export function AssessmentPanel() {
                                 </section>
                             )}
 
-                            <section className="order-4 flex min-h-0 flex-col rounded-lg border border-white/50 bg-white/70 p-4 shadow-sm lg:col-span-2">
+                            <section className="order-4 flex min-h-0 flex-col rounded-lg border border-white/50 bg-white/70 p-3 shadow-sm lg:col-span-2">
                                 <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
                                     <div className="inline-flex rounded-md border border-[#483c2d]/10 bg-[#f8f1ea]/75 p-1">
                                         {([
