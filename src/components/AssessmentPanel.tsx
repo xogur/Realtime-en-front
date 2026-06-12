@@ -3,8 +3,11 @@
 import {
     Activity,
     AlertCircle,
+    BookOpen,
     CheckCircle2,
     Clock,
+    Flag,
+    Info,
     Minus,
     Plus,
     Printer,
@@ -15,9 +18,11 @@ import {
     X,
 } from 'lucide-react';
 import { AnimatePresence, motion, useAnimate } from 'framer-motion';
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore, type ChatMessage, type EvaluationBatchStatus, type PracticeMission, type TurnCorrection, type TurnEvaluation } from '@/stores/useStore';
+import { useMissionCelebration, type MissionCelebrationPresentation } from '@/hooks/useMissionCelebration';
+import { MissionSuccessAudio, useMissionSuccessSoundEnabled } from '@/lib/missionSuccessAudio';
 import {
     clampScore,
     getCurrentMessageLp,
@@ -46,13 +51,7 @@ type AssessmentDetailTab = 'feedback' | 'evaluation';
 
 type MetricSnapshot = { key: MetricKey; label: string; value: number };
 
-type MissionCelebration = {
-    id: string;
-    targets: string[];
-    bonus: number;
-};
-
-const MISSION_CELEBRATION_VISIBLE_MS = 4000;
+const MISSION_CELEBRATION_VISIBLE_MS = 1800;
 
 type TierConfig = {
     id: TierId;
@@ -790,35 +789,6 @@ function usePrefersReducedMotion(): boolean {
     return prefersReducedMotion;
 }
 
-function playMissionClearSound() {
-    try {
-        const AudioContextClass = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (!AudioContextClass || document.visibilityState !== 'visible') return;
-        const audioContext = new AudioContextClass();
-        const startAt = audioContext.currentTime + 0.01;
-        const notes = [659.25, 880, 1174.66];
-
-        notes.forEach((frequency, index) => {
-            const oscillator = audioContext.createOscillator();
-            const gain = audioContext.createGain();
-            const noteStart = startAt + index * 0.075;
-
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(frequency, noteStart);
-            gain.gain.setValueAtTime(0.0001, noteStart);
-            gain.gain.exponentialRampToValueAtTime(0.045, noteStart + 0.015);
-            gain.gain.exponentialRampToValueAtTime(0.0001, noteStart + 0.16);
-            oscillator.connect(gain).connect(audioContext.destination);
-            oscillator.start(noteStart);
-            oscillator.stop(noteStart + 0.18);
-        });
-
-        window.setTimeout(() => void audioContext.close().catch(() => undefined), 650);
-    } catch {
-        // Browsers can block audio until a user gesture; mission success should still render.
-    }
-}
-
 function getCelebrationParticles(id: string) {
     const seed = missionSeed(id);
     return Array.from({ length: 12 }, (_, index) => {
@@ -834,65 +804,142 @@ function getCelebrationParticles(id: string) {
     });
 }
 
-function ActiveMissionsPanel({ missions }: { missions: PracticeMission[] }) {
+function getMissionKindLabel(kind: PracticeMission['kind']): string {
+    if (kind === 'grammar') return '문법';
+    if (kind === 'tense') return '시제';
+    if (kind === 'connector') return '연결';
+    if (kind === 'question') return '질문';
+    if (kind === 'length') return '길이';
+    if (kind === 'interaction') return '대화';
+    return '표현';
+}
+
+function getMissionSupportLines(mission: PracticeMission) {
+    return {
+        usage: mission.usageContext || mission.successHint,
+        example: mission.exampleSentence,
+    };
+}
+
+function ActiveMissionsPanel({
+    missions,
+    completedMissionIds,
+    enteringMissionIds,
+}: {
+    missions: PracticeMission[];
+    completedMissionIds: Set<string>;
+    enteringMissionIds: Set<string>;
+}) {
     const missionSlots = [0, 1, 2];
 
     return (
-        <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-[#483c2d]/10 bg-white/80 p-2 shadow-sm">
+        <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-[#4b3b24]/10 bg-[#fffbf2]/90 p-2 shadow-sm">
             <div className="flex shrink-0 items-center justify-between gap-3">
                 <div className="min-w-0">
-                    <p className="flex items-center gap-1 text-xs font-black uppercase tracking-normal text-[#6b5a4a]/70">
-                        <Target className="h-3.5 w-3.5" />
-                        미션
+                    <p className="flex items-center gap-1 text-xs font-black uppercase tracking-normal text-[#6b5a4a]">
+                        <Flag className="h-3.5 w-3.5 text-[#b17a16]" />
+                        오늘의 퀘스트
                     </p>
-                    <p className="mt-0.5 text-xs font-bold text-[#483c2d]">교정과 평가와 별도로 갱신됩니다.</p>
+                    <p className="mt-0.5 text-xs font-bold text-[#6b5a4a]">표현을 쓰면 완료되고 새 목표가 들어옵니다.</p>
                 </div>
-                <span className="shrink-0 rounded-full bg-[#f1eadf] px-2 py-0.5 text-xs font-black text-[#6b5a4a]">{missions.length}/3</span>
+                <span className="shrink-0 rounded-full border border-[#d7b56d]/45 bg-[#fff4cb] px-2.5 py-0.5 text-xs font-black text-[#7a540f]">{missions.length}/3</span>
             </div>
-            <div className="mt-1.5 grid min-h-0 flex-1 grid-cols-1 gap-1.5 overflow-hidden sm:grid-cols-3">
+            <div className="mt-1.5 grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden sm:grid-cols-3">
+                <AnimatePresence initial={false} mode="popLayout">
                 {missionSlots.map((slotIndex) => {
                     const mission = missions[slotIndex];
 
                     if (!mission) {
                         return (
-                            <div key={`mission-slot-${slotIndex}`} className="min-h-0 overflow-hidden rounded-md border border-dashed border-[#483c2d]/15 bg-[#fffaf5]/55 px-2.5 py-1.5">
-                                <span className="rounded-full bg-[#f1eadf] px-2 py-0.5 text-[11px] font-black text-[#6b5a4a]">
-                                    미션 {slotIndex + 1}
-                                </span>
-                                <p className="mt-2 line-clamp-2 text-xs font-semibold leading-snug text-[#6b5a4a]/75">
+                            <motion.div
+                                layout
+                                key={`mission-slot-${slotIndex}`}
+                                className="relative min-h-0 overflow-hidden rounded-md border border-dashed border-[#d7b56d]/40 bg-white/55 px-2.5 py-1.5"
+                            >
+                                <div className="flex items-center gap-1.5">
+                                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#f1eadf] text-[10px] font-black text-[#6b5a4a]">
+                                        {slotIndex + 1}
+                                    </span>
+                                    <span className="text-[11px] font-black text-[#6b5a4a]">대기 슬롯</span>
+                                </div>
+                                <p className="mt-2 line-clamp-3 text-xs font-semibold leading-snug text-[#6b5a4a]/75">
                                     다음 응답 평가 후 새 미션이 표시됩니다.
                                 </p>
-                            </div>
+                            </motion.div>
                         );
                     }
 
+                    const completed = completedMissionIds.has(mission.id);
+                    const entering = enteringMissionIds.has(mission.id);
+                    const support = getMissionSupportLines(mission);
+
                     return (
-                        <div key={mission.id} className="min-h-0 overflow-hidden rounded-md border border-[#483c2d]/10 bg-[#fffaf5]/90 px-2.5 py-1">
-                            <div className="flex items-center gap-1.5 overflow-hidden">
-                                <span className="rounded-full bg-[#edf5ed] px-2 py-0.5 text-[11px] font-black text-[#29452c]">
-                                    미션 {slotIndex + 1}
+                        <motion.div
+                            layout
+                            key={mission.id}
+                            initial={{ opacity: 0, y: 12, scale: 0.98 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -10, scale: 0.97 }}
+                            transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.75 }}
+                            className={`relative min-h-0 overflow-hidden rounded-md border px-2.5 py-1.5 shadow-sm ${completed
+                                ? 'border-[#22c55e]/45 bg-[#edf8ed]'
+                                : 'border-[#d7b56d]/45 bg-gradient-to-br from-white via-[#fffaf0] to-[#f6ecd7]'}`}
+                        >
+                            <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#c48a1a] via-[#58a65c] to-[#34a6a0]" />
+                            {entering && (
+                                <motion.span
+                                    aria-hidden="true"
+                                    className="absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-transparent via-[#f8d66d]/55 to-transparent"
+                                    initial={{ x: '-120%', opacity: 0 }}
+                                    animate={{ x: '340%', opacity: [0, 1, 0] }}
+                                    transition={{ duration: 0.7, ease: 'easeOut' }}
+                                />
+                            )}
+                            {completed && (
+                                <motion.div
+                                    aria-hidden="true"
+                                    className="absolute inset-0 z-20 flex items-center justify-center bg-[#edf8ed]/70"
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0 }}
+                                >
+                                    <motion.div
+                                        initial={{ scale: 0.75, rotate: -8 }}
+                                        animate={{ scale: 1, rotate: -3 }}
+                                        className="rounded-md border-2 border-[#22c55e] bg-white/85 px-3 py-1 text-xs font-black uppercase tracking-normal text-[#16733a] shadow-sm"
+                                    >
+                                        CLEAR
+                                    </motion.div>
+                                </motion.div>
+                            )}
+                            <div className="relative z-10 flex items-center gap-1.5 overflow-hidden pt-1">
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#483c2d] text-[10px] font-black text-white shadow-sm">
+                                    {slotIndex + 1}
                                 </span>
-                                <span className="min-w-0 truncate rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-black text-[#6b5a4a]">
-                                    {mission.title}
+                                <span className="min-w-0 truncate text-[11px] font-black text-[#6b5a4a]">
+                                    {getMissionKindLabel(mission.kind)} 퀘스트
                                 </span>
-                                <span className="text-[11px] font-black text-[#3d6f4a]">+{mission.rewardLp} LP</span>
+                                <span className="ml-auto shrink-0 rounded-full border border-[#9fd49b]/60 bg-[#e9f8df] px-1.5 py-0.5 text-[10px] font-black text-[#16733a]">+{mission.rewardLp} LP</span>
                             </div>
-                            <p className="mt-0.5 line-clamp-2 break-words text-[13px] font-black leading-[1.25] text-[#483c2d]">
+                            <p className="relative z-10 mt-1.5 line-clamp-2 break-words text-[13px] font-black leading-[1.22] text-[#35291e]" title={mission.target}>
                                 {mission.target}
                             </p>
-                            {mission.usageContext && (
-                                <p className="mt-0.5 truncate text-[10px] font-semibold leading-tight text-[#6b5a4a]">
-                                    상황: {mission.usageContext}
+                            <div className="relative z-10 mt-1 grid gap-1">
+                                <p className="flex min-w-0 items-start gap-1 rounded bg-[#eef8ed]/80 px-2 py-1 text-[10px] font-bold leading-tight text-[#29452c]" title={support.usage}>
+                                    <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                                    <span className="line-clamp-2">언제: {support.usage}</span>
                                 </p>
-                            )}
-                            {mission.exampleSentence && (
-                                <p className="mt-0.5 truncate rounded bg-white/70 px-2 py-0.5 text-[10px] font-bold leading-tight text-[#29452c]">
-                                    예문: {mission.exampleSentence}
-                                </p>
-                            )}
-                        </div>
+                                {support.example && (
+                                    <p className="flex min-w-0 items-center gap-1 rounded bg-white/75 px-2 py-0.5 text-[10px] font-bold leading-tight text-[#6b5a4a]" title={support.example}>
+                                        <BookOpen className="h-3 w-3 shrink-0" />
+                                        <span className="truncate">예: {support.example}</span>
+                                    </p>
+                                )}
+                            </div>
+                        </motion.div>
                     );
                 })}
+                </AnimatePresence>
             </div>
         </section>
     );
@@ -1144,29 +1191,38 @@ function StatusLine({
     );
 }
 
-function MissionSuccessCelebration({ celebrations }: { celebrations: MissionCelebration[] }) {
+function MissionSuccessCelebration({ presentation }: { presentation: MissionCelebrationPresentation | null }) {
     const prefersReducedMotion = usePrefersReducedMotion();
+    const particles = presentation && !prefersReducedMotion ? getCelebrationParticles(presentation.id) : [];
 
     return (
         <div
-            className="pointer-events-none absolute left-1/2 top-16 z-50 flex w-[min(92%,420px)] -translate-x-1/2 flex-col gap-2 print:hidden"
+            className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center print:hidden"
             role="status"
             aria-live="polite"
         >
             <AnimatePresence initial={false}>
-                {celebrations.map((celebration) => {
-                    const particles = !prefersReducedMotion ? getCelebrationParticles(celebration.id) : [];
-
-                    return (
+                {presentation && (
+                    <>
+                        {!prefersReducedMotion && (
+                            <motion.div
+                                aria-hidden="true"
+                                className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(248,214,109,0.28),transparent_48%)]"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: [0, 1, 0] }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 1.2, ease: 'easeOut' }}
+                            />
+                        )}
                 <motion.div
-                    layout
-                    key={celebration.id}
-                    initial={{ opacity: 0, y: prefersReducedMotion ? 0 : -18, scale: prefersReducedMotion ? 1 : 0.94 }}
+                    key={presentation.id}
+                    initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 18, scale: prefersReducedMotion ? 1 : 0.92 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: prefersReducedMotion ? 0 : -14, scale: prefersReducedMotion ? 1 : 0.96 }}
-                    transition={prefersReducedMotion ? { duration: 0.16 } : { type: 'spring', stiffness: 360, damping: 24 }}
+                    exit={{ opacity: 0, y: prefersReducedMotion ? 0 : -12, scale: prefersReducedMotion ? 1 : 0.96 }}
+                    transition={prefersReducedMotion ? { duration: 0.16 } : { type: 'spring', stiffness: 420, damping: 26 }}
+                    className="w-[min(92%,430px)]"
                 >
-                    <div className="relative overflow-hidden rounded-lg border border-[#d9ff66]/70 bg-[#17241b]/95 px-4 py-3 text-white shadow-[0_18px_42px_rgba(22,34,24,0.34)]">
+                    <div className="relative overflow-hidden rounded-lg border border-[#f8d66d]/70 bg-[#1f241b]/95 px-5 py-4 text-white shadow-[0_22px_52px_rgba(31,36,27,0.34)]">
                         {particles.map((particle) => (
                             <motion.span
                                 key={particle.id}
@@ -1179,36 +1235,36 @@ function MissionSuccessCelebration({ celebrations }: { celebrations: MissionCele
                             />
                         ))}
                         <motion.div
-                            className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#7cff3a] via-[#f8ff5a] to-[#22e3a8]"
+                            className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#22c55e] via-[#f8d66d] to-[#5eead4]"
                             initial={{ scaleX: 0, transformOrigin: 'left' }}
                             animate={{ scaleX: 1 }}
                             transition={{ duration: 0.55, ease: 'easeOut' }}
                         />
                         <div className="relative flex items-start gap-3">
-                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[#d9ff66] text-[#17241b] shadow-[0_0_18px_rgba(217,255,102,0.55)]">
+                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-md bg-[#f8d66d] text-[#1f241b] shadow-[0_0_20px_rgba(248,214,109,0.42)]">
                                 <CheckCircle2 className="h-6 w-6" />
                             </div>
                             <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-[11px] font-black uppercase tracking-normal text-[#d9ff66]">미션 성공</span>
-                                    <span className="rounded-full bg-white/12 px-2 py-0.5 text-xs font-black text-[#f8ff8a]">+{celebration.bonus} LP</span>
+                                    <span className="text-[11px] font-black uppercase tracking-normal text-[#f8d66d]">QUEST CLEAR</span>
+                                    <span className="rounded-full bg-white/12 px-2 py-0.5 text-xs font-black text-[#f8d66d]">+{presentation.totalLp} LP</span>
                                 </div>
+                                <p className="mt-1 text-lg font-black leading-none text-white">
+                                    미션 {presentation.cards.length}개 완료
+                                </p>
                                 <div className="mt-1 space-y-1">
-                                    {celebration.targets.map((target, index) => (
-                                        <p key={`${target}:${index}`} className="break-words text-sm font-black leading-snug text-white">
-                                            {target}
+                                    {presentation.cards.slice(0, 3).map((card) => (
+                                        <p key={card.missionId} className="truncate text-xs font-bold leading-snug text-white/78">
+                                            {card.title}: {card.target}
                                         </p>
                                     ))}
                                 </div>
-                                <p className="mt-1 text-xs font-semibold text-white/72">
-                                    방금 발화가 진행 중 미션 조건과 일치했습니다.
-                                </p>
                             </div>
                         </div>
                     </div>
                 </motion.div>
-                    );
-                })}
+                    </>
+                )}
             </AnimatePresence>
         </div>
     );
@@ -1680,9 +1736,8 @@ export function AssessmentPanel() {
     const [nowEpochMs, setNowEpochMs] = useState(() => Date.now());
     const [detailTab, setDetailTab] = useState<AssessmentDetailTab>('feedback');
 
-    const [missionCelebrations, setMissionCelebrations] = useState<MissionCelebration[]>([]);
-    const shownMissionCelebrationIds = useRef<Set<string>>(new Set());
-    const missionCelebrationTimers = useRef<Map<string, number>>(new Map());
+    const [missionSuccessSoundEnabled] = useMissionSuccessSoundEnabled();
+    const missionAudioRef = useRef<MissionSuccessAudio | null>(null);
     const publishedMissionTurnIds = useRef<Set<string>>(new Set());
 
     const assessment = useMemo(() => {
@@ -1771,7 +1826,6 @@ export function AssessmentPanel() {
     const latestMissionMessage = [...userMessages]
         .reverse()
         .find((message) => (message.completedMissions?.length ?? 0) > 0) ?? null;
-    const latestMissionMessageIndex = latestMissionMessage ? userMessages.indexOf(latestMissionMessage) : -1;
     const latestMissionResults = useMemo(
         () => latestMissionMessage
             ? getMissionResultsFromCompletions(latestMissionMessage.completedMissions)
@@ -1779,9 +1833,25 @@ export function AssessmentPanel() {
         [latestMissionMessage],
     );
     const latestMissionBonus = latestMissionResults.reduce((sum, mission) => sum + mission.bonus, 0);
-    const latestMissionId = latestMissionMessage && latestMissionResults.length > 0
-        ? `${latestMissionMessage.id ?? latestMissionMessageIndex}:${latestMissionResults.map((mission) => mission.missionId).join('|')}:${latestMissionBonus}`
-        : null;
+    useEffect(() => {
+        const audio = new MissionSuccessAudio(missionSuccessSoundEnabled);
+        audio.bindInteractionUnlock();
+        missionAudioRef.current = audio;
+        return () => {
+            audio.dispose();
+            if (missionAudioRef.current === audio) missionAudioRef.current = null;
+        };
+    }, [missionSuccessSoundEnabled]);
+    const handleMissionPresentation = useCallback((presentation: MissionCelebrationPresentation) => {
+        if (presentation.cards.length === 0) return;
+        void missionAudioRef.current?.play();
+    }, []);
+    const missionCelebration = useMissionCelebration({
+        messages: userMessages,
+        activeMissions,
+        visibleMs: MISSION_CELEBRATION_VISIBLE_MS,
+        onPresent: handleMissionPresentation,
+    });
     useEffect(() => {
         if (turns.length === 0) return;
 
@@ -1795,37 +1865,6 @@ export function AssessmentPanel() {
             ));
         });
     }, [addMissionCandidates, messages, turns]);
-
-    useEffect(() => {
-        if (!latestMissionId || shownMissionCelebrationIds.current.has(latestMissionId)) return;
-
-        playMissionClearSound();
-        const nextCelebration = {
-            id: latestMissionId,
-            targets: latestMissionResults.map((mission) => mission.target),
-            bonus: latestMissionBonus,
-        };
-
-        shownMissionCelebrationIds.current.add(latestMissionId);
-        const showTimer = window.setTimeout(() => {
-            setMissionCelebrations((current) => [
-                nextCelebration,
-                ...current.filter((celebration) => celebration.id !== latestMissionId),
-            ]);
-
-            const dismissTimer = window.setTimeout(() => {
-                missionCelebrationTimers.current.delete(latestMissionId);
-                setMissionCelebrations((current) => current.filter((celebration) => celebration.id !== latestMissionId));
-            }, MISSION_CELEBRATION_VISIBLE_MS);
-            missionCelebrationTimers.current.set(latestMissionId, dismissTimer);
-        }, 0);
-        missionCelebrationTimers.current.set(latestMissionId, showTimer);
-    }, [latestMissionBonus, latestMissionId, latestMissionResults]);
-
-    useEffect(() => () => {
-        missionCelebrationTimers.current.forEach((timer) => window.clearTimeout(timer));
-        missionCelebrationTimers.current.clear();
-    }, []);
 
     useEffect(() => {
         if (!evaluationBatchStatus || evaluationBatchStatus.pendingCount <= 0) return;
@@ -1848,7 +1887,7 @@ export function AssessmentPanel() {
 
     return (
         <aside className="relative flex h-full min-h-0 flex-col border-t border-[#483c2d]/10 bg-[#f4ece4]/75 backdrop-blur-xl print:border-0 print:bg-white lg:border-l lg:border-t-0">
-            <MissionSuccessCelebration celebrations={missionCelebrations} />
+            <MissionSuccessCelebration presentation={missionCelebration.current} />
             {printRoot ? createPortal(
                 <PrintReport messages={messages} turns={turns} sessionScore={sessionScore} metricAverages={metricAverages} />,
                 printRoot,
@@ -2076,7 +2115,11 @@ export function AssessmentPanel() {
 
                         <div className="contents">
                             <div className="order-3 min-h-0 lg:col-span-2">
-                                <ActiveMissionsPanel missions={activeMissions} />
+                                <ActiveMissionsPanel
+                                    missions={activeMissions}
+                                    completedMissionIds={missionCelebration.completedMissionIds}
+                                    enteringMissionIds={missionCelebration.enteringMissionIds}
+                                />
                             </div>
 
                             {(latestFeedbackTurn || latestRealtimeCorrection || latestCorrectionMessage) && (

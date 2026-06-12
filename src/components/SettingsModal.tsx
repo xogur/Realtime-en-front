@@ -2,9 +2,10 @@
 import { useRef, useEffect, useState } from 'react';
 import { DEFAULT_AVATAR_ID, useStore } from '@/stores/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Settings, User, Sliders, Type } from 'lucide-react';
+import { X, Settings, User, Sliders, Type, Volume2 } from 'lucide-react';
 import { AVATARS, Avatar } from '@/lib/avatarConstants';
 import Image from 'next/image';
+import { useMissionSuccessSoundEnabled } from '@/lib/missionSuccessAudio';
 
 interface SettingsModalProps {
     isOpen: boolean;
@@ -67,6 +68,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     const setTextScale = useStore((state) => state.setTextScale);
     const currentAvatarId = useStore((state) => state.currentAvatarId);
     const setCurrentAvatar = useStore((state) => state.setCurrentAvatar);
+    const [missionSuccessSoundEnabled, setMissionSuccessSoundEnabled] = useMissionSuccessSoundEnabled();
 
     // ESC key to close
     useEffect(() => {
@@ -201,6 +203,38 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                     </div>
                                 </section>
                             </div>
+
+                            <section className="border-t border-zinc-100 pt-8 dark:border-zinc-800">
+                                <button
+                                    type="button"
+                                    onClick={() => setMissionSuccessSoundEnabled(!missionSuccessSoundEnabled)}
+                                    className="flex min-h-14 w-full items-center justify-between gap-4 rounded-2xl border border-zinc-100 bg-zinc-50/70 px-4 py-3 text-left transition-all hover:border-emerald-200 hover:bg-emerald-50/40 active:scale-[0.99] dark:border-zinc-800 dark:bg-zinc-800/30 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/20"
+                                    aria-pressed={missionSuccessSoundEnabled}
+                                >
+                                    <span className="flex min-w-0 items-center gap-3">
+                                        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-300">
+                                            <Volume2 className="h-5 w-5" />
+                                        </span>
+                                        <span className="min-w-0">
+                                            <span className="block text-sm font-black text-zinc-900 dark:text-zinc-50">미션 성공 효과음</span>
+                                            <span className="mt-0.5 block text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                                                퀘스트를 완료했을 때 짧은 성공음을 재생합니다.
+                                            </span>
+                                        </span>
+                                    </span>
+                                    <span
+                                        className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${missionSuccessSoundEnabled
+                                            ? 'bg-emerald-500'
+                                            : 'bg-zinc-300 dark:bg-zinc-700'}`}
+                                    >
+                                        <span
+                                            className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform ${missionSuccessSoundEnabled
+                                                ? 'translate-x-6'
+                                                : 'translate-x-1'}`}
+                                        />
+                                    </span>
+                                </button>
+                            </section>
                         </div>
 
                         {/* Footer */}
