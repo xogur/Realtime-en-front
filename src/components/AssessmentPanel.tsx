@@ -5,34 +5,41 @@ import {
     AlertCircle,
     CheckCircle2,
     Clock,
+    Minus,
+    Plus,
     Printer,
+    RotateCcw,
     Sparkles,
     Target,
     TrendingDown,
     TrendingUp,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useStore, type ChatMessage, type MissionCompletion, type PracticeMission, type TurnEvaluation } from '@/stores/useStore';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useStore, type ChatMessage, type EvaluationBatchStatus, type PracticeMission, type TurnCorrection, type TurnEvaluation } from '@/stores/useStore';
+import {
+    clampScore,
+    getCurrentMessageLp,
+    getMetricScore,
+    getMissionResultsFromCompletions,
+    getTurnLp,
+} from '@/lib/missionLp';
+import { calculateTierProgress } from '@/lib/tierProgress';
 
 type EvaluatedTurn = {
     message: ChatMessage;
     evaluation: TurnEvaluation;
 };
 
+type ReportCorrection = EvaluatedTurn & {
+    assistantPrompt: string;
+};
+
 type MetricKey = 'grammar' | 'vocabulary' | 'relevance' | 'fluency' | 'interaction';
 type TierId = 'unranked' | 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'master';
 
 type MetricSnapshot = { key: MetricKey; label: string; value: number };
-
-type MissionResult = {
-    achieved: boolean;
-    bonus: number;
-    missionId: string;
-    target: string;
-    reason: string;
-    title: string;
-};
 
 type MissionCelebration = {
     id: string;
@@ -58,7 +65,7 @@ type TierConfig = {
 const METRICS: Array<{ key: MetricKey; label: string }> = [
     { key: 'grammar', label: '문법' },
     { key: 'vocabulary', label: '어휘' },
-    { key: 'relevance', label: '맥락' },
+    { key: 'relevance', label: '응답 적합도' },
     { key: 'fluency', label: '유창성' },
     { key: 'interaction', label: '상호작용' },
 ];
@@ -66,8 +73,8 @@ const METRICS: Array<{ key: MetricKey; label: string }> = [
 const TIERS: TierConfig[] = [
     {
         id: 'unranked',
-        label: '언랭크',
-        subtitle: '첫 대화를 시작하는 단계',
+        label: 'Unranked',
+        subtitle: '말하기 연습을 시작하는 단계',
         from: '#f2eee8',
         via: '#dad2c8',
         to: '#a79b90',
@@ -78,8 +85,8 @@ const TIERS: TierConfig[] = [
     },
     {
         id: 'bronze',
-        label: '브론즈',
-        subtitle: '기본 답변 습관 형성',
+        label: 'Bronze',
+        subtitle: '기본 응답 습관을 만드는 단계',
         from: '#f5d0a6',
         via: '#c78346',
         to: '#7b4a28',
@@ -90,8 +97,8 @@ const TIERS: TierConfig[] = [
     },
     {
         id: 'silver',
-        label: '실버',
-        subtitle: '짧은 문장을 안정적으로 구사',
+        label: 'Silver',
+        subtitle: '짧은 문장을 안정적으로 말하는 단계',
         from: '#f7fbff',
         via: '#b8c4cf',
         to: '#6f8091',
@@ -102,8 +109,8 @@ const TIERS: TierConfig[] = [
     },
     {
         id: 'gold',
-        label: '골드',
-        subtitle: '자신감 있게 대화를 확장',
+        label: 'Gold',
+        subtitle: '이유와 예시로 답변을 확장하는 단계',
         from: '#fff2ad',
         via: '#e2ad37',
         to: '#9a6a18',
@@ -114,8 +121,8 @@ const TIERS: TierConfig[] = [
     },
     {
         id: 'platinum',
-        label: '플래티넘',
-        subtitle: '자연스럽고 균형 잡힌 응답',
+        label: 'Platinum',
+        subtitle: '균형 있고 자연스럽게 응답하는 단계',
         from: '#f0fffb',
         via: '#8ed8d0',
         to: '#3f8e91',
@@ -126,8 +133,8 @@ const TIERS: TierConfig[] = [
     },
     {
         id: 'diamond',
-        label: '다이아',
-        subtitle: '정교하고 풍부한 표현',
+        label: 'Diamond',
+        subtitle: '정확하고 표현력 있게 말하는 단계',
         from: '#eef8ff',
         via: '#77c8f2',
         to: '#4669c8',
@@ -138,8 +145,8 @@ const TIERS: TierConfig[] = [
     },
     {
         id: 'master',
-        label: '마스터',
-        subtitle: '깊이 있고 주도적인 회화',
+        label: 'Master',
+        subtitle: '깊이 있고 자신감 있게 대화를 이끄는 단계',
         from: '#fff4bd',
         via: '#7054d8',
         to: '#171d4f',
@@ -149,21 +156,13 @@ const TIERS: TierConfig[] = [
         symbol: 'crown',
     },
 ];
-
-function clampScore(value: number): number {
-    if (!Number.isFinite(value)) return 0;
-    return Math.max(0, Math.min(100, Math.round(value)));
-}
-
-function getMetricScore(evaluation: TurnEvaluation, key: MetricKey | 'overall'): number {
-    const value = evaluation.scores[key];
-    if (Number.isFinite(value)) return clampScore(value);
-    return key === 'interaction' ? getMetricScore(evaluation, 'relevance') : 0;
-}
-
 function average(values: number[]): number {
     if (values.length === 0) return 0;
     return clampScore(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+export function shouldShowCoachContent(evaluatedTurnCount: number, hasRealtimeCorrection: boolean): boolean {
+    return evaluatedTurnCount > 0 || hasRealtimeCorrection;
 }
 
 function calculateWeightedSessionScore(turns: EvaluatedTurn[]): number | null {
@@ -185,14 +184,6 @@ function calculateWeightedSessionScore(turns: EvaluatedTurn[]): number | null {
     return clampScore(weightedTotal / totalWeight);
 }
 
-function wordCount(text: string): number {
-    return text.match(/[A-Za-z]+(?:'[A-Za-z]+)?/g)?.length ?? 0;
-}
-
-function hasExpansionCue(text: string): boolean {
-    return /\b(and|but|because|so|when|if|for example)\b/i.test(text);
-}
-
 function getTurnWeakestMetric(evaluation: TurnEvaluation): MetricSnapshot {
     return METRICS.map(({ key, label }) => ({
         key,
@@ -212,8 +203,8 @@ function getMissionResult(turn: EvaluatedTurn): MissionResult {
         return {
             achieved: false,
             bonus: 0,
-            target: '첫 답변을 평가한 뒤 다음 미션이 정해집니다.',
-            reason: '다음 답변부터 미션 달성 LP를 받을 수 있습니다.',
+            target: '첫 응답을 평가하면 다음 미션이 정해집니다.',
+            reason: '다음 응답부터 미션 보상 LP를 받을 수 있습니다.',
         };
     }
 
@@ -243,77 +234,35 @@ function getMissionResult(turn: EvaluatedTurn): MissionResult {
         target: mission.target,
         reason: achieved
             ? `${mission.metricLabel} 미션을 반영했습니다. 기본 LP에 +${bonus} LP가 추가됩니다.`
-            : `${mission.metricLabel} 미션은 아직 미달성입니다. 다음 답변에서 목표를 다시 시도해보세요.`,
+            : `${mission.metricLabel} 미션은 아직 미달성입니다. 다음 응답에서 목표를 다시 시도해보세요.`,
     };
 }
 
 */
 
-function getMissionResultsFromCompletions(completions?: MissionCompletion[]): MissionResult[] {
-    return (completions ?? []).map((mission: MissionCompletion) => ({
-        achieved: true,
-        bonus: mission.rewardLp,
-        missionId: mission.missionId,
-        target: mission.target,
-        reason: mission.reason,
-        title: mission.title,
-    }));
+function getTierProgress(
+    turns: EvaluatedTurn[],
+    pendingMissionBonus = 0,
+    latestPendingMissionBonus = 0,
+    developerLpDeltas: number[] = [],
+) {
+    return calculateTierProgress({
+        tiers: TIERS,
+        turnLps: [...turns.map((turn) => getTurnLp(turn)), ...developerLpDeltas],
+        pendingMissionBonus,
+        latestPendingMissionBonus: developerLpDeltas.length > 0 ? 0 : latestPendingMissionBonus,
+    });
 }
 
-function getMissionResults(turn: EvaluatedTurn): MissionResult[] {
-    return getMissionResultsFromCompletions(turn.message.completedMissions);
-}
-
-function getMissionBonusFromMessage(message?: ChatMessage | null): number {
-    return getMissionResultsFromCompletions(message?.completedMissions).reduce((sum, mission) => sum + mission.bonus, 0);
-}
-
-function getBaseTurnLp(turn: EvaluatedTurn): number {
-    const overall = getMetricScore(turn.evaluation, 'overall');
-    const relevance = getMetricScore(turn.evaluation, 'relevance');
-    const interaction = getMetricScore(turn.evaluation, 'interaction');
-    const qualityScore = Math.round(overall * 0.55 + relevance * 0.3 + interaction * 0.15);
-    const words = wordCount(turn.message.content);
-    const expanded = words >= 8 || hasExpansionCue(turn.message.content);
-    let delta = Math.round((qualityScore - 55) / 2.8);
-
-    if (expanded && relevance >= 60) delta += 3;
-    if (relevance <= 30) delta = Math.min(delta, -8);
-    else if (relevance <= 50) delta = Math.min(delta, -5);
-    if (interaction <= 45) delta -= 2;
-    if (overall < 55 && words <= 3) delta -= 2;
-    return Math.max(-12, Math.min(22, delta));
-}
-
-function getTurnLp(turn: EvaluatedTurn): number {
-    const missionBonus = getMissionResults(turn).reduce((sum, mission) => sum + mission.bonus, 0);
-    return Math.max(-12, Math.min(34, getBaseTurnLp(turn) + missionBonus));
-}
-
-function getTierProgress(turns: EvaluatedTurn[], pendingMissionBonus = 0, latestPendingMissionBonus = 0) {
-    const totalLp = turns.reduce((sum, turn) => sum + getTurnLp(turn), 0) + pendingMissionBonus;
-    const normalized = Math.max(0, totalLp);
-    const tierIndex = Math.min(TIERS.length - 1, Math.floor(normalized / 100));
-    const currentTierStart = tierIndex * 100;
-    const rawLp = normalized - currentTierStart;
-    const hasNextTier = Boolean(TIERS[tierIndex + 1]);
-
-    return {
-        tier: TIERS[tierIndex],
-        lp: hasNextTier ? rawLp : Math.min(100, rawLp),
-        totalLp: normalized,
-        progress: hasNextTier ? Math.min(100, rawLp) : 100,
-        latestDelta: latestPendingMissionBonus > 0 ? latestPendingMissionBonus : turns.length > 0 ? getTurnLp(turns[turns.length - 1]) : 0,
-        nextTier: TIERS[tierIndex + 1] ?? null,
-    };
-}
-
-function getScoreTone(score: number | null): string {
-    if (score === null) return '대화 시작';
-    if (score >= 85) return '강함';
-    if (score >= 70) return '안정적';
-    if (score >= 50) return '연습 중';
-    return '집중 필요';
+function getTierTone(tierId: TierId, score: number | null): string {
+    if (tierId === 'master') return '최고 티어 달성';
+    if (tierId === 'diamond') return '고급 표현 유지 중';
+    if (tierId === 'platinum') return '균형 잡힌 응답';
+    if (tierId === 'gold') return '답변 확장 중';
+    if (tierId === 'silver') return '문장 안정화 중';
+    if (tierId === 'bronze') return '기초 습관 형성 중';
+    if (score === null) return '첫 응답을 기다리는 중';
+    return '기초 다지기 단계';
 }
 
 function getScoreAccent(score: number): string {
@@ -328,11 +277,18 @@ function getLatestFocus(evaluation: TurnEvaluation): string {
 }
 
 function getRetrySentence(turn: EvaluatedTurn): string {
-    return turn.evaluation.correction.suggested || turn.message.content;
+    return turn.message.correction?.suggested || turn.evaluation.correction.suggested || turn.message.content;
 }
 
-function getCoachReason(evaluation: TurnEvaluation): string {
-    return evaluation.correction.reason || evaluation.evidence.overall || evaluation.cefrEstimate.reason;
+function getCoachReason(evaluation: TurnEvaluation, correction?: TurnCorrection): string {
+    return correction?.reason || evaluation.correction.reason || evaluation.evidence.overall || evaluation.cefrEstimate.reason;
+}
+
+function getContextFitLabel(contextFit?: TurnCorrection['contextFit']): string {
+    if (contextFit === 'appropriate') return '문맥 적합';
+    if (contextFit === 'partial') return '부분 적합';
+    if (contextFit === 'off_topic') return '문맥 불일치';
+    return '문맥 확인';
 }
 
 /*
@@ -344,16 +300,16 @@ function getPracticeMission(
     if (assistantPrompt?.trim()) {
         if (weakestMetric?.key === 'vocabulary') return '방금 질문에 답하면서 구체적인 단어 하나와 예시를 붙여보세요.';
         if (weakestMetric?.key === 'grammar') return '방금 질문에 답하면서 주어와 동사를 분명히 넣어 한 문장으로 말해보세요.';
-        if (weakestMetric?.key === 'fluency') return '방금 질문에 답하면서 끊지 말고 한 문장으로 이어서 말해보세요.';
+        if (weakestMetric?.key === 'fluency') return '방금 질문에 답하면서 멈추지 말고 두 문장으로 이어서 말해보세요.';
         if (weakestMetric?.key === 'interaction') return '방금 질문에 답한 뒤 상대에게 되묻는 질문을 하나 붙여보세요.';
-        return '방금 질문의 핵심에 바로 답한 뒤 because로 이유를 한 문장 붙여보세요.';
+        return '방금 질문에 답하고 because로 이유를 한 문장 붙여보세요.';
     }
     if (evaluation.feedback.nextPractice) return evaluation.feedback.nextPractice;
-    if (weakestMetric?.key === 'vocabulary') return '같은 뜻을 더 구체적인 단어 하나로 바꿔서 다시 말해보세요.';
+    if (weakestMetric?.key === 'vocabulary') return '같은 뜻을 더 구체적인 단어 하나로 바꾸어 다시 말해보세요.';
     if (weakestMetric?.key === 'grammar') return '주어와 동사를 분명히 넣고 같은 뜻을 다시 말해보세요.';
-    if (weakestMetric?.key === 'fluency') return '짧게 끊지 말고 한 문장으로 이어서 다시 말해보세요.';
+    if (weakestMetric?.key === 'fluency') return '짧게 끊지 말고 두 문장으로 이어서 다시 말해보세요.';
     if (weakestMetric?.key === 'interaction') return '마지막에 상대에게 묻는 질문을 하나 붙여보세요.';
-    return '답변 끝에 because, for example, so 중 하나를 붙여 한 문장 더 확장해보세요.';
+    return '응답 끝에 because, for example, so 중 하나를 붙여 두 문장으로 확장해보세요.';
 }
 
 function getLatestAssistantPrompt(messages: ChatMessage[]): string {
@@ -403,6 +359,26 @@ function cleanAssistantPrompt(content: string): string {
     return content.split('\n\n한국어 해석:')[0]?.trim() ?? content.trim();
 }
 
+function compactReportText(text: string, maxLength = 180): string {
+    const normalized = text.replace(/\s+/g, ' ').trim();
+    if (normalized.length <= maxLength) return normalized;
+    return `${normalized.slice(0, maxLength - 1).trim()}…`;
+}
+
+function getAssistantPromptBeforeTurn(messages: ChatMessage[], turnId: string): string {
+    const sourceIndex = messages.findIndex((message) => message.role === 'user' && message.id === turnId);
+    if (sourceIndex < 0) return '';
+
+    for (let index = sourceIndex - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message.role === 'assistant') {
+            return compactReportText(cleanAssistantPrompt(message.content));
+        }
+    }
+
+    return '';
+}
+
 function getLatestAssistantPrompt(messages: ChatMessage[]): string {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
         const message = messages[index];
@@ -436,66 +412,332 @@ function createFallbackPracticeMissions(turn: EvaluatedTurn, assistantPrompt: st
             id: `${turn.evaluation.turnId}:connector`,
             sourceTurnId: turn.evaluation.turnId,
             kind: 'connector',
-            title: 'Reason Builder',
-            target: 'Use because, so, but, or for example in your next answer.',
-            successHint: 'A connector made the answer more complete.',
+            title: '이유 연결하기',
+            target: '다음 답변에 because, so, but, for example 중 하나를 사용해 보세요.',
+            successHint: '연결 표현을 사용해 답변을 더 자연스럽게 확장했습니다.',
             rewardLp: 6,
             checks: [{ type: 'connector' }],
             createdAt,
         },
         {
-            id: `${turn.evaluation.turnId}:length`,
+            id: `${turn.evaluation.turnId}:opinion`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'vocabulary',
+            title: '의견 말하기',
+            target: '다음 답변에 I think 또는 in my opinion을 사용해 보세요.',
+            successHint: '자신의 의견을 분명하게 표현했습니다.',
+            rewardLp: 5,
+            checks: [{ type: 'includesAny', value: ['I think', 'in my opinion'] }],
+            matchMode: 'any',
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:length-8`,
             sourceTurnId: turn.evaluation.turnId,
             kind: 'length',
-            title: 'Longer Turn',
-            target: 'Answer with at least eight English words.',
-            successHint: 'The answer had enough length to practice fluency.',
+            title: '길게 말하기',
+            target: '다음 답변을 영어 단어 8개 이상으로 말해 보세요.',
+            successHint: '유창성을 연습할 만큼 충분히 길게 답했습니다.',
             rewardLp: 5,
             checks: [{ type: 'minWords', min: 8 }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:preference`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'vocabulary',
+            title: '선호 표현하기',
+            target: '다음 답변에 I prefer 또는 I would rather를 사용해 보세요.',
+            successHint: '자신의 선호를 분명하게 표현했습니다.',
+            rewardLp: 6,
+            checks: [{ type: 'includesAny', value: ['I prefer', 'I would rather'] }],
+            matchMode: 'any',
             createdAt,
         },
         {
             id: `${turn.evaluation.turnId}:question`,
             sourceTurnId: turn.evaluation.turnId,
             kind: 'question',
-            title: 'Keep Talking',
-            target: 'Add one question to keep the conversation moving.',
-            successHint: 'A follow-up question kept the conversation active.',
+            title: '질문 이어가기',
+            target: '대화를 이어갈 수 있도록 질문을 하나 추가해 보세요.',
+            successHint: '후속 질문으로 대화를 자연스럽게 이어갔습니다.',
             rewardLp: 7,
             checks: [{ type: 'question' }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:frequency`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'vocabulary',
+            title: '빈도 말하기',
+            target: '다음 답변에 usually, often, sometimes 중 하나를 사용해 보세요.',
+            successHint: '어떤 일이 얼마나 자주 일어나는지 표현했습니다.',
+            rewardLp: 5,
+            checks: [{ type: 'includesAny', value: ['usually', 'often', 'sometimes'] }],
+            matchMode: 'any',
             createdAt,
         },
         {
             id: `${turn.evaluation.turnId}:past`,
             sourceTurnId: turn.evaluation.turnId,
             kind: 'tense',
-            title: 'Past Tense',
-            target: 'Use one past-tense expression like went, did, was, or a verb ending in -ed.',
-            successHint: 'Past tense was used in the answer.',
+            title: '과거 시제',
+            target: 'went, did, was 또는 -ed 동사처럼 과거 표현을 하나 사용해 보세요.',
+            successHint: '답변에 과거 시제를 사용했습니다.',
             rewardLp: 6,
             checks: [{ type: 'pastTense' }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:sequence`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'vocabulary',
+            title: '순서대로 말하기',
+            target: '다음 답변에 first, then, finally 중 하나를 사용해 보세요.',
+            successHint: '순서 표현을 사용해 내용을 이해하기 쉽게 말했습니다.',
+            rewardLp: 6,
+            checks: [{ type: 'includesAny', value: ['first', 'then', 'finally'] }],
+            matchMode: 'any',
             createdAt,
         },
         {
             id: `${turn.evaluation.turnId}:future`,
             sourceTurnId: turn.evaluation.turnId,
             kind: 'tense',
-            title: 'Future Plan',
-            target: 'Use a future expression like will, going to, or plan to.',
-            successHint: 'A future expression was used naturally.',
+            title: '미래 계획 말하기',
+            target: 'will, going to, plan to 같은 미래 표현을 하나 사용해 보세요.',
+            successHint: '미래 표현을 자연스럽게 사용했습니다.',
             rewardLp: 6,
             checks: [{ type: 'futureTense' }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:addition`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'vocabulary',
+            title: '내용 덧붙이기',
+            target: '다음 답변에 also 또는 in addition을 사용해 보세요.',
+            successHint: '추가 표현을 사용해 유용한 내용을 덧붙였습니다.',
+            rewardLp: 5,
+            checks: [{ type: 'includesAny', value: ['also', 'in addition'] }],
+            matchMode: 'any',
             createdAt,
         },
         {
             id: `${turn.evaluation.turnId}:polite`,
             sourceTurnId: turn.evaluation.turnId,
             kind: 'interaction',
-            title: 'Polite Request',
-            target: 'Use a polite request with can you, could you, would you, or please.',
-            successHint: 'A polite request pattern was included.',
+            title: '정중하게 요청하기',
+            target: 'can you, could you, would you, please 중 하나로 정중하게 요청해 보세요.',
+            successHint: '정중한 요청 표현을 사용했습니다.',
             rewardLp: 7,
             checks: [{ type: 'politeRequest' }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:uncertainty`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'vocabulary',
+            title: '확실하지 않게 말하기',
+            target: '다음 답변에 maybe, perhaps, probably 중 하나를 사용해 보세요.',
+            successHint: '확실하지 않은 생각을 자연스럽게 표현했습니다.',
+            rewardLp: 5,
+            checks: [{ type: 'includesAny', value: ['maybe', 'perhaps', 'probably'] }],
+            matchMode: 'any',
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:two-sentences`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'length',
+            title: '두 문장 말하기',
+            target: '다음 답변을 영어 두 문장 이상으로 말해 보세요.',
+            successHint: '답변을 두 문장 이상으로 확장했습니다.',
+            rewardLp: 6,
+            checks: [{ type: 'sentenceCount', min: 2 }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:agreement`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'interaction',
+            title: '동의 표현하기',
+            target: '다음 답변에 I agree 또는 that is true를 사용해 보세요.',
+            successHint: '동의하는 생각을 분명하게 표현했습니다.',
+            rewardLp: 5,
+            checks: [{ type: 'includesAny', value: ['I agree', 'that is true'] }],
+            matchMode: 'any',
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:present-perfect`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'tense',
+            title: '경험 말하기',
+            target: 'have tried 또는 have learned 같은 현재완료 표현을 사용해 보세요.',
+            successHint: '현재완료를 사용해 경험을 표현했습니다.',
+            rewardLp: 7,
+            checks: [{ type: 'presentPerfect' }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:disagreement`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'interaction',
+            title: '다른 의견 말하기',
+            target: '다음 답변에 I do not agree 또는 I see it differently를 사용해 보세요.',
+            successHint: '다른 관점을 분명하게 표현했습니다.',
+            rewardLp: 7,
+            checks: [{ type: 'includesAny', value: ['I do not agree', 'I see it differently'] }],
+            matchMode: 'any',
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:length-10`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'length',
+            title: '열 단어 말하기',
+            target: '다음 답변을 영어 단어 10개 이상으로 말해 보세요.',
+            successHint: '영어 단어 10개 이상으로 답했습니다.',
+            rewardLp: 6,
+            checks: [{ type: 'minWords', min: 10 }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:comparison`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'vocabulary',
+            title: '비교하기',
+            target: '다음 답변에 more than 또는 less than을 사용해 보세요.',
+            successHint: '두 대상을 직접 비교했습니다.',
+            rewardLp: 6,
+            checks: [{ type: 'includesAny', value: ['more than', 'less than'] }],
+            matchMode: 'any',
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:example-detail`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'vocabulary',
+            title: '예시 들기',
+            target: '다음 답변에 such as를 사용해 예시를 들어 보세요.',
+            successHint: '구체적인 예시를 답변에 추가했습니다.',
+            rewardLp: 6,
+            checks: [{ type: 'includesAny', value: ['such as'] }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:contrast-view`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'vocabulary',
+            title: '반대 관점 덧붙이기',
+            target: '다음 답변에 however 또는 on the other hand를 사용해 보세요.',
+            successHint: '서로 다른 관점을 함께 표현했습니다.',
+            rewardLp: 7,
+            checks: [{ type: 'includesAny', value: ['however', 'on the other hand'] }],
+            matchMode: 'any',
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:three-sentences`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'length',
+            title: '세 문장 말하기',
+            target: '다음 답변을 영어 세 문장 이상으로 말해 보세요.',
+            successHint: '세 문장 이상으로 생각을 충분히 전개했습니다.',
+            rewardLp: 8,
+            checks: [{ type: 'sentenceCount', min: 3 }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:depends`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'interaction',
+            title: '상황에 따라 답하기',
+            target: '다음 답변에 it depends를 사용해 보세요.',
+            successHint: '상황에 따라 답이 달라질 수 있음을 표현했습니다.',
+            rewardLp: 6,
+            checks: [{ type: 'includesAny', value: ['it depends'] }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:condition`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'grammar',
+            title: '조건 붙이기',
+            target: '다음 답변에 if를 사용해 조건을 말해 보세요.',
+            successHint: '답변에 분명한 조건을 추가했습니다.',
+            rewardLp: 6,
+            checks: [{ type: 'includesAny', value: ['if'] }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:habit`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'grammar',
+            title: '과거 습관 말하기',
+            target: '다음 답변에 used to를 사용해 보세요.',
+            successHint: '과거의 습관을 표현했습니다.',
+            rewardLp: 7,
+            checks: [{ type: 'includesAny', value: ['used to'] }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:clarify`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'interaction',
+            title: '뜻을 풀어서 말하기',
+            target: '다음 답변에 I mean 또는 in other words를 사용해 보세요.',
+            successHint: '자신이 말한 뜻을 더 명확하게 설명했습니다.',
+            rewardLp: 7,
+            checks: [{ type: 'includesAny', value: ['I mean', 'in other words'] }],
+            matchMode: 'any',
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:length-12`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'length',
+            title: '열두 단어 말하기',
+            target: '다음 답변을 영어 단어 12개 이상으로 말해 보세요.',
+            successHint: '영어 단어 12개 이상으로 답했습니다.',
+            rewardLp: 7,
+            checks: [{ type: 'minWords', min: 12 }],
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:reaction`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'interaction',
+            title: '자연스럽게 반응하기',
+            target: '다음 답변에 sounds good 또는 that makes sense를 사용해 보세요.',
+            successHint: '상대의 말에 자연스럽게 반응했습니다.',
+            rewardLp: 5,
+            checks: [{ type: 'includesAny', value: ['sounds good', 'that makes sense'] }],
+            matchMode: 'any',
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:emphasis`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'vocabulary',
+            title: '중요한 점 강조하기',
+            target: '다음 답변에 actually 또는 in fact를 사용해 보세요.',
+            successHint: '중요한 내용을 강조해서 말했습니다.',
+            rewardLp: 6,
+            checks: [{ type: 'includesAny', value: ['actually', 'in fact'] }],
+            matchMode: 'any',
+            createdAt,
+        },
+        {
+            id: `${turn.evaluation.turnId}:length-14`,
+            sourceTurnId: turn.evaluation.turnId,
+            kind: 'length',
+            title: '열네 단어 말하기',
+            target: '다음 답변을 영어 단어 14개 이상으로 말해 보세요.',
+            successHint: '영어 단어 14개 이상으로 답했습니다.',
+            rewardLp: 8,
+            checks: [{ type: 'minWords', min: 14 }],
             createdAt,
         },
     ];
@@ -505,9 +747,9 @@ function createFallbackPracticeMissions(turn: EvaluatedTurn, assistantPrompt: st
             id: `${turn.evaluation.turnId}:example`,
             sourceTurnId: turn.evaluation.turnId,
             kind: 'vocabulary',
-            title: 'Example Detail',
-            target: 'Add one concrete example with for example or like.',
-            successHint: 'The answer included a concrete example.',
+            title: '구체적인 예시 들기',
+            target: 'for example 또는 like를 사용해 구체적인 예시를 하나 추가해 보세요.',
+            successHint: '답변에 구체적인 예시를 추가했습니다.',
             rewardLp: 6,
             checks: [{ type: 'includesAny', value: ['for example', 'like'] }],
             matchMode: 'any',
@@ -602,7 +844,7 @@ function ActiveMissionsPanel({ missions }: { missions: PracticeMission[] }) {
     if (missions.length === 0) return null;
 
     return (
-        <section className="max-h-[230px] shrink-0 overflow-hidden rounded-lg border border-[#483c2d]/10 bg-white/80 p-3 shadow-sm">
+        <section className="max-h-[300px] shrink-0 overflow-hidden rounded-lg border border-[#483c2d]/10 bg-white/80 p-3 shadow-sm">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <p className="flex items-center gap-1 text-xs font-black uppercase tracking-normal text-[#6b5a4a]/70">
@@ -613,9 +855,9 @@ function ActiveMissionsPanel({ missions }: { missions: PracticeMission[] }) {
                 </div>
                 <span className="shrink-0 rounded-full bg-[#f1eadf] px-2.5 py-1 text-xs font-black text-[#6b5a4a]">{missions.length}/3</span>
             </div>
-            <div className="mt-3 grid max-h-[160px] gap-2 overflow-y-auto pr-1">
+            <div className="mt-3 grid max-h-[230px] gap-2 overflow-y-auto pr-1">
                 {missions.map((mission) => (
-                    <div key={mission.id} className="rounded-md border border-[#483c2d]/10 bg-[#fffaf5]/90 px-3 py-1.5">
+                    <div key={mission.id} className="rounded-md border border-[#483c2d]/10 bg-[#fffaf5]/90 px-3 py-2">
                         <div className="flex flex-wrap items-center gap-2">
                             <span className="rounded-full bg-[#edf5ed] px-2 py-0.5 text-[11px] font-black text-[#29452c]">
                                 {mission.title}
@@ -625,6 +867,16 @@ function ActiveMissionsPanel({ missions }: { missions: PracticeMission[] }) {
                         <p className="mt-1 break-words text-sm font-black leading-snug text-[#483c2d]">
                             {mission.target}
                         </p>
+                        {mission.usageContext && (
+                            <p className="mt-1 break-words text-[11px] font-semibold leading-snug text-[#6b5a4a]">
+                                상황: {mission.usageContext}
+                            </p>
+                        )}
+                        {mission.exampleSentence && (
+                            <p className="mt-1 break-words rounded bg-white/70 px-2 py-1 text-[12px] font-bold leading-snug text-[#29452c]">
+                                예문: {mission.exampleSentence}
+                            </p>
+                        )}
                     </div>
                 ))}
             </div>
@@ -702,8 +954,10 @@ function TierSymbol({ tier }: { tier: TierConfig }) {
 }
 
 function TierBadge({ tier, size = 104 }: { tier: TierConfig; size?: number }) {
-    const gradientId = `tier-gradient-${tier.id}`;
-    const shineId = `tier-shine-${tier.id}`;
+    const instanceId = useId().replace(/:/g, '');
+    const gradientId = `tier-gradient-${tier.id}-${instanceId}`;
+    const shineId = `tier-shine-${tier.id}-${instanceId}`;
+    const glowId = `tier-glow-${tier.id}-${instanceId}`;
     const ornate = ['gold', 'platinum', 'diamond', 'master'].includes(tier.id);
     const elite = ['diamond', 'master'].includes(tier.id);
 
@@ -721,7 +975,7 @@ function TierBadge({ tier, size = 104 }: { tier: TierConfig; size?: number }) {
                         <stop offset="42%" stopColor="#ffffff" stopOpacity="0.12" />
                         <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
                     </linearGradient>
-                    <filter id={`tier-glow-${tier.id}`} x="-35%" y="-35%" width="170%" height="170%">
+                    <filter id={glowId} x="-35%" y="-35%" width="170%" height="170%">
                         <feGaussianBlur stdDeviation={elite ? '4.5' : '2.5'} result="blur" />
                         <feColorMatrix
                             in="blur"
@@ -735,7 +989,7 @@ function TierBadge({ tier, size = 104 }: { tier: TierConfig; size?: number }) {
                     </filter>
                 </defs>
 
-                {elite && <circle cx="64" cy="64" r="55" fill={`url(#${gradientId})`} opacity="0.22" filter={`url(#tier-glow-${tier.id})`} />}
+                {elite && <circle cx="64" cy="64" r="55" fill={`url(#${gradientId})`} opacity="0.22" filter={`url(#${glowId})`} />}
                 <path d="M64 7 105 29v44c0 26-19 42-41 50-22-8-41-24-41-50V29L64 7Z" fill={`url(#${gradientId})`} stroke={tier.stroke} strokeWidth="5" />
                 <path d="M64 18 95 35v35c0 19-13 32-31 39-18-7-31-20-31-39V35l31-17Z" fill="none" stroke="#fff8dc" strokeOpacity="0.34" strokeWidth="3" />
                 <path d="M34 32c19-13 43-15 63-1-13 2-39 9-64 31V35l1-3Z" fill={`url(#${shineId})`} opacity="0.72" />
@@ -783,12 +1037,55 @@ function MetricBar({ label, value }: { label: string; value: number }) {
     );
 }
 
-function StatusLine({ pendingCount, unavailableMessages }: { pendingCount: number; unavailableMessages: ChatMessage[] }) {
+function formatCountdown(milliseconds: number): string {
+    const totalSeconds = Math.max(0, Math.ceil(milliseconds / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (minutes <= 0) return `${seconds}초`;
+    return `${minutes}분 ${seconds.toString().padStart(2, '0')}초`;
+}
+
+function getBatchCountdown(status: EvaluationBatchStatus | null, nowEpochMs: number): string | null {
+    if (!status || status.pendingCount <= 0) return null;
+    if (status.nextFlushAtEpochMs) {
+        return formatCountdown(status.nextFlushAtEpochMs - nowEpochMs);
+    }
+    return formatCountdown(status.delaySeconds * 1000);
+}
+
+function StatusLine({
+    pendingCount,
+    skippedCount,
+    unavailableMessages,
+    evaluationBatchStatus,
+    nowEpochMs,
+}: {
+    pendingCount: number;
+    skippedCount: number;
+    unavailableMessages: ChatMessage[];
+    evaluationBatchStatus: EvaluationBatchStatus | null;
+    nowEpochMs: number;
+}) {
     if (pendingCount > 0) {
+        const queuedCount = evaluationBatchStatus?.pendingCount ?? pendingCount;
+        const turnsUntilEvaluation = evaluationBatchStatus
+            ? Math.max(0, evaluationBatchStatus.maxTurns - evaluationBatchStatus.pendingCount)
+            : null;
+        const countdown = getBatchCountdown(evaluationBatchStatus, nowEpochMs);
+        const isEvaluatingNow = Boolean(evaluationBatchStatus && evaluationBatchStatus.pendingCount <= 0);
+
         return (
-            <div className="flex items-center gap-2 rounded-md bg-[#fff7e8] px-3 py-2 text-xs font-medium text-[#6b5a4a]">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-[#fff7e8] px-3 py-2 text-xs font-medium text-[#6b5a4a]">
                 <Clock className="h-4 w-4" />
-                <span>{pendingCount}개 답변을 평가 중입니다.</span>
+                <span>{pendingCount}개 응답을 평가 대기 중입니다.</span>
+                <span className="font-bold text-[#8a5a22]">
+                    {isEvaluatingNow
+                        ? '평가 요청됨. 결과 수신 중'
+                        : `${countdown ?? '30초'} 이내 또는 ${turnsUntilEvaluation ?? 4}개 발화 후 평가`}
+                </span>
+                {queuedCount !== pendingCount ? (
+                    <span className="text-[#8a5a22]/75">큐 {queuedCount}개</span>
+                ) : null}
             </div>
         );
     }
@@ -799,9 +1096,18 @@ function StatusLine({ pendingCount, unavailableMessages }: { pendingCount: numbe
             <div className="flex items-center gap-2 rounded-md bg-[#f7ece8] px-3 py-2 text-xs font-medium text-[#7a4b3a]">
                 <AlertCircle className="h-4 w-4" />
                 <span>
-                    {unavailableMessages.length}개 답변은 평가하지 못했습니다.
+                    {unavailableMessages.length}개 응답은 평가하지 못했습니다.
                     {codes.length > 0 ? ` 원인: ${codes.join(', ')}` : ''}
                 </span>
+            </div>
+        );
+    }
+
+    if (skippedCount > 0) {
+        return (
+            <div className="flex items-center gap-2 rounded-md bg-[#f1f1ed] px-3 py-2 text-xs font-medium text-[#5d5d55]">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>{skippedCount}개 응답은 평가 대상에서 제외했습니다.</span>
             </div>
         );
     }
@@ -887,8 +1193,8 @@ function MissionSuccessCelebration({ celebrations }: { celebrations: MissionCele
 function FeedbackCard({ turn, compact = false }: { turn: EvaluatedTurn; compact?: boolean }) {
     const evaluation = turn.evaluation;
     const score = getMetricScore(evaluation, 'overall');
-    const correction = evaluation.correction.suggested;
-    const reason = evaluation.evidence.overall || evaluation.correction.reason;
+    const correction = turn.message.correction?.suggested || evaluation.correction.suggested;
+    const reason = evaluation.evidence.overall || turn.message.correction?.reason || evaluation.correction.reason;
 
     return (
         <article className="min-w-0 rounded-md border-l-4 border-[#6b5a4a]/30 bg-[#fdf8f4]/85 p-3">
@@ -911,35 +1217,312 @@ function FeedbackCard({ turn, compact = false }: { turn: EvaluatedTurn; compact?
     );
 }
 
+function getReportCorrections(turns: EvaluatedTurn[], messages: ChatMessage[]): ReportCorrection[] {
+    const correctionTurns = turns.filter((turn) => {
+        const original = turn.evaluation.correction.original.trim() || turn.message.content.trim();
+        const suggested = turn.evaluation.correction.suggested.trim();
+        return suggested.length > 0 && suggested.toLowerCase() !== original.toLowerCase();
+    });
+
+    return (correctionTurns.length > 0 ? correctionTurns : turns)
+        .slice(-6)
+        .reverse()
+        .map((turn) => ({
+            ...turn,
+            assistantPrompt: getAssistantPromptBeforeTurn(messages, turn.message.id ?? turn.evaluation.turnId),
+        }));
+}
+
+function getReportHighlights(turns: EvaluatedTurn[], metricAverages: MetricSnapshot[]) {
+    const latestTurn = turns[turns.length - 1] ?? null;
+    const strongest = metricAverages.reduce((best, metric) => (metric.value > best.value ? metric : best), metricAverages[0]);
+    const weakest = getWeakestMetric(metricAverages);
+
+    return {
+        strongest,
+        weakest,
+        strength: latestTurn?.evaluation.feedback.strength || latestTurn?.evaluation.evidence[strongest?.key] || '꾸준히 말하기를 시도한 점이 좋습니다.',
+        improvement: latestTurn?.evaluation.feedback.improvement || latestTurn?.evaluation.evidence[weakest?.key] || '각 답변에 이유나 예시를 한 문장 더 붙여보세요.',
+        nextPractice: latestTurn?.evaluation.feedback.nextPractice || 'because, so, for example 중 하나를 사용해 2-3문장으로 답해보세요.',
+    };
+}
+
+function PrintScoreRing({ score }: { score: number | null }) {
+    const value = score ?? 0;
+    const radius = 42;
+    const circumference = 2 * Math.PI * radius;
+    const dash = (clampScore(value) / 100) * circumference;
+
+    return (
+        <div className="relative flex h-[118px] w-[118px] shrink-0 items-center justify-center">
+            <svg viewBox="0 0 112 112" className="h-full w-full" aria-label={`종합 점수 ${score ?? 0}점`}>
+                <circle cx="56" cy="56" r={radius} fill="none" stroke="#efe5d8" strokeWidth="10" />
+                <circle
+                    cx="56"
+                    cy="56"
+                    r={radius}
+                    fill="none"
+                    stroke="#2f6f4f"
+                    strokeLinecap="round"
+                    strokeWidth="10"
+                    strokeDasharray={`${dash} ${circumference - dash}`}
+                    transform="rotate(-90 56 56)"
+                />
+            </svg>
+            <div className="absolute text-center">
+                <p className="text-[30px] font-black leading-none text-[#2f261e]">{score ?? '--'}</p>
+                <p className="mt-1 text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">점수</p>
+            </div>
+        </div>
+    );
+}
+
+function PrintMetricBar({ label, value }: { label: string; value: number }) {
+    return (
+        <div className="grid grid-cols-[76px_1fr_34px] items-center gap-2 text-[11px]">
+            <span className="font-bold text-[#514337]">{label}</span>
+            <div className="h-2.5 overflow-hidden rounded-full bg-[#efe5d8]">
+                <div className="h-full rounded-full bg-[#2f6f4f]" style={{ width: `${clampScore(value)}%` }} />
+            </div>
+            <span className="text-right font-black text-[#2f261e]">{value}</span>
+        </div>
+    );
+}
+
+function PrintInsightCard({ title, value, tone = 'neutral' }: { title: string; value: string; tone?: 'neutral' | 'good' | 'focus' }) {
+    const toneClass = tone === 'good'
+        ? 'border-[#2f6f4f]/25 bg-[#edf5ed] text-[#29452c]'
+        : tone === 'focus'
+            ? 'border-[#b77f1e]/25 bg-[#fff7e8] text-[#6b4f20]'
+            : 'border-[#6b5a4a]/15 bg-[#f8f1ea] text-[#514337]';
+
+    return (
+        <div className={`rounded-md border px-3 py-2 ${toneClass}`}>
+            <p className="text-[10px] font-black uppercase tracking-normal opacity-70">{title}</p>
+            <p className="mt-1 text-[12px] font-bold leading-snug">{value}</p>
+        </div>
+    );
+}
+
 function PrintReport({
+    messages,
     turns,
     sessionScore,
+    metricAverages,
 }: {
+    messages: ChatMessage[];
     turns: EvaluatedTurn[];
     sessionScore: number | null;
+    metricAverages: MetricSnapshot[];
 }) {
-    const recentTurns = turns.slice(-8).reverse();
+    const correctionTurns = getReportCorrections(turns, messages);
+    const reportTier = getTierProgress(turns);
+    const latestTurn = turns[turns.length - 1] ?? null;
+    const highlights = getReportHighlights(turns, metricAverages);
+    const reportDate = new Intl.DateTimeFormat('ko-KR', {
+        year: '2-digit',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    }).format(new Date());
 
     return (
         <section className="print-document hidden bg-white text-[#2f261e]">
-            <header className="border-b-4 border-[#6b5a4a] pb-5">
-                <p className="text-xs font-bold uppercase tracking-normal text-[#8a6f5a]">English Speaking Evaluation</p>
-                <h1 className="mt-2 text-3xl font-black tracking-normal text-[#2f261e]">English Coach Report</h1>
-                <p className="mt-2 text-sm font-semibold text-[#6b5a4a]">현재 점수 {sessionScore ?? '--'} / 100</p>
-            </header>
-            <div className="mt-4 space-y-3">
-                {recentTurns.map((turn) => (
-                    <FeedbackCard key={turn.evaluation.turnId} turn={turn} />
-                ))}
+            <div className="mx-auto max-w-[184mm]">
+                <article className="print-page break-after-page">
+                    <header className="flex items-start justify-between border-b-4 border-[#6b5a4a] pb-4">
+                        <div>
+                            <p className="text-[10px] font-bold uppercase tracking-normal text-[#8a6f5a]">영어 말하기 평가</p>
+                            <h1 className="mt-1 text-[28px] font-black tracking-normal text-[#2f261e]">영어 코치 리포트</h1>
+                            <p className="mt-1 text-[11px] font-semibold text-[#6b5a4a]">
+                                {reportDate} · UXROOM Voice Chat · 평가 응답 {turns.length}개
+                            </p>
+                        </div>
+                        <div className="text-right">
+                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">현재 티어</p>
+                            <p className="mt-1 text-[22px] font-black leading-none" style={{ color: reportTier.tier.text }}>{reportTier.tier.label}</p>
+                            <p className="mt-1 text-[10px] font-bold text-[#6b5a4a]">{reportTier.totalLp} LP</p>
+                        </div>
+                    </header>
+
+                    <section className="mt-5 grid grid-cols-[150px_1fr_132px] gap-5">
+                        <div className="flex flex-col items-center rounded-md bg-[#f8f1ea] p-4">
+                            <PrintScoreRing score={sessionScore} />
+                            <p className="mt-2 text-center text-[11px] font-bold leading-snug text-[#6b5a4a]">
+                                {latestTurn?.evaluation.cefrEstimate.level ?? 'CEFR'} 추정
+                            </p>
+                        </div>
+                        <div className="rounded-md border border-[#6b5a4a]/15 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">영역별 요약</p>
+                            <div className="mt-3 space-y-2.5">
+                                {metricAverages.map((metric) => (
+                                    <PrintMetricBar key={metric.key} label={metric.label} value={metric.value} />
+                                ))}
+                            </div>
+                        </div>
+                        <div className="flex flex-col items-center justify-center rounded-md border border-[#6b5a4a]/15 p-3">
+                            <TierBadge tier={reportTier.tier} size={90} />
+                            <p className="mt-2 text-center text-[11px] font-black leading-tight" style={{ color: reportTier.tier.text }}>
+                                {reportTier.tier.subtitle}
+                            </p>
+                            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#efe5d8]">
+                                <div className="h-full rounded-full bg-[#2f6f4f]" style={{ width: `${reportTier.progress}%` }} />
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="mt-4 grid grid-cols-3 gap-3">
+                        <PrintInsightCard title="강점" value={highlights.strength} tone="good" />
+                        <PrintInsightCard title="집중 영역" value={`${highlights.weakest?.label ?? '연습'}: ${highlights.improvement}`} tone="focus" />
+                        <PrintInsightCard title="다음 연습" value={highlights.nextPractice} />
+                    </section>
+
+                    <section className="mt-5 rounded-md border border-[#6b5a4a]/15 p-4">
+                        <div className="flex items-end justify-between border-b border-[#6b5a4a]/15 pb-2">
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">코치 요약</p>
+                                <h2 className="text-[18px] font-black text-[#2f261e]">다음에 집중할 연습</h2>
+                            </div>
+                            <p className="text-[10px] font-bold text-[#6b5a4a]">전문가 상담용 요약</p>
+                        </div>
+                        <div className="mt-3 grid grid-cols-[1fr_1fr] gap-4 text-[12px] leading-snug">
+                            <div>
+                                <p className="font-black text-[#2f6f4f]">추천 코칭 방향</p>
+                                <p className="mt-1 text-[#514337]">{highlights.improvement}</p>
+                            </div>
+                            <div>
+                                <p className="font-black text-[#2f6f4f]">평가 근거</p>
+                                <p className="mt-1 text-[#514337]">
+                                    최근 응답에 더 높은 비중을 두고 점수를 계산합니다. 아래 교정 항목은 학습 가치가 분명한 응답만 추렸습니다.
+                                </p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="mt-5">
+                        <div className="mb-3 flex items-end justify-between">
+                            <div>
+                                <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">핵심 교정</p>
+                                <h2 className="text-[18px] font-black text-[#2f261e]">다시 연습할 문장</h2>
+                            </div>
+                            <p className="text-[10px] font-bold text-[#6b5a4a]">최대 {Math.min(correctionTurns.length, 4)}개</p>
+                        </div>
+                        <div className="grid gap-2.5">
+                            {correctionTurns.slice(0, 4).map((turn, index) => (
+                                <article key={`${turn.evaluation.turnId}:page1`} className="rounded-md border-l-4 border-[#2f6f4f] bg-[#f8f1ea] px-3 py-2">
+                                    <div className="flex items-start gap-3">
+                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#2f6f4f] text-[11px] font-black text-white">{index + 1}</span>
+                                        <div className="min-w-0 flex-1">
+                                            {turn.assistantPrompt && (
+                                                <p className="break-words rounded bg-white/70 px-2 py-1 text-[10px] font-semibold leading-snug text-[#6b5a4a]">
+                                                    <span className="font-black text-[#2f6f4f]">AI 질문: </span>{turn.assistantPrompt}
+                                                </p>
+                                            )}
+                                            <p className="mt-1 break-words text-[11px] font-bold leading-snug text-[#6b5a4a]">
+                                                <span className="font-black text-[#7a4b3a]">내 답변: </span>{turn.evaluation.correction.original || turn.message.content}
+                                            </p>
+                                            <p className="mt-1 break-words rounded bg-white px-2 py-1 text-[12px] font-black leading-snug text-[#29452c]">
+                                                <span>교정: </span>{turn.evaluation.correction.suggested || turn.message.content}
+                                            </p>
+                                            <p className="mt-1 break-words text-[10px] font-semibold leading-snug text-[#514337]">
+                                                <span className="font-black">근거: </span>{turn.evaluation.correction.reason || turn.evaluation.evidence.overall}
+                                            </p>
+                                        </div>
+                                        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-[#2f261e]">
+                                            {getMetricScore(turn.evaluation, 'overall')}
+                                        </span>
+                                    </div>
+                                </article>
+                            ))}
+                        </div>
+                    </section>
+                </article>
+
+                <article className="print-page">
+                    <header className="border-b-4 border-[#6b5a4a] pb-3">
+                        <p className="text-[10px] font-bold uppercase tracking-normal text-[#8a6f5a]">상담 참고자료</p>
+                        <h2 className="mt-1 text-[24px] font-black text-[#2f261e]">상세 연습 노트</h2>
+                    </header>
+
+                    <section className="mt-5 grid grid-cols-[1fr_1fr] gap-4">
+                        <div className="rounded-md border border-[#6b5a4a]/15 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">레벨 근거</p>
+                            <p className="mt-2 text-[18px] font-black text-[#2f261e]">{latestTurn?.evaluation.cefrEstimate.level ?? '--'}</p>
+                            <p className="mt-2 text-[12px] font-semibold leading-snug text-[#514337]">
+                                {latestTurn?.evaluation.cefrEstimate.reason ?? '아직 레벨 근거가 충분하지 않습니다.'}
+                            </p>
+                        </div>
+                        <div className="rounded-md border border-[#6b5a4a]/15 p-4">
+                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">신뢰도</p>
+                            <p className="mt-2 text-[18px] font-black capitalize text-[#2f261e]">{latestTurn?.evaluation.confidence ?? '--'}</p>
+                            <p className="mt-2 text-[12px] font-semibold leading-snug text-[#514337]">
+                                {(latestTurn?.evaluation.confidenceReasons ?? []).slice(0, 2).join(' ') || '최종 레벨 판단은 전문가와 함께 확인하는 것이 좋습니다.'}
+                            </p>
+                        </div>
+                    </section>
+
+                    <section className="mt-5">
+                        <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">추가 교정</p>
+                        <div className="mt-3 grid gap-2.5">
+                            {correctionTurns.slice(4, 6).map((turn, index) => (
+                                <article key={`${turn.evaluation.turnId}:page2`} className="rounded-md border-l-4 border-[#b77f1e] bg-[#fff7e8] px-3 py-2">
+                                    <div className="flex items-start gap-3">
+                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#b77f1e] text-[11px] font-black text-white">{index + 5}</span>
+                                        <div className="min-w-0 flex-1">
+                                            {turn.assistantPrompt && (
+                                                <p className="break-words rounded bg-white/70 px-2 py-1 text-[10px] font-semibold leading-snug text-[#6b5a4a]">
+                                                    <span className="font-black text-[#b77f1e]">AI 질문: </span>{turn.assistantPrompt}
+                                                </p>
+                                            )}
+                                            <p className="mt-1 break-words text-[11px] font-bold leading-snug text-[#6b5a4a]">
+                                                <span className="font-black text-[#7a4b3a]">내 답변: </span>{turn.evaluation.correction.original || turn.message.content}
+                                            </p>
+                                            <p className="mt-1 break-words rounded bg-white px-2 py-1 text-[12px] font-black leading-snug text-[#6b4f20]">
+                                                <span>교정: </span>{turn.evaluation.correction.suggested || turn.message.content}
+                                            </p>
+                                            <p className="mt-1 break-words text-[10px] font-semibold leading-snug text-[#514337]">
+                                                <span className="font-black">근거: </span>{turn.evaluation.correction.reason || turn.evaluation.evidence.overall}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </article>
+                            ))}
+                            {correctionTurns.length <= 4 && (
+                                <p className="rounded-md bg-[#f8f1ea] px-3 py-2 text-[12px] font-semibold text-[#514337]">
+                                    추가 교정 항목이 없습니다. 첫 페이지의 핵심 교정을 상담 자료로 사용하세요.
+                                </p>
+                            )}
+                        </div>
+                    </section>
+
+                    <section className="mt-5 rounded-md border border-[#6b5a4a]/15 p-4">
+                        <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">7일 연습 계획</p>
+                        <div className="mt-3 grid grid-cols-3 gap-3 text-[12px] leading-snug">
+                            <PrintInsightCard title="1-2일차" value="교정 문장을 자연스럽게 말할 수 있을 때까지 소리 내어 반복하세요." />
+                            <PrintInsightCard title="3-5일차" value={highlights.nextPractice} tone="focus" />
+                            <PrintInsightCard title="6-7일차" value="짧은 대화를 한 뒤 같은 실수가 반복되는지 확인하세요." tone="good" />
+                        </div>
+                    </section>
+
+                    <footer className="mt-6 border-t border-[#6b5a4a]/15 pt-3 text-[10px] font-semibold leading-snug text-[#6b5a4a]">
+                        이 리포트는 전체 대화 대신 핵심 교정 근거만 담습니다. 사용자가 출력하거나 전문가와 상담할 때 3페이지를 넘기지 않도록 구성했습니다.
+                    </footer>
+                </article>
             </div>
         </section>
     );
 }
-
 export function AssessmentPanel() {
+    const printRoot = typeof document === 'undefined' ? null : document.body;
     const messages = useStore((state) => state.messages);
+    const evaluationBatchStatus = useStore((state) => state.evaluationBatchStatus);
     const activeMissions = useStore((state) => state.activeMissions);
     const addMissionCandidates = useStore((state) => state.addMissionCandidates);
+    const showDeveloperLpControls = process.env.NODE_ENV !== 'production';
+    const [developerLpDeltas, setDeveloperLpDeltas] = useState<number[]>([]);
+    const [nowEpochMs, setNowEpochMs] = useState(() => Date.now());
+
     const [missionCelebrations, setMissionCelebrations] = useState<MissionCelebration[]>([]);
     const shownMissionCelebrationIds = useRef<Set<string>>(new Set());
     const missionCelebrationTimers = useRef<Map<string, number>>(new Map());
@@ -947,7 +1530,6 @@ export function AssessmentPanel() {
 
     const assessment = useMemo(() => {
         const userMessages = messages.filter((message) => message.role === 'user');
-        const latestUserMessage = userMessages[userMessages.length - 1] ?? null;
         const turns: EvaluatedTurn[] = userMessages
             .filter((message): message is ChatMessage & { evaluation: TurnEvaluation } => Boolean(message.evaluation))
             .map((message) => ({ message, evaluation: message.evaluation }));
@@ -967,26 +1549,41 @@ export function AssessmentPanel() {
             userMessages,
             turns,
             latestTurn,
-            latestUserMessage,
             latestAssistantPrompt: getLatestAssistantPrompt(messages),
             sessionScore,
             trend,
             metricAverages,
             pendingCount: userMessages.filter((message) => message.evaluationStatus === 'pending').length,
+            skippedCount: userMessages.filter((message) => message.evaluationStatus === 'skipped').length,
             unavailableMessages: userMessages.filter((message) => message.evaluationStatus === 'unavailable'),
         };
     }, [messages]);
 
-    const { userMessages, turns, latestTurn, latestUserMessage, sessionScore, metricAverages, pendingCount, unavailableMessages } = assessment;
+    const { userMessages, turns, latestTurn, sessionScore, metricAverages, pendingCount, skippedCount, unavailableMessages } = assessment;
     const previousTurns = turns.slice(0, -1).reverse();
     const weakestMetric = metricAverages.length > 0 ? getWeakestMetric(metricAverages) : null;
-    const pendingMissionBonus = userMessages
-        .filter((message) => !message.evaluation)
-        .reduce((sum, message) => sum + getMissionBonusFromMessage(message), 0);
-    const latestPendingMissionBonus = latestUserMessage && !latestUserMessage.evaluation
-        ? getMissionBonusFromMessage(latestUserMessage)
-        : 0;
-    const tier = getTierProgress(turns, pendingMissionBonus, latestPendingMissionBonus);
+    const latestCorrectionMessage = [...userMessages]
+        .reverse()
+        .find((message) => message.correctionStatus === 'ready' && message.correction) ?? null;
+    const latestFeedbackMessage = [...userMessages]
+        .reverse()
+        .find((message) => message.correctionStatus === 'ready' || message.evaluationStatus === 'ready') ?? null;
+    const latestFeedbackTurn = latestFeedbackMessage?.evaluation
+        ? { message: latestFeedbackMessage, evaluation: latestFeedbackMessage.evaluation }
+        : null;
+    const latestRealtimeCorrection = latestFeedbackMessage?.correctionStatus === 'ready'
+        ? latestFeedbackMessage
+        : null;
+    const showCoachContent = shouldShowCoachContent(turns.length, Boolean(latestCorrectionMessage));
+    const realtimeTurnLps = userMessages.map((message) => getCurrentMessageLp(message));
+    const tier = calculateTierProgress({
+        tiers: TIERS,
+        turnLps: [
+            ...realtimeTurnLps,
+            ...(showDeveloperLpControls ? developerLpDeltas : []),
+        ],
+    });
+    const developerLpTotal = developerLpDeltas.reduce((sum, delta) => sum + delta, 0);
     const latestMissionMessage = [...userMessages]
         .reverse()
         .find((message) => (message.completedMissions?.length ?? 0) > 0) ?? null;
@@ -1046,15 +1643,24 @@ export function AssessmentPanel() {
         missionCelebrationTimers.current.clear();
     }, []);
 
+    useEffect(() => {
+        if (!evaluationBatchStatus || evaluationBatchStatus.pendingCount <= 0) return;
+        const timer = window.setInterval(() => setNowEpochMs(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, [evaluationBatchStatus]);
+
     return (
         <aside className="relative flex h-full min-h-0 flex-col border-t border-[#483c2d]/10 bg-[#f4ece4]/75 backdrop-blur-xl print:border-0 print:bg-white lg:border-l lg:border-t-0">
             <MissionSuccessCelebration celebrations={missionCelebrations} />
-            <PrintReport turns={turns} sessionScore={sessionScore} />
+            {printRoot ? createPortal(
+                <PrintReport messages={messages} turns={turns} sessionScore={sessionScore} metricAverages={metricAverages} />,
+                printRoot,
+            ) : null}
 
             <div className="flex items-center justify-between border-b border-[#483c2d]/10 px-5 py-4 print:hidden">
                 <div className="flex items-center gap-2">
                     <Activity className="h-5 w-5 text-[#6b5a4a]" />
-                    <h2 className="font-bold tracking-tight text-[#483c2d]">English Coach</h2>
+                    <h2 className="font-bold tracking-tight text-[#483c2d]">영어 코치</h2>
                 </div>
                 <button
                     type="button"
@@ -1069,11 +1675,17 @@ export function AssessmentPanel() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 print:hidden xl:p-5">
-                <StatusLine pendingCount={pendingCount} unavailableMessages={unavailableMessages} />
+                <StatusLine
+                    pendingCount={pendingCount}
+                    skippedCount={skippedCount}
+                    unavailableMessages={unavailableMessages}
+                    evaluationBatchStatus={evaluationBatchStatus}
+                    nowEpochMs={nowEpochMs}
+                />
 
-                {turns.length === 0 ? (
+                {!showCoachContent ? (
                     <section className="mt-4 rounded-lg border border-dashed border-[#483c2d]/20 bg-white/45 p-4 text-sm leading-relaxed text-[#6b5a4a]">
-                        아바타와 영어로 대화하면 답변마다 자동으로 코칭이 쌓입니다. 대화는 끊지 않고, 이 패널에서 점수와 교정 근거만 조용히 업데이트합니다.
+                        아바타와 영어로 대화하면 응답마다 자동으로 코칭이 붙습니다. 대화는 끊지 않고, 이 패널에서 점수와 교정 근거만 조용히 업데이트합니다.
                     </section>
                 ) : (
                     <div className="mt-4 grid min-h-full gap-4 xl:grid-cols-[minmax(520px,1.2fr)_minmax(300px,0.8fr)]">
@@ -1084,7 +1696,7 @@ export function AssessmentPanel() {
                                     <div className="relative flex items-center gap-4">
                                         <TierBadge tier={tier.tier} />
                                         <div className="min-w-0 flex-1">
-                                            <p className="text-xs font-semibold uppercase tracking-normal text-[#6b5a4a]/70">자동 코치 티어</p>
+                                            <p className="text-xs font-semibold uppercase tracking-normal text-[#6b5a4a]/70">자동 코칭 티어</p>
                                             <div className="mt-1 flex flex-wrap items-end gap-x-2 gap-y-1">
                                                 <span className="break-words text-4xl font-black leading-none" style={{ color: tier.tier.text }}>
                                                     {tier.tier.label}
@@ -1093,7 +1705,7 @@ export function AssessmentPanel() {
                                             </div>
                                             <p className="mt-1 text-xs font-semibold leading-relaxed text-[#6b5a4a]">{tier.tier.subtitle}</p>
                                             <p className="mt-1 text-xs font-bold" style={{ color: tier.tier.text }}>
-                                                {getScoreTone(sessionScore)}
+                                                {getTierTone(tier.tier.id, sessionScore)}
                                             </p>
                                             <div className="mt-3 h-3 overflow-hidden rounded-full border border-[#5b4939]/20 bg-[#cbb8a3] shadow-inner">
                                                 <div
@@ -1103,14 +1715,14 @@ export function AssessmentPanel() {
                                             </div>
                                             <div className="mt-2 flex items-center justify-between gap-3 text-xs font-black text-[#483c2d]">
                                                 <span>총 {tier.totalLp} LP</span>
-                                                <span>{tier.nextTier ? `${tier.nextTier.label}까지 ${100 - tier.lp} LP` : '최고 티어'}</span>
+                                                <span>{tier.nextTier ? `${tier.nextTier.label}까지 ${tier.nextTierRemainingLp} LP` : '최고 티어'}</span>
                                             </div>
                                         </div>
                                     </div>
 
                                     <div className="relative mt-4 flex items-center justify-between gap-2 rounded-md bg-[#fdf8f4]/80 px-3 py-2">
                                         <div className="text-xs font-semibold text-[#6b5a4a]">
-                                            더 높은 배지를 얻으려면 답변에 이유나 예시를 한 문장 더 붙여보세요.
+                                            더 높은 배지를 얻으려면 응답에 이유나 예시를 한 문장 더 붙여보세요.
                                         </div>
                                         <p className={`shrink-0 flex items-center gap-1 text-xs font-bold ${tier.latestDelta < 0 ? 'text-[#9a4b36]' : 'text-[#3d6f4a]'}`}>
                                             {tier.latestDelta < 0 ? <TrendingDown className="h-4 w-4" /> : <TrendingUp className="h-4 w-4" />}
@@ -1128,10 +1740,64 @@ export function AssessmentPanel() {
                                 </div>
                             </section>
 
+                            {showDeveloperLpControls && (
+                                <section className="rounded-lg border border-dashed border-[#9a4b36]/45 bg-[#fff7ed] p-4 shadow-sm">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <h3 className="text-sm font-black text-[#7a3b28]">Dev LP Controls</h3>
+                                            <p className="mt-1 text-xs font-semibold text-[#8a5a42]">
+                                                Test-only LP events. They reset on reload and are not saved to evaluation data.
+                                            </p>
+                                        </div>
+                                        <div className="text-right text-xs font-black text-[#7a3b28]">
+                                            <p>조정 {developerLpTotal > 0 ? '+' : ''}{developerLpTotal} LP</p>
+                                            <p className="mt-1 text-[#8a5a42]">이벤트 {developerLpDeltas.length}</p>
+                                        </div>
+                                    </div>
+                                    <div className="mt-3 grid grid-cols-5 gap-2">
+                                        {[25, 100].map((delta) => (
+                                            <button
+                                                key={`add-${delta}`}
+                                                type="button"
+                                                onClick={() => setDeveloperLpDeltas((items) => [...items, delta])}
+                                                className="flex min-h-10 items-center justify-center gap-1 rounded-md bg-[#2f6f4f] px-2 text-xs font-black text-white transition-colors hover:bg-[#265a40] focus:outline-none focus:ring-2 focus:ring-[#2f6f4f]/30"
+                                                title={`Test LP +${delta}`}
+                                            >
+                                                <Plus className="h-4 w-4" />
+                                                {delta}
+                                            </button>
+                                        ))}
+                                        {[-25, -100].map((delta) => (
+                                            <button
+                                                key={`subtract-${delta}`}
+                                                type="button"
+                                                onClick={() => setDeveloperLpDeltas((items) => [...items, delta])}
+                                                className="flex min-h-10 items-center justify-center gap-1 rounded-md bg-[#9a4b36] px-2 text-xs font-black text-white transition-colors hover:bg-[#7e3e2d] focus:outline-none focus:ring-2 focus:ring-[#9a4b36]/30"
+                                                title={`Test LP ${delta}`}
+                                            >
+                                                <Minus className="h-4 w-4" />
+                                                {Math.abs(delta)}
+                                            </button>
+                                        ))}
+                                        <button
+                                            type="button"
+                                            onClick={() => setDeveloperLpDeltas([])}
+                                            className="flex min-h-10 items-center justify-center rounded-md border border-[#7a3b28]/30 bg-white px-2 text-[#7a3b28] transition-colors hover:bg-[#f8e5d7] focus:outline-none focus:ring-2 focus:ring-[#7a3b28]/25"
+                                            title="Reset test LP"
+                                        >
+                                            <RotateCcw className="h-4 w-4" />
+                                        </button>
+                                    </div>
+                                    <p className="mt-3 text-xs font-semibold leading-relaxed text-[#7a3b28]">
+                                        Promotion check: +100 should advance a tier. Demotion guard: -100 should not lower the earned badge.
+                                    </p>
+                                </section>
+                            )}
+
                             <section className="rounded-lg border border-white/50 bg-white/70 p-4 shadow-sm">
                                 <div className="grid grid-cols-3 gap-2">
                                     <div className="rounded-md bg-[#fdf8f4]/90 px-3 py-2">
-                                        <p className="text-[11px] font-bold text-[#6b5a4a]/70">누적 답변</p>
+                                        <p className="text-[11px] font-bold text-[#6b5a4a]/70">누적 응답</p>
                                         <p className="mt-1 text-lg font-black leading-none text-[#483c2d]">{turns.length}</p>
                                     </div>
                                     <div className="rounded-md bg-[#eef8f6] px-3 py-2">
@@ -1148,7 +1814,7 @@ export function AssessmentPanel() {
                                     </div>
                                 </div>
                                 <p className="mt-3 text-xs leading-relaxed text-[#6b5a4a]">
-                                    점수는 답변 품질을 냉정하게 보정하고, LP는 꾸준히 대화를 확장하는 연습량을 반영합니다.
+                                    점수는 응답을 마지막까지 안정적으로 보정하고, LP는 꾸준히 대화를 확장하는 연습량을 반영합니다.
                                 </p>
                             </section>
 
@@ -1165,30 +1831,68 @@ export function AssessmentPanel() {
                         <div className="order-1 flex flex-col gap-4 xl:order-1">
                             <ActiveMissionsPanel missions={activeMissions} />
 
-                            {latestTurn && (
+                            {(latestFeedbackTurn || latestRealtimeCorrection || latestCorrectionMessage) && (
                                 <section className="max-h-[390px] shrink-0 overflow-y-auto rounded-lg border border-[#3d6f4a]/20 bg-white/80 shadow-sm">
                                     <div className="bg-[#edf5ed] px-4 py-3">
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
                                                 <p className="flex items-center gap-1 text-xs font-black uppercase tracking-normal text-[#29452c]">
                                                     <Sparkles className="h-3.5 w-3.5" />
-                                                    다음에 이렇게 말하세요
+                                                    다음엔 이렇게 말해보세요
                                                 </p>
                                                 <p className="mt-2 break-words text-xl font-black leading-snug text-[#243f27]">
-                                                    {getRetrySentence(latestTurn)}
+                                                    {latestFeedbackTurn
+                                                        ? getRetrySentence(latestFeedbackTurn)
+                                                        : latestRealtimeCorrection?.correction?.suggested
+                                                            || latestRealtimeCorrection?.content
+                                                            || latestCorrectionMessage?.correction?.suggested
+                                                            || latestCorrectionMessage?.content}
                                                 </p>
                                             </div>
-                                            <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${getScoreAccent(getMetricScore(latestTurn.evaluation, 'overall'))}`}>
-                                                {getMetricScore(latestTurn.evaluation, 'overall')}
+                                            <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${latestFeedbackTurn ? getScoreAccent(getMetricScore(latestFeedbackTurn.evaluation, 'overall')) : 'bg-[#eef8f6] text-[#1f4f4a]'}`}>
+                                                {latestFeedbackTurn
+                                                    ? getMetricScore(latestFeedbackTurn.evaluation, 'overall')
+                                                    : `${latestRealtimeCorrection?.correction?.provisionalScore
+                                                        ?? latestCorrectionMessage?.correction?.provisionalScore
+                                                        ?? '--'}점`}
                                             </span>
                                         </div>
-                                        {getCoachReason(latestTurn.evaluation) && (
+                                        {(latestFeedbackTurn
+                                            ? getCoachReason(latestFeedbackTurn.evaluation, latestFeedbackTurn.message.correction)
+                                            : latestRealtimeCorrection?.correction?.reason || latestCorrectionMessage?.correction?.reason) && (
                                             <p className="mt-2 break-words text-xs font-semibold leading-relaxed text-[#3f6543]">
-                                                {getCoachReason(latestTurn.evaluation)}
+                                                {latestFeedbackTurn
+                                                    ? getCoachReason(latestFeedbackTurn.evaluation, latestFeedbackTurn.message.correction)
+                                                    : latestRealtimeCorrection?.correction?.reason || latestCorrectionMessage?.correction?.reason}
+                                            </p>
+                                        )}
+                                        {!latestFeedbackTurn && (
+                                            latestRealtimeCorrection?.correction?.contextReason
+                                            || latestCorrectionMessage?.correction?.contextReason
+                                        ) && (
+                                            <p className="mt-1 break-words text-xs font-semibold leading-relaxed text-[#5e5549]">
+                                                {getContextFitLabel(
+                                                    latestRealtimeCorrection?.correction?.contextFit
+                                                    || latestCorrectionMessage?.correction?.contextFit,
+                                                )} · {latestRealtimeCorrection?.correction?.contextReason
+                                                    || latestCorrectionMessage?.correction?.contextReason}
+                                            </p>
+                                        )}
+                                        {!latestFeedbackTurn && Number.isFinite(
+                                            latestRealtimeCorrection?.correction?.provisionalLp
+                                            ?? latestCorrectionMessage?.correction?.provisionalLp,
+                                        ) && (
+                                            <p className="mt-1 text-xs font-black text-[#3d6f4a]">
+                                                실시간 LP {(latestRealtimeCorrection?.correction?.provisionalLp
+                                                    ?? latestCorrectionMessage?.correction?.provisionalLp
+                                                    ?? 0) > 0 ? '+' : ''}
+                                                {latestRealtimeCorrection?.correction?.provisionalLp
+                                                    ?? latestCorrectionMessage?.correction?.provisionalLp} LP
                                             </p>
                                         )}
                                     </div>
 
+                                    {latestFeedbackTurn && (
                                     <div className="p-4">
                                         <div className="min-w-0">
                                             {latestMissionResults.length > 0 && (
@@ -1218,51 +1922,52 @@ export function AssessmentPanel() {
 
                                         <div className="mt-3 grid gap-3 2xl:grid-cols-2">
                                             <div className="rounded-md bg-[#fdf8f4]/90 p-3 text-xs leading-relaxed text-[#5b4939]">
-                                                <p className="font-bold text-[#483c2d]">방금 답변</p>
-                                                <p className="mt-1 break-words">{latestTurn.message.content}</p>
+                                                <p className="font-bold text-[#483c2d]">최근 답변</p>
+                                                <p className="mt-1 break-words">{latestFeedbackTurn.message.content}</p>
                                             </div>
                                             <div className="rounded-md bg-[#eef8f6] p-3 text-xs leading-relaxed text-[#265651]">
                                                 <p className="flex items-center gap-1 font-bold text-[#1f4f4a]"><Target className="h-3.5 w-3.5" /> 집중 포인트</p>
-                                                <p className="mt-1 break-words">{getLatestFocus(latestTurn.evaluation)}</p>
+                                                <p className="mt-1 break-words">{getLatestFocus(latestFeedbackTurn.evaluation)}</p>
                                             </div>
-                                            {latestTurn.evaluation.feedback.strength && (
+                                            {latestFeedbackTurn.evaluation.feedback.strength && (
                                                 <div className="rounded-md bg-[#f8f1ea]/90 p-3 text-xs leading-relaxed text-[#5b4939]">
-                                                    <p className="font-bold text-[#483c2d]">잘한 점</p>
-                                                    <p className="mt-1 break-words">{latestTurn.evaluation.feedback.strength}</p>
+                                                    <p className="font-bold text-[#483c2d]">강점</p>
+                                                    <p className="mt-1 break-words">{latestFeedbackTurn.evaluation.feedback.strength}</p>
                                                 </div>
                                             )}
                                             <div className="rounded-md bg-[#fff7e8] p-3 text-xs leading-relaxed text-[#6b4f20]">
-                                                <p className="font-bold text-[#5a421a]">한 번 더 말하기</p>
-                                                <p className="mt-1 break-words">위 문장을 입으로 다시 말한 뒤, 같은 뜻으로 한 문장만 더 붙여보세요.</p>
+                                                <p className="font-bold text-[#5a421a]">다시 말하기</p>
+                                                <p className="mt-1 break-words">교정된 문장으로 다시 말한 뒤, 같은 생각을 한 문장 더 붙여보세요.</p>
                                             </div>
                                         </div>
 
                                         <details className="mt-3 rounded-md bg-[#f8f1ea]/70 px-3 py-2 text-xs leading-relaxed text-[#6b5a4a]">
-                                            <summary className="cursor-pointer font-bold text-[#483c2d]">점수 근거 보기</summary>
+                                            <summary className="cursor-pointer font-bold text-[#483c2d]">View score evidence</summary>
                                             <p className="mt-1 break-words">
-                                                {latestTurn.evaluation.evidence.overall || latestTurn.evaluation.cefrEstimate.reason}
+                                                {latestFeedbackTurn.evaluation.evidence.overall || latestFeedbackTurn.evaluation.cefrEstimate.reason}
                                             </p>
                                         </details>
 
-                                        {latestTurn.evaluation.calibrationNotes && latestTurn.evaluation.calibrationNotes.length > 0 && (
+                                        {latestFeedbackTurn.evaluation.calibrationNotes && latestFeedbackTurn.evaluation.calibrationNotes.length > 0 && (
                                             <p className="mt-3 rounded-md bg-[#f7ece8] px-3 py-2 text-xs leading-relaxed text-[#7a4b3a]">
-                                                {latestTurn.evaluation.calibrationNotes.join(' ')}
+                                                {latestFeedbackTurn.evaluation.calibrationNotes.join(' ')}
                                             </p>
                                         )}
                                         <p className="mt-3 text-xs leading-relaxed text-[#6b5a4a]">
-                                            레벨 힌트 {latestTurn.evaluation.cefrEstimate.level}: {latestTurn.evaluation.cefrEstimate.reason}
+                                            Level note {latestFeedbackTurn.evaluation.cefrEstimate.level}: {latestFeedbackTurn.evaluation.cefrEstimate.reason}
                                         </p>
                                     </div>
+                                    )}
                                 </section>
                             )}
 
-                            <section className="flex min-h-[220px] flex-1 flex-col rounded-lg border border-white/50 bg-white/70 p-4 shadow-sm">
+                            <section className="flex min-h-[220px] max-h-[320px] flex-none flex-col rounded-lg border border-white/50 bg-white/70 p-4 shadow-sm">
                                 <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
-                                    <h3 className="text-sm font-bold text-[#483c2d]">이전 답변 피드백</h3>
-                                    <span className="shrink-0 text-xs font-semibold text-[#6b5a4a]/70">전체 {previousTurns.length}개</span>
+                                    <h3 className="text-sm font-bold text-[#483c2d]">Previous feedback</h3>
+                                    <span className="shrink-0 text-xs font-semibold text-[#6b5a4a]/70">Total {previousTurns.length}</span>
                                 </div>
                                 {previousTurns.length === 0 ? (
-                                    <p className="text-xs leading-relaxed text-[#6b5a4a]">답변이 더 쌓이면 이곳에서 이전 피드백을 스크롤로 다시 볼 수 있습니다.</p>
+                                    <p className="text-xs leading-relaxed text-[#6b5a4a]">응답이 쌓이면 이곳에서 이전 피드백을 스크롤로 다시 볼 수 있습니다.</p>
                                 ) : (
                                     <div className="min-h-0 flex-1 overflow-y-auto pr-1">
                                         <div className="grid gap-2 2xl:grid-cols-2">

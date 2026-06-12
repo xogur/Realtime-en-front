@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useStore, type TurnEvaluation } from '@/stores/useStore';
+import { useStore, type TurnCorrection, type TurnEvaluation } from '@/stores/useStore';
 import { useAudioPlayer } from './useAudioPlayer';
 import { useAudioRecorder } from './useAudioRecorder';
 import type { Emotion, TtsAudioChunk, TtsVisemeTimeline } from '@/lib/lipsync/types';
+
+const EVALUATION_BATCH_DELAY_SECONDS = 30;
+const EVALUATION_BATCH_MAX_TURNS = 4;
 
 const EMOTION_TAG_MAP: Record<string, Emotion> = {
   '기쁨': 'happy',
@@ -26,6 +29,7 @@ type SocketMessage = {
   content?: string;
   korean_content?: string;
   suggestions?: string[];
+  correction?: TurnCorrection;
   evaluation?: TurnEvaluation;
   turnId?: string;
   code?: string;
@@ -38,6 +42,12 @@ type SocketMessage = {
   emotion?: string;
   timeline?: TtsVisemeTimeline;
   reason?: string;
+  evaluation_policy?: 'evaluate' | 'skip';
+  evaluation_reason?: string;
+  pendingCount?: number;
+  maxTurns?: number;
+  delaySeconds?: number;
+  nextFlushAtEpochMs?: number | null;
 };
 
 type ConnectOptions = {
@@ -119,8 +129,15 @@ export function useVoiceSocket() {
   const appendToLastAssistantMessage = useStore((state) => state.appendToLastAssistantMessage);
   const setLastAssistantSuggestions = useStore((state) => state.setLastAssistantSuggestions);
   const assignLatestPendingUserTurnId = useStore((state) => state.assignLatestPendingUserTurnId);
+  const setTurnCorrection = useStore((state) => state.setTurnCorrection);
+  const setTurnCorrectionSkipped = useStore((state) => state.setTurnCorrectionSkipped);
+  const setTurnCorrectionUnavailable = useStore((state) => state.setTurnCorrectionUnavailable);
   const setTurnEvaluation = useStore((state) => state.setTurnEvaluation);
+  const setTurnEvaluationSkipped = useStore((state) => state.setTurnEvaluationSkipped);
   const setTurnEvaluationUnavailable = useStore((state) => state.setTurnEvaluationUnavailable);
+  const setEvaluationBatchStatus = useStore((state) => state.setEvaluationBatchStatus);
+  const queueLocalEvaluationBatchTurn = useStore((state) => state.queueLocalEvaluationBatchTurn);
+  const clearEvaluationBatchStatus = useStore((state) => state.clearEvaluationBatchStatus);
   const setThinking = useStore((state) => state.setThinking);
   const setSocket = useStore((state) => state.setSocket);
   const upsertTtsSegment = useStore((state) => state.upsertTtsSegment);
@@ -283,6 +300,35 @@ export function useVoiceSocket() {
     [getTurnId, setTurnEvaluation],
   );
 
+  const handleTurnCorrection = useCallback(
+    (data: SocketMessage) => {
+      const turnId = getTurnId(data);
+      if (!turnId || !data.correction) return;
+      setTurnCorrection(turnId, data.correction);
+    },
+    [getTurnId, setTurnCorrection],
+  );
+
+  const handleTurnCorrectionError = useCallback(
+    (data: SocketMessage) => {
+      const turnId = getTurnId(data);
+      if (!turnId) return;
+      setTurnCorrectionUnavailable(turnId, data.code ?? 'provider_error');
+      console.warn('Turn correction unavailable:', data.code ?? 'provider_error');
+    },
+    [getTurnId, setTurnCorrectionUnavailable],
+  );
+
+  const handleTurnCorrectionSkipped = useCallback(
+    (data: SocketMessage) => {
+      const turnId = getTurnId(data);
+      if (!turnId) return;
+      bindActiveGenerationToPendingUser(data);
+      setTurnCorrectionSkipped(turnId, data.reason ?? 'policy_skip');
+    },
+    [bindActiveGenerationToPendingUser, getTurnId, setTurnCorrectionSkipped],
+  );
+
   const handleTurnEvaluationError = useCallback(
     (data: SocketMessage) => {
       const turnId = getTurnId(data);
@@ -291,6 +337,28 @@ export function useVoiceSocket() {
       console.warn('Turn evaluation unavailable:', data.code ?? 'provider_error');
     },
     [getTurnId, setTurnEvaluationUnavailable],
+  );
+
+  const handleTurnEvaluationSkipped = useCallback(
+    (data: SocketMessage) => {
+      const turnId = getTurnId(data);
+      if (!turnId) return;
+      bindActiveGenerationToPendingUser(data);
+      setTurnEvaluationSkipped(turnId, data.reason ?? 'policy_skip');
+    },
+    [bindActiveGenerationToPendingUser, getTurnId, setTurnEvaluationSkipped],
+  );
+
+  const handleEvaluationBatchStatus = useCallback(
+    (data: SocketMessage) => {
+      setEvaluationBatchStatus({
+        pendingCount: Number(data.pendingCount ?? 0),
+        maxTurns: Number(data.maxTurns ?? 1),
+        delaySeconds: Number(data.delaySeconds ?? 0),
+        nextFlushAtEpochMs: data.nextFlushAtEpochMs ?? null,
+      });
+    },
+    [setEvaluationBatchStatus],
   );
 
   const handleSegmentStart = useCallback(
@@ -388,6 +456,14 @@ export function useVoiceSocket() {
             setThinking(true);
             useStore.getState().setPartialMessage('');
             addMessage('user', sanitizeModelText(data.content ?? ''), activeGenerationIdRef.current ?? undefined);
+            if (activeGenerationIdRef.current && data.evaluation_policy === 'skip') {
+              setTurnEvaluationSkipped(
+                activeGenerationIdRef.current,
+                data.evaluation_reason ?? 'policy_skip',
+              );
+            } else {
+              queueLocalEvaluationBatchTurn(EVALUATION_BATCH_DELAY_SECONDS, EVALUATION_BATCH_MAX_TURNS);
+            }
             break;
           case 'final_assistant_answer':
             handleFinalAssistantAnswer(data);
@@ -401,8 +477,23 @@ export function useVoiceSocket() {
           case 'turn_evaluation':
             handleTurnEvaluation(data);
             break;
+          case 'turn_correction':
+            handleTurnCorrection(data);
+            break;
+          case 'turn_correction_skipped':
+            handleTurnCorrectionSkipped(data);
+            break;
+          case 'turn_correction_error':
+            handleTurnCorrectionError(data);
+            break;
+          case 'turn_evaluation_skipped':
+            handleTurnEvaluationSkipped(data);
+            break;
           case 'turn_evaluation_error':
             handleTurnEvaluationError(data);
+            break;
+          case 'evaluation_batch_status':
+            handleEvaluationBatchStatus(data);
             break;
           case 'stt_provider_status':
             console.info('STT provider status:', data.content);
@@ -432,6 +523,7 @@ export function useVoiceSocket() {
       setConnected(false);
       setSocket(null);
       activeGenerationIdRef.current = null;
+      clearEvaluationBatchStatus();
       flushActiveTts();
       stopRecording();
     };
@@ -443,12 +535,15 @@ export function useVoiceSocket() {
       setConnected(false);
       setSocket(null);
       activeGenerationIdRef.current = null;
+      clearEvaluationBatchStatus();
     };
 
     socketRef.current = ws;
   }, [
     addMessage,
+    clearEvaluationBatchStatus,
     flushActiveTts,
+    handleEvaluationBatchStatus,
     handleAssistantReplySuggestions,
     handleAssistantTranslation,
     handleFinalAssistantAnswer,
@@ -457,14 +552,20 @@ export function useVoiceSocket() {
     handleSegmentStart,
     handleSegmentTimeline,
     handleTtsChunk,
+    handleTurnCorrection,
+    handleTurnCorrectionError,
+    handleTurnCorrectionSkipped,
     handleTurnEvaluation,
+    handleTurnEvaluationSkipped,
     handleTurnEvaluationError,
     getGenerationId,
     isCurrentGeneration,
+    queueLocalEvaluationBatchTurn,
     setConnected,
     setConnecting,
     setSocket,
     setThinking,
+    setTurnEvaluationSkipped,
     startRecording,
     stopRecording,
   ]);
@@ -474,12 +575,13 @@ export function useVoiceSocket() {
     isDisconnecting.current = true;
     cleanupSocket();
     activeGenerationIdRef.current = null;
+    clearEvaluationBatchStatus();
     flushActiveTts();
     setConnected(false);
     setSocket(null);
     stopRecording();
     isDisconnecting.current = false;
-  }, [cleanupSocket, flushActiveTts, setConnected, setSocket, stopRecording]);
+  }, [cleanupSocket, clearEvaluationBatchStatus, flushActiveTts, setConnected, setSocket, stopRecording]);
 
   useEffect(() => {
     setOnDataAvailable((pcmData) => {

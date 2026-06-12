@@ -1,31 +1,11 @@
 'use client';
 
-import { useEffect } from 'react';
 import { useChatSync } from '@/hooks/useChatSync';
-import { useVoiceSocket } from '@/hooks/useVoiceSocket';
 import { ChatOverlay } from '@/components/ChatOverlay';
 import { AssessmentPanel } from '@/components/AssessmentPanel';
 
 export default function ChatPopout() {
-    const { hasMainWindow } = useChatSync(false);
-    const { connect, disconnect } = useVoiceSocket();
-
-    useEffect(() => {
-        if (hasMainWindow) {
-            disconnect();
-            return undefined;
-        }
-
-        const fallbackTimer = window.setTimeout(() => {
-            connect({ startRecording: false });
-        }, 800);
-
-        return () => {
-            window.clearTimeout(fallbackTimer);
-        };
-    }, [connect, disconnect, hasMainWindow]);
-
-    useEffect(() => () => disconnect(), [disconnect]);
+    useChatSync(false);
 
     return (
         <main className="relative h-screen w-full overflow-hidden" style={{

@@ -57,6 +57,23 @@ export type TurnEvaluation = {
     missionCandidates?: PracticeMission[];
 };
 
+export type TurnCorrection = {
+    turnId: string;
+    provider: string;
+    model: string;
+    createdAt: string;
+    original: string;
+    suggested: string;
+    reason: string;
+    contextFit?: 'appropriate' | 'partial' | 'off_topic' | 'unknown';
+    contextReason?: string;
+    languageScore?: number;
+    contextScore?: number | null;
+    provisionalScore?: number;
+    provisionalLp?: number;
+    latencyMs?: number;
+};
+
 export type MissionKind =
     | 'grammar'
     | 'tense'
@@ -87,6 +104,8 @@ export type PracticeMission = {
     title: string;
     target: string;
     successHint: string;
+    usageContext?: string;
+    exampleSentence?: string;
     rewardLp: number;
     checks: MissionCheck[];
     matchMode?: 'all' | 'any';
@@ -108,11 +127,24 @@ export type ChatMessage = {
     role: 'user' | 'assistant';
     content: string;
     suggestions?: string[];
+    correction?: TurnCorrection;
+    correctionStatus?: 'pending' | 'ready' | 'skipped' | 'unavailable';
+    correctionErrorCode?: string;
+    correctionSkipReason?: string;
     evaluation?: TurnEvaluation;
-    evaluationStatus?: 'pending' | 'ready' | 'unavailable';
+    evaluationStatus?: 'pending' | 'ready' | 'skipped' | 'unavailable';
     evaluationErrorCode?: string;
+    evaluationSkipReason?: string;
     completedMissions?: MissionCompletion[];
     attemptedMission?: PracticeMission;
+};
+
+export type EvaluationBatchStatus = {
+    pendingCount: number;
+    maxTurns: number;
+    delaySeconds: number;
+    nextFlushAtEpochMs?: number | null;
+    receivedAtEpochMs: number;
 };
 
 interface AppState {
@@ -122,6 +154,7 @@ interface AppState {
     isPlaying: boolean;
     volume: number; // 0 to 1, for visualizer
     messages: ChatMessage[];
+    evaluationBatchStatus: EvaluationBatchStatus | null;
     activeMissions: PracticeMission[];
     missionQueue: PracticeMission[];
     partialMessage: string;
@@ -174,7 +207,14 @@ interface AppState {
     addMissionCandidates: (missions: PracticeMission[]) => void;
     assignLatestPendingUserTurnId: (turnId: string) => void;
     setTurnEvaluation: (turnId: string, evaluation: TurnEvaluation) => void;
+    setTurnCorrection: (turnId: string, correction: TurnCorrection) => void;
+    setTurnCorrectionSkipped: (turnId: string, reason?: string) => void;
+    setTurnCorrectionUnavailable: (turnId: string, code?: string) => void;
+    setTurnEvaluationSkipped: (turnId: string, reason?: string) => void;
     setTurnEvaluationUnavailable: (turnId: string, code?: string) => void;
+    setEvaluationBatchStatus: (status: Omit<EvaluationBatchStatus, 'receivedAtEpochMs'>) => void;
+    queueLocalEvaluationBatchTurn: (delaySeconds: number, maxTurns: number) => void;
+    clearEvaluationBatchStatus: () => void;
     setVoice: (voice: string) => void;
     setSpeed: (speed: number) => void;
     setTextScale: (scale: number) => void;
@@ -367,8 +407,11 @@ function applyMissionCompletionsToMessages(messages: ChatMessage[], missions: Pr
 function sanitizeMission(mission: PracticeMission): PracticeMission | null {
     if (!mission.id || !mission.target || !mission.title || !Array.isArray(mission.checks)) return null;
     const localized = localizeMission(mission);
+    const guidance = getMissionGuidance(localized);
     return {
         ...localized,
+        usageContext: (localized.usageContext || guidance.usageContext)?.slice(0, 160),
+        exampleSentence: (localized.exampleSentence || guidance.exampleSentence)?.slice(0, 160),
         rewardLp: Math.max(3, Math.min(12, Math.round(mission.rewardLp || 5))),
         checks: normalizeMissionChecks(mission).slice(0, 3),
         matchMode: shouldForceConnectorCheck(mission) ? 'all' : mission.matchMode === 'any' ? 'any' : 'all',
@@ -394,6 +437,72 @@ function firstMissionCheck(mission: PracticeMission): MissionCheck | undefined {
 function missionValues(check?: MissionCheck): string[] {
     if (!check?.value) return [];
     return Array.isArray(check.value) ? check.value : [check.value];
+}
+
+function getMissionGuidance(mission: PracticeMission): Pick<PracticeMission, 'usageContext' | 'exampleSentence'> {
+    const check = firstMissionCheck(mission);
+    const values = missionValues(check).filter(Boolean);
+    const firstValue = values[0];
+    const min = check?.min;
+
+    if (shouldForceConnectorCheck(mission)) {
+        return {
+            usageContext: '이유를 설명하거나 앞 문장에 예시를 덧붙이고 싶을 때 사용합니다.',
+            exampleSentence: 'I like this place because it is quiet.',
+        };
+    }
+
+    switch (check?.type) {
+        case 'minWords':
+            return {
+                usageContext: '짧게 끝내지 않고 이유나 세부 정보를 한 문장 더 붙일 때 사용합니다.',
+                exampleSentence: 'I usually study English after dinner because it helps me relax.',
+            };
+        case 'sentenceCount':
+            return {
+                usageContext: '한 가지 생각을 말한 뒤 이유, 예시, 느낌을 이어 말할 때 사용합니다.',
+                exampleSentence: 'I like morning walks. They make me feel fresh.',
+            };
+        case 'question':
+            return {
+                usageContext: '내 답변 뒤에 상대 의견을 묻거나 대화를 이어가고 싶을 때 사용합니다.',
+                exampleSentence: 'I like coffee. What about you?',
+            };
+        case 'pastTense':
+            return {
+                usageContext: '어제, 지난주, 예전에 한 일을 말할 때 사용합니다.',
+                exampleSentence: 'I watched a movie yesterday.',
+            };
+        case 'futureTense':
+            return {
+                usageContext: '앞으로 할 계획이나 원하는 일을 말할 때 사용합니다.',
+                exampleSentence: 'I will practice speaking tonight.',
+            };
+        case 'presentPerfect':
+            return {
+                usageContext: '지금까지 해본 경험이나 최근에 배운 것을 말할 때 사용합니다.',
+                exampleSentence: 'I have tried online English lessons.',
+            };
+        case 'politeRequest':
+            return {
+                usageContext: '상대에게 도움이나 설명을 정중하게 부탁할 때 사용합니다.',
+                exampleSentence: 'Could you explain that again, please?',
+            };
+        case 'includesAny':
+            return {
+                usageContext: firstValue
+                    ? `${firstValue} 같은 표현을 자연스럽게 답변에 넣고 싶을 때 사용합니다.`
+                    : '목표 표현을 답변 안에 자연스럽게 넣고 싶을 때 사용합니다.',
+                exampleSentence: firstValue
+                    ? `${firstValue.charAt(0).toUpperCase()}${firstValue.slice(1)} it is useful for me.`
+                    : 'I think it is useful for me.',
+            };
+        default:
+            return {
+                usageContext: '답변을 조금 더 자연스럽고 구체적으로 만들고 싶을 때 사용합니다.',
+                exampleSentence: min ? `I can answer with at least ${min} English words.` : 'I think this is helpful because I can practice more.',
+            };
+    }
 }
 
 function localizeMission(mission: PracticeMission): PracticeMission {
@@ -486,6 +595,7 @@ export const useStore = create<AppState>((set) => ({
     isPlaying: false,
     volume: 0,
     messages: [],
+    evaluationBatchStatus: null,
     activeMissions: [],
     missionQueue: [],
     partialMessage: '',
@@ -533,6 +643,7 @@ export const useStore = create<AppState>((set) => ({
                     messages[existingIndex] = {
                         ...existingMessage,
                         content,
+                        correctionStatus: existingMessage.correctionStatus ?? 'pending',
                         evaluationStatus: existingMessage.evaluationStatus ?? 'pending',
                         completedMissions: completedMissions.length > 0 ? completedMissions : undefined,
                     };
@@ -580,6 +691,7 @@ export const useStore = create<AppState>((set) => ({
                         id,
                         role,
                         content,
+                        correctionStatus: role === 'user' ? 'pending' : undefined,
                         evaluationStatus: role === 'user' ? 'pending' : undefined,
                         completedMissions: completedMissions.length > 0 ? completedMissions : undefined,
                     },
@@ -721,11 +833,82 @@ export const useStore = create<AppState>((set) => ({
             }
             return state;
         }),
+    setTurnCorrection: (turnId, correction) =>
+        set((state) => {
+            const messages = [...state.messages];
+            const fallbackMatchIndex = messages.findLastIndex((message) => message.role === 'user' && message.id === turnId);
+
+            if (fallbackMatchIndex >= 0) {
+                messages[fallbackMatchIndex] = {
+                    ...messages[fallbackMatchIndex],
+                    correction,
+                    correctionStatus: 'ready',
+                };
+                return { messages };
+            }
+
+            const originalText = correction.original.trim();
+            if (originalText) {
+                for (let index = messages.length - 1; index >= 0; index -= 1) {
+                    if (
+                        messages[index].role === 'user' &&
+                        !messages[index].id &&
+                        messages[index].correctionStatus === 'pending' &&
+                        messages[index].content.trim() === originalText
+                    ) {
+                        messages[index] = {
+                            ...messages[index],
+                            id: turnId,
+                            correction,
+                            correctionStatus: 'ready',
+                        };
+                        return { messages };
+                    }
+                }
+            }
+            return state;
+        }),
+    setEvaluationBatchStatus: (status) =>
+        set({
+            evaluationBatchStatus: {
+                ...status,
+                pendingCount: Math.max(0, Math.floor(status.pendingCount)),
+                maxTurns: Math.max(1, Math.floor(status.maxTurns)),
+                delaySeconds: Math.max(0, status.delaySeconds),
+                receivedAtEpochMs: Date.now(),
+            },
+        }),
+    queueLocalEvaluationBatchTurn: (delaySeconds, maxTurns) =>
+        set((state) => {
+            const now = Date.now();
+            const normalizedMaxTurns = Math.max(1, Math.floor(maxTurns));
+            const existing = state.evaluationBatchStatus;
+            const existingPending = existing?.pendingCount ?? 0;
+            const nextPending = Math.min(normalizedMaxTurns, existingPending + 1);
+            const nextFlushAtEpochMs = existing?.nextFlushAtEpochMs && existingPending > 0
+                ? existing.nextFlushAtEpochMs
+                : now + Math.max(0, delaySeconds) * 1000;
+
+            return {
+                evaluationBatchStatus: {
+                    pendingCount: nextPending,
+                    maxTurns: normalizedMaxTurns,
+                    delaySeconds: Math.max(0, delaySeconds),
+                    nextFlushAtEpochMs,
+                    receivedAtEpochMs: now,
+                },
+            };
+        }),
+    clearEvaluationBatchStatus: () => set({ evaluationBatchStatus: null }),
     setTurnEvaluationUnavailable: (turnId, code) =>
         set((state) => {
             const messages = [...state.messages];
             for (let index = messages.length - 1; index >= 0; index -= 1) {
-                if (messages[index].role === 'user' && messages[index].id === turnId) {
+                if (
+                    messages[index].role === 'user' &&
+                    messages[index].id === turnId &&
+                    messages[index].evaluationStatus === 'pending'
+                ) {
                     messages[index] = {
                         ...messages[index],
                         evaluationStatus: 'unavailable',
@@ -736,8 +919,107 @@ export const useStore = create<AppState>((set) => ({
             }
             return state;
         }),
+    setTurnCorrectionUnavailable: (turnId, code) =>
+        set((state) => {
+            const messages = [...state.messages];
+            for (let index = messages.length - 1; index >= 0; index -= 1) {
+                if (
+                    messages[index].role === 'user' &&
+                    messages[index].id === turnId &&
+                    messages[index].correctionStatus === 'pending'
+                ) {
+                    messages[index] = {
+                        ...messages[index],
+                        correctionStatus: 'unavailable',
+                        correctionErrorCode: code,
+                    };
+                    return { messages };
+                }
+            }
+            return state;
+        }),
+    setTurnCorrectionSkipped: (turnId, reason) =>
+        set((state) => {
+            const messages = [...state.messages];
+            let latestUnboundPendingIndex = -1;
+            for (let index = messages.length - 1; index >= 0; index -= 1) {
+                if (
+                    latestUnboundPendingIndex < 0 &&
+                    messages[index].role === 'user' &&
+                    !messages[index].id &&
+                    messages[index].correctionStatus === 'pending'
+                ) {
+                    latestUnboundPendingIndex = index;
+                }
+
+                if (
+                    messages[index].role === 'user' &&
+                    messages[index].id === turnId &&
+                    messages[index].correctionStatus === 'pending'
+                ) {
+                    messages[index] = {
+                        ...messages[index],
+                        correctionStatus: 'skipped',
+                        correctionSkipReason: reason,
+                    };
+                    return { messages };
+                }
+            }
+
+            if (latestUnboundPendingIndex >= 0) {
+                messages[latestUnboundPendingIndex] = {
+                    ...messages[latestUnboundPendingIndex],
+                    id: turnId,
+                    correctionStatus: 'skipped',
+                    correctionSkipReason: reason,
+                };
+                return { messages };
+            }
+
+            return state;
+        }),
+    setTurnEvaluationSkipped: (turnId, reason) =>
+        set((state) => {
+            const messages = [...state.messages];
+            let latestUnboundPendingIndex = -1;
+            for (let index = messages.length - 1; index >= 0; index -= 1) {
+                if (
+                    latestUnboundPendingIndex < 0 &&
+                    messages[index].role === 'user' &&
+                    !messages[index].id &&
+                    messages[index].evaluationStatus === 'pending'
+                ) {
+                    latestUnboundPendingIndex = index;
+                }
+
+                if (
+                    messages[index].role === 'user' &&
+                    messages[index].id === turnId &&
+                    messages[index].evaluationStatus === 'pending'
+                ) {
+                    messages[index] = {
+                        ...messages[index],
+                        evaluationStatus: 'skipped',
+                        evaluationSkipReason: reason,
+                    };
+                    return { messages };
+                }
+            }
+
+            if (latestUnboundPendingIndex >= 0) {
+                messages[latestUnboundPendingIndex] = {
+                    ...messages[latestUnboundPendingIndex],
+                    id: turnId,
+                    evaluationStatus: 'skipped',
+                    evaluationSkipReason: reason,
+                };
+                return { messages };
+            }
+
+            return state;
+        }),
     setPartialMessage: (message) => set({ partialMessage: message }),
-    clearMessages: () => set({ messages: [], activeMissions: [], missionQueue: [] }),
+    clearMessages: () => set({ messages: [], evaluationBatchStatus: null, activeMissions: [], missionQueue: [] }),
     setVoice: (voice) => set({ voice }),
     setSpeed: (speed) => set({ speed }),
     setTextScale: (textScale) => set({ textScale }),

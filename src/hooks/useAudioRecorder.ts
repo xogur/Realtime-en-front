@@ -1,41 +1,83 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { useStore } from '@/stores/useStore';
 import { floatTo16BitPCM } from '@/lib/audioUtils';
+
+type WindowWithAudioContext = Window & typeof globalThis & {
+    webkitAudioContext?: typeof AudioContext;
+};
 
 export function useAudioRecorder() {
     const context = useRef<AudioContext | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
+    const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
     const workletRef = useRef<AudioWorkletNode | null>(null);
+    const isStartingRef = useRef(false);
+    const isRecordingRef = useRef(false);
+
     const isRecording = useStore((state) => state.isRecording);
     const setRecording = useStore((state) => state.setRecording);
 
     const BATCH_SIZE = 2048;
     const audioBufferRef = useRef<Int16Array | null>(null);
-    const audioBufferOffsetRef = useRef<number>(0);
-
+    const audioBufferOffsetRef = useRef(0);
     const onDataAvailableRef = useRef<(pcm: Int16Array) => void>(() => { });
 
+    const resetAudioPipeline = useCallback(() => {
+        if (workletRef.current) {
+            workletRef.current.port.onmessage = null;
+            workletRef.current.disconnect();
+            workletRef.current = null;
+        }
+
+        if (sourceRef.current) {
+            sourceRef.current.disconnect();
+            sourceRef.current = null;
+        }
+
+        if (context.current && context.current.state !== 'closed') {
+            void context.current.close();
+        }
+        context.current = null;
+
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+        }
+
+        audioBufferRef.current = null;
+        audioBufferOffsetRef.current = 0;
+        isRecordingRef.current = false;
+    }, []);
+
     const startRecording = useCallback(async () => {
+        if (isStartingRef.current || isRecordingRef.current || useStore.getState().isRecording) {
+            return;
+        }
+
+        isStartingRef.current = true;
+
         try {
-            // 1. 마이크 스트림 요청
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     sampleRate: { ideal: 48000 },
                     channelCount: 1,
                     echoCancellation: true,
                     noiseSuppression: true,
-                    autoGainControl: true
-                }
+                    autoGainControl: true,
+                },
             });
             streamRef.current = stream;
 
-            // 2. AudioContext 생성
-            const actx = new (window.AudioContext || (window as any).webkitAudioContext)({
-                sampleRate: 48000
+            const AudioContextCtor = window.AudioContext || (window as WindowWithAudioContext).webkitAudioContext;
+            if (!AudioContextCtor) {
+                throw new Error('AudioContext is not available in this browser.');
+            }
+
+            const actx = new AudioContextCtor({
+                sampleRate: 48000,
             });
             context.current = actx;
 
-            // [추가된 부분] AudioContext가 일시 정지 상태라면 강제로 실행
             if (actx.state === 'suspended') {
                 await actx.resume();
             }
@@ -45,16 +87,11 @@ export function useAudioRecorder() {
             const source = actx.createMediaStreamSource(stream);
             const worklet = new AudioWorkletNode(actx, 'my-audio-processor');
 
-            // 버퍼 초기화
             audioBufferRef.current = new Int16Array(BATCH_SIZE * 4);
             audioBufferOffsetRef.current = 0;
 
             worklet.port.onmessage = (event) => {
-                // ... 기존 데이터 처리 로직 (floatTo16BitPCM 변환 등) 그대로 유지 ...
-                // (위에서 알려드린 수정된 로직을 그대로 사용하시면 됩니다)
-                const float32Data = event.data;
-                const int16Data = floatTo16BitPCM(float32Data);
-
+                const int16Data = floatTo16BitPCM(event.data);
                 let currentBuffer = audioBufferRef.current;
                 let currentOffset = audioBufferOffsetRef.current;
 
@@ -85,31 +122,28 @@ export function useAudioRecorder() {
             source.connect(worklet);
             worklet.connect(actx.destination);
 
+            sourceRef.current = source;
             workletRef.current = worklet;
+            isRecordingRef.current = true;
             setRecording(true);
-
         } catch (err) {
             console.error('Mic access denied or AudioContext failed:', err);
+            resetAudioPipeline();
             setRecording(false);
+        } finally {
+            isStartingRef.current = false;
         }
-    }, [setRecording]);
+    }, [resetAudioPipeline, setRecording]);
 
-    // ... stopRecording 등 나머지 코드 동일
     const stopRecording = useCallback(() => {
-        if (context.current && context.current.state !== 'closed') {
-            context.current.close();
-        }
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach((track) => track.stop());
-        }
-        audioBufferRef.current = null;
-        audioBufferOffsetRef.current = 0;
+        resetAudioPipeline();
+        isStartingRef.current = false;
         setRecording(false);
-    }, [setRecording]);
+    }, [resetAudioPipeline, setRecording]);
 
-    const setOnDataAvailable = (cb: (pcm: Int16Array) => void) => {
+    const setOnDataAvailable = useCallback((cb: (pcm: Int16Array) => void) => {
         onDataAvailableRef.current = cb;
-    };
+    }, []);
 
     return { startRecording, stopRecording, setOnDataAvailable, isRecording };
 }
