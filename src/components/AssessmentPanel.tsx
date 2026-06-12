@@ -838,7 +838,7 @@ function ActiveMissionsPanel({ missions }: { missions: PracticeMission[] }) {
     const missionSlots = [0, 1, 2];
 
     return (
-        <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-[#483c2d]/10 bg-white/80 p-3 shadow-sm">
+        <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-[#483c2d]/10 bg-white/80 p-2 shadow-sm">
             <div className="flex shrink-0 items-center justify-between gap-3">
                 <div className="min-w-0">
                     <p className="flex items-center gap-1 text-xs font-black uppercase tracking-normal text-[#6b5a4a]/70">
@@ -847,15 +847,15 @@ function ActiveMissionsPanel({ missions }: { missions: PracticeMission[] }) {
                     </p>
                     <p className="mt-0.5 text-xs font-bold text-[#483c2d]">교정과 평가와 별도로 갱신됩니다.</p>
                 </div>
-                <span className="shrink-0 rounded-full bg-[#f1eadf] px-2.5 py-1 text-xs font-black text-[#6b5a4a]">{missions.length}/3</span>
+                <span className="shrink-0 rounded-full bg-[#f1eadf] px-2 py-0.5 text-xs font-black text-[#6b5a4a]">{missions.length}/3</span>
             </div>
-            <div className="mt-2 grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden sm:grid-cols-3">
+            <div className="mt-1.5 grid min-h-0 flex-1 grid-cols-1 gap-1.5 overflow-hidden sm:grid-cols-3">
                 {missionSlots.map((slotIndex) => {
                     const mission = missions[slotIndex];
 
                     if (!mission) {
                         return (
-                            <div key={`mission-slot-${slotIndex}`} className="min-h-0 overflow-hidden rounded-md border border-dashed border-[#483c2d]/15 bg-[#fffaf5]/55 px-3 py-2">
+                            <div key={`mission-slot-${slotIndex}`} className="min-h-0 overflow-hidden rounded-md border border-dashed border-[#483c2d]/15 bg-[#fffaf5]/55 px-2.5 py-1.5">
                                 <span className="rounded-full bg-[#f1eadf] px-2 py-0.5 text-[11px] font-black text-[#6b5a4a]">
                                     미션 {slotIndex + 1}
                                 </span>
@@ -867,7 +867,7 @@ function ActiveMissionsPanel({ missions }: { missions: PracticeMission[] }) {
                     }
 
                     return (
-                        <div key={mission.id} className="min-h-0 overflow-hidden rounded-md border border-[#483c2d]/10 bg-[#fffaf5]/90 px-3 py-2">
+                        <div key={mission.id} className="min-h-0 overflow-hidden rounded-md border border-[#483c2d]/10 bg-[#fffaf5]/90 px-2.5 py-1">
                             <div className="flex items-center gap-1.5 overflow-hidden">
                                 <span className="rounded-full bg-[#edf5ed] px-2 py-0.5 text-[11px] font-black text-[#29452c]">
                                     미션 {slotIndex + 1}
@@ -877,16 +877,16 @@ function ActiveMissionsPanel({ missions }: { missions: PracticeMission[] }) {
                                 </span>
                                 <span className="text-[11px] font-black text-[#3d6f4a]">+{mission.rewardLp} LP</span>
                             </div>
-                            <p className="mt-1 line-clamp-2 break-words text-sm font-black leading-snug text-[#483c2d]">
+                            <p className="mt-0.5 line-clamp-2 break-words text-[13px] font-black leading-[1.25] text-[#483c2d]">
                                 {mission.target}
                             </p>
                             {mission.usageContext && (
-                                <p className="mt-1 truncate text-[11px] font-semibold leading-snug text-[#6b5a4a]">
+                                <p className="mt-0.5 truncate text-[10px] font-semibold leading-tight text-[#6b5a4a]">
                                     상황: {mission.usageContext}
                                 </p>
                             )}
                             {mission.exampleSentence && (
-                                <p className="mt-1 truncate rounded bg-white/70 px-2 py-1 text-[11px] font-bold leading-snug text-[#29452c]">
+                                <p className="mt-0.5 truncate rounded bg-white/70 px-2 py-0.5 text-[10px] font-bold leading-tight text-[#29452c]">
                                     예문: {mission.exampleSentence}
                                 </p>
                             )}
@@ -1040,9 +1040,9 @@ function TierBadge({ tier, size = 104 }: { tier: TierConfig; size?: number }) {
 
 function MiniTierBadge({ tier }: { tier: TierConfig }) {
     return (
-        <div className="flex min-w-0 flex-col items-center gap-0.5">
-            <TierBadge tier={tier} size={30} />
-            <span className="max-w-full truncate text-[9px] font-bold text-[#6b5a4a]/75">{tier.label}</span>
+        <div className="flex min-w-0 flex-col items-center gap-0.5" title={tier.label}>
+            <TierBadge tier={tier} size={28} />
+            <span className="w-full whitespace-nowrap text-center text-[8px] font-bold leading-none text-[#6b5a4a] xl:text-[9px]">{tier.label}</span>
         </div>
     );
 }
@@ -1898,10 +1898,10 @@ export function AssessmentPanel() {
                         아바타와 영어로 대화하면 응답마다 자동으로 코칭이 붙습니다. 대화는 끊지 않고, 이 패널에서 점수와 교정 근거만 조용히 업데이트합니다.
                     </section>
                 ) : (
-                    <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-2 lg:grid-rows-[minmax(0,2fr)_minmax(0,3fr)_minmax(0,5fr)] lg:overflow-hidden">
+                    <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-2 lg:grid-rows-[minmax(160px,2fr)_minmax(178px,2.15fr)_minmax(0,5.85fr)] lg:overflow-hidden">
                         <div className="contents">
                             <section className="order-2 flex min-h-0 flex-col overflow-hidden rounded-lg border border-white/50 bg-white/70 shadow-sm">
-                                <div className="relative flex-1 p-3">
+                                <div className="relative flex-1 p-2.5">
                                     <div className="absolute right-0 top-0 h-20 w-20 rounded-bl-full bg-white/45" />
                                     <div className="relative z-10 mb-1.5 flex min-w-0 items-center gap-2" aria-live="polite">
                                         <p className="shrink-0 text-[11px] font-semibold uppercase text-[#6b5a4a]/70">
@@ -1941,7 +1941,7 @@ export function AssessmentPanel() {
                                         </div>
                                     </div>
                                     <div className="relative flex items-center gap-3">
-                                        <TierBadge tier={tier.tier} size={64} />
+                                        <TierBadge tier={tier.tier} size={58} />
                                         <div className="min-w-0 flex-1">
                                             <div className="flex min-w-0 items-end gap-2">
                                                 <span className="min-w-0 truncate text-2xl font-black leading-none" style={{ color: tier.tier.text }}>
@@ -1963,7 +1963,7 @@ export function AssessmentPanel() {
                                     </div>
                                 </div>
 
-                                <div className="border-t border-[#483c2d]/10 bg-[#f8f1ea]/80 px-3 py-2">
+                                <div className="shrink-0 border-t border-[#483c2d]/10 bg-[#f8f1ea]/80 px-2 py-1">
                                     <div className="grid grid-cols-7 gap-1">
                                         {TIERS.map((item) => (
                                             <MiniTierBadge key={item.id} tier={item} />
