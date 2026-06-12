@@ -42,6 +42,7 @@ type ReportCorrection = EvaluatedTurn & {
 
 type MetricKey = 'grammar' | 'vocabulary' | 'relevance' | 'fluency' | 'interaction';
 type TierId = 'unranked' | 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'master';
+type AssessmentDetailTab = 'feedback' | 'evaluation';
 
 type MetricSnapshot = { key: MetricKey; label: string; value: number };
 
@@ -845,44 +846,64 @@ function getCelebrationParticles(id: string) {
 }
 
 function ActiveMissionsPanel({ missions }: { missions: PracticeMission[] }) {
-    if (missions.length === 0) return null;
+    const missionSlots = [0, 1, 2];
 
     return (
-        <section className="max-h-[300px] shrink-0 overflow-hidden rounded-lg border border-[#483c2d]/10 bg-white/80 p-3 shadow-sm">
+        <section className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-[#483c2d]/10 bg-white/80 p-3 shadow-sm">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <p className="flex items-center gap-1 text-xs font-black uppercase tracking-normal text-[#6b5a4a]/70">
                         <Target className="h-3.5 w-3.5" />
-                        진행 중 미션
+                        미션
                     </p>
-                    <p className="mt-1 text-sm font-bold text-[#483c2d]">조건에 맞는 발화를 하면 즉시 성공합니다.</p>
+                    <p className="mt-1 text-sm font-bold text-[#483c2d]">각 미션은 교정과 평가와 별도로 갱신됩니다.</p>
                 </div>
                 <span className="shrink-0 rounded-full bg-[#f1eadf] px-2.5 py-1 text-xs font-black text-[#6b5a4a]">{missions.length}/3</span>
             </div>
-            <div className="mt-3 grid max-h-[230px] gap-2 overflow-y-auto pr-1">
-                {missions.map((mission) => (
-                    <div key={mission.id} className="rounded-md border border-[#483c2d]/10 bg-[#fffaf5]/90 px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full bg-[#edf5ed] px-2 py-0.5 text-[11px] font-black text-[#29452c]">
-                                {mission.title}
-                            </span>
-                            <span className="text-[11px] font-black text-[#3d6f4a]">+{mission.rewardLp} LP</span>
+            <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-3">
+                {missionSlots.map((slotIndex) => {
+                    const mission = missions[slotIndex];
+
+                    if (!mission) {
+                        return (
+                            <div key={`mission-slot-${slotIndex}`} className="min-h-[118px] rounded-md border border-dashed border-[#483c2d]/15 bg-[#fffaf5]/55 px-3 py-2">
+                                <span className="rounded-full bg-[#f1eadf] px-2 py-0.5 text-[11px] font-black text-[#6b5a4a]">
+                                    미션 {slotIndex + 1}
+                                </span>
+                                <p className="mt-3 text-xs font-semibold leading-relaxed text-[#6b5a4a]/75">
+                                    다음 응답 평가 후 새 미션이 표시됩니다.
+                                </p>
+                            </div>
+                        );
+                    }
+
+                    return (
+                        <div key={mission.id} className="min-h-[118px] rounded-md border border-[#483c2d]/10 bg-[#fffaf5]/90 px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="rounded-full bg-[#edf5ed] px-2 py-0.5 text-[11px] font-black text-[#29452c]">
+                                    미션 {slotIndex + 1}
+                                </span>
+                                <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-black text-[#6b5a4a]">
+                                    {mission.title}
+                                </span>
+                                <span className="text-[11px] font-black text-[#3d6f4a]">+{mission.rewardLp} LP</span>
+                            </div>
+                            <p className="mt-1 break-words text-sm font-black leading-snug text-[#483c2d]">
+                                {mission.target}
+                            </p>
+                            {mission.usageContext && (
+                                <p className="mt-1 break-words text-[11px] font-semibold leading-snug text-[#6b5a4a]">
+                                    상황: {mission.usageContext}
+                                </p>
+                            )}
+                            {mission.exampleSentence && (
+                                <p className="mt-1 break-words rounded bg-white/70 px-2 py-1 text-[12px] font-bold leading-snug text-[#29452c]">
+                                    예문: {mission.exampleSentence}
+                                </p>
+                            )}
                         </div>
-                        <p className="mt-1 break-words text-sm font-black leading-snug text-[#483c2d]">
-                            {mission.target}
-                        </p>
-                        {mission.usageContext && (
-                            <p className="mt-1 break-words text-[11px] font-semibold leading-snug text-[#6b5a4a]">
-                                상황: {mission.usageContext}
-                            </p>
-                        )}
-                        {mission.exampleSentence && (
-                            <p className="mt-1 break-words rounded bg-white/70 px-2 py-1 text-[12px] font-bold leading-snug text-[#29452c]">
-                                예문: {mission.exampleSentence}
-                            </p>
-                        )}
-                    </div>
-                ))}
+                    );
+                })}
             </div>
         </section>
     );
@@ -1531,6 +1552,7 @@ export function AssessmentPanel() {
     const showDeveloperLpControls = process.env.NODE_ENV !== 'production';
     const [developerLpDeltas, setDeveloperLpDeltas] = useState<number[]>([]);
     const [nowEpochMs, setNowEpochMs] = useState(() => Date.now());
+    const [detailTab, setDetailTab] = useState<AssessmentDetailTab>('feedback');
 
     const [missionCelebrations, setMissionCelebrations] = useState<MissionCelebration[]>([]);
     const shownMissionCelebrationIds = useRef<Set<string>>(new Set());
@@ -1683,7 +1705,7 @@ export function AssessmentPanel() {
                 </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-4 print:hidden xl:p-5">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4 print:hidden xl:p-5">
                 <StatusLine
                     pendingCount={pendingCount}
                     skippedCount={skippedCount}
@@ -1697,9 +1719,9 @@ export function AssessmentPanel() {
                         아바타와 영어로 대화하면 응답마다 자동으로 코칭이 붙습니다. 대화는 끊지 않고, 이 패널에서 점수와 교정 근거만 조용히 업데이트합니다.
                     </section>
                 ) : (
-                    <div className="mt-4 grid min-h-full gap-4 xl:grid-cols-[minmax(520px,1.2fr)_minmax(300px,0.8fr)]">
-                        <div className="order-2 space-y-4 xl:order-2">
-                            <section className="overflow-hidden rounded-lg border border-white/50 bg-white/70 shadow-sm">
+                    <div className="mt-4 grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-2 lg:grid-rows-[minmax(210px,1fr)_minmax(170px,auto)_minmax(220px,1fr)] lg:overflow-hidden">
+                        <div className="contents">
+                            <section className="order-2 flex min-h-0 flex-col overflow-y-auto rounded-lg border border-white/50 bg-white/70 shadow-sm">
                                 <div className="relative p-4">
                                     <div className="absolute right-0 top-0 h-28 w-28 rounded-bl-full bg-white/45" />
                                     <div className="relative flex items-center gap-4">
@@ -1750,7 +1772,7 @@ export function AssessmentPanel() {
                             </section>
 
                             {showDeveloperLpControls && (
-                                <section className="rounded-lg border border-dashed border-[#9a4b36]/45 bg-[#fff7ed] p-4 shadow-sm">
+                                <section className="order-5 rounded-lg border border-dashed border-[#9a4b36]/45 bg-[#fff7ed] p-4 shadow-sm lg:col-span-2">
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                         <div>
                                             <h3 className="text-sm font-black text-[#7a3b28]">Dev LP Controls</h3>
@@ -1803,7 +1825,7 @@ export function AssessmentPanel() {
                                 </section>
                             )}
 
-                            <section className="rounded-lg border border-white/50 bg-white/70 p-4 shadow-sm">
+                            <section className="hidden rounded-lg border border-white/50 bg-white/70 p-4 shadow-sm">
                                 <div className="grid grid-cols-3 gap-2">
                                     <div className="rounded-md bg-[#fdf8f4]/90 px-3 py-2">
                                         <p className="text-[11px] font-bold text-[#6b5a4a]/70">누적 응답</p>
@@ -1827,7 +1849,7 @@ export function AssessmentPanel() {
                                 </p>
                             </section>
 
-                            <section className="rounded-lg border border-white/50 bg-white/70 p-4 shadow-sm">
+                            <section className="hidden rounded-lg border border-white/50 bg-white/70 p-4 shadow-sm">
                                 <h3 className="mb-3 text-sm font-bold text-[#483c2d]">영역별 평균</h3>
                                 <div className="space-y-3">
                                     {metricAverages.map((metric) => (
@@ -1837,11 +1859,13 @@ export function AssessmentPanel() {
                             </section>
                         </div>
 
-                        <div className="order-1 flex flex-col gap-4 xl:order-1">
-                            <ActiveMissionsPanel missions={activeMissions} />
+                        <div className="contents">
+                            <div className="order-3 min-h-0 lg:col-span-2">
+                                <ActiveMissionsPanel missions={activeMissions} />
+                            </div>
 
                             {(latestFeedbackTurn || latestRealtimeCorrection || latestCorrectionMessage) && (
-                                <section className="max-h-[390px] shrink-0 overflow-y-auto rounded-lg border border-[#3d6f4a]/20 bg-white/80 shadow-sm">
+                                <section className="order-1 min-h-0 overflow-y-auto rounded-lg border border-[#3d6f4a]/20 bg-white/80 shadow-sm">
                                     <div className="bg-[#edf5ed] px-4 py-3">
                                         <div className="flex items-start justify-between gap-3">
                                             <div className="min-w-0">
@@ -1970,19 +1994,77 @@ export function AssessmentPanel() {
                                 </section>
                             )}
 
-                            <section className="flex min-h-[220px] max-h-[320px] flex-none flex-col rounded-lg border border-white/50 bg-white/70 p-4 shadow-sm">
-                                <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
-                                    <h3 className="text-sm font-bold text-[#483c2d]">Previous feedback</h3>
-                                    <span className="shrink-0 text-xs font-semibold text-[#6b5a4a]/70">Total {previousTurns.length}</span>
+                            <section className="order-4 flex min-h-0 flex-col rounded-lg border border-white/50 bg-white/70 p-4 shadow-sm lg:col-span-2">
+                                <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
+                                    <div className="inline-flex rounded-md border border-[#483c2d]/10 bg-[#f8f1ea]/75 p-1">
+                                        {([
+                                            ['feedback', '이전 피드백'],
+                                            ['evaluation', '평가'],
+                                        ] as const).map(([value, label]) => (
+                                            <button
+                                                key={value}
+                                                type="button"
+                                                onClick={() => setDetailTab(value)}
+                                                className={`rounded px-3 py-1.5 text-xs font-black transition-colors focus:outline-none focus:ring-2 focus:ring-[#6b5a4a]/25 ${detailTab === value
+                                                    ? 'bg-white text-[#483c2d] shadow-sm'
+                                                    : 'text-[#6b5a4a] hover:bg-white/55'}`}
+                                            >
+                                                {label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <span className="shrink-0 text-xs font-semibold text-[#6b5a4a]/70">
+                                        {detailTab === 'feedback' ? `Total ${previousTurns.length}` : `Turns ${turns.length}`}
+                                    </span>
                                 </div>
-                                {previousTurns.length === 0 ? (
-                                    <p className="text-xs leading-relaxed text-[#6b5a4a]">응답이 쌓이면 이곳에서 이전 피드백을 스크롤로 다시 볼 수 있습니다.</p>
+
+                                {detailTab === 'feedback' ? (
+                                    previousTurns.length === 0 ? (
+                                        <p className="text-xs leading-relaxed text-[#6b5a4a]">응답이 쌓이면 이곳에서 이전 피드백을 스크롤로 다시 볼 수 있습니다.</p>
+                                    ) : (
+                                        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                                            <div className="grid gap-2 2xl:grid-cols-2">
+                                                {previousTurns.map((turn, index) => (
+                                                    <FeedbackCard key={`${turn.evaluation.turnId}-${index}`} turn={turn} compact={index > 5} />
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )
                                 ) : (
                                     <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                                        <div className="grid gap-2 2xl:grid-cols-2">
-                                            {previousTurns.map((turn, index) => (
-                                                <FeedbackCard key={`${turn.evaluation.turnId}-${index}`} turn={turn} compact={index > 5} />
-                                            ))}
+                                        <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.8fr)_minmax(320px,1.2fr)]">
+                                            <div className="rounded-md bg-[#fdf8f4]/90 p-3">
+                                                <div className="grid grid-cols-3 gap-2">
+                                                    <div className="rounded-md bg-white/65 px-3 py-2">
+                                                        <p className="text-[11px] font-bold text-[#6b5a4a]/70">누적 응답</p>
+                                                        <p className="mt-1 text-lg font-black leading-none text-[#483c2d]">{turns.length}</p>
+                                                    </div>
+                                                    <div className="rounded-md bg-[#eef8f6] px-3 py-2">
+                                                        <p className="text-[11px] font-bold text-[#265651]/70">최근 점수</p>
+                                                        <p className="mt-1 text-lg font-black leading-none text-[#1f4f4a]">
+                                                            {latestTurn ? getMetricScore(latestTurn.evaluation, 'overall') : '--'}
+                                                        </p>
+                                                    </div>
+                                                    <div className="rounded-md bg-[#fff7e8] px-3 py-2">
+                                                        <p className="text-[11px] font-bold text-[#7a5a23]/70">우선 연습</p>
+                                                        <p className="mt-1 truncate text-sm font-black text-[#6b4f20]" title={weakestMetric?.label}>
+                                                            {weakestMetric?.label ?? '--'}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <p className="mt-3 text-xs leading-relaxed text-[#6b5a4a]">
+                                                    평가는 교정 문장이나 미션 상태와 분리되어 누적 점수 기준으로 표시됩니다.
+                                                </p>
+                                            </div>
+
+                                            <div className="rounded-md bg-white/65 p-3">
+                                                <h3 className="mb-3 text-sm font-bold text-[#483c2d]">영역별 평균</h3>
+                                                <div className="space-y-3">
+                                                    {metricAverages.map((metric) => (
+                                                        <MetricBar key={metric.key} label={metric.label} value={metric.value} />
+                                                    ))}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 )}
