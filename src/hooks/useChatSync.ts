@@ -38,7 +38,9 @@ export function useChatSync(isMainWindow: boolean) {
                     if (socket && socket.readyState === WebSocket.OPEN) {
                         socket.send(JSON.stringify({
                             type: 'user_text_message',
-                            text: event.data.payload
+                            text: event.data.payload,
+                            clientCommandId: event.data.clientCommandId,
+                            interruptPolicy: 'hard',
                         }));
                     }
                 } else if (event.data.type === 'REQUEST_INITIAL_STATE') {

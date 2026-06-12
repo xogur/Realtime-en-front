@@ -15,7 +15,7 @@ import {
     TrendingUp,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore, type ChatMessage, type EvaluationBatchStatus, type PracticeMission, type TurnCorrection, type TurnEvaluation } from '@/stores/useStore';
 import {
@@ -31,6 +31,10 @@ type EvaluatedTurn = {
     message: ChatMessage;
     evaluation: TurnEvaluation;
 };
+
+const subscribeClientReady = () => () => undefined;
+const getClientReadySnapshot = () => true;
+const getServerReadySnapshot = () => false;
 
 type ReportCorrection = EvaluatedTurn & {
     assistantPrompt: string;
@@ -1514,7 +1518,12 @@ function PrintReport({
     );
 }
 export function AssessmentPanel() {
-    const printRoot = typeof document === 'undefined' ? null : document.body;
+    const isClientReady = useSyncExternalStore(
+        subscribeClientReady,
+        getClientReadySnapshot,
+        getServerReadySnapshot,
+    );
+    const printRoot = isClientReady ? document.body : null;
     const messages = useStore((state) => state.messages);
     const evaluationBatchStatus = useStore((state) => state.evaluationBatchStatus);
     const activeMissions = useStore((state) => state.activeMissions);

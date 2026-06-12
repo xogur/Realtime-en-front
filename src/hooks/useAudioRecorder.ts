@@ -13,6 +13,8 @@ export function useAudioRecorder() {
     const workletRef = useRef<AudioWorkletNode | null>(null);
     const isStartingRef = useRef(false);
     const isRecordingRef = useRef(false);
+    const operationIdRef = useRef(0);
+    const cleanupPromiseRef = useRef<Promise<void>>(Promise.resolve());
 
     const isRecording = useStore((state) => state.isRecording);
     const setRecording = useStore((state) => state.setRecording);
@@ -22,26 +24,35 @@ export function useAudioRecorder() {
     const audioBufferOffsetRef = useRef(0);
     const onDataAvailableRef = useRef<(pcm: Int16Array) => void>(() => { });
 
-    const resetAudioPipeline = useCallback(() => {
-        if (workletRef.current) {
-            workletRef.current.port.onmessage = null;
-            workletRef.current.disconnect();
-            workletRef.current = null;
-        }
+    const resetAudioPipeline = useCallback(async () => {
+        const worklet = workletRef.current;
+        const source = sourceRef.current;
+        const activeContext = context.current;
+        const stream = streamRef.current;
 
-        if (sourceRef.current) {
-            sourceRef.current.disconnect();
-            sourceRef.current = null;
-        }
-
-        if (context.current && context.current.state !== 'closed') {
-            void context.current.close();
-        }
+        workletRef.current = null;
+        sourceRef.current = null;
         context.current = null;
+        streamRef.current = null;
 
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach((track) => track.stop());
-            streamRef.current = null;
+        if (worklet) {
+            worklet.port.onmessage = null;
+            worklet.disconnect();
+        }
+
+        if (source) {
+            source.disconnect();
+        }
+
+        if (stream) {
+            stream.getTracks().forEach((track) => {
+                track.onended = null;
+                track.stop();
+            });
+        }
+
+        if (activeContext && activeContext.state !== 'closed') {
+            await activeContext.close().catch(() => undefined);
         }
 
         audioBufferRef.current = null;
@@ -57,6 +68,10 @@ export function useAudioRecorder() {
         isStartingRef.current = true;
 
         try {
+            const operationId = operationIdRef.current + 1;
+            operationIdRef.current = operationId;
+            await cleanupPromiseRef.current;
+
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     sampleRate: { ideal: 48000 },
@@ -66,7 +81,20 @@ export function useAudioRecorder() {
                     autoGainControl: true,
                 },
             });
+            if (operationId !== operationIdRef.current) {
+                stream.getTracks().forEach((track) => track.stop());
+                return;
+            }
             streamRef.current = stream;
+            stream.getAudioTracks().forEach((track) => {
+                track.onended = () => {
+                    if (operationId !== operationIdRef.current) return;
+                    operationIdRef.current += 1;
+                    isStartingRef.current = false;
+                    cleanupPromiseRef.current = resetAudioPipeline();
+                    void cleanupPromiseRef.current.then(() => setRecording(false));
+                };
+            });
 
             const AudioContextCtor = window.AudioContext || (window as WindowWithAudioContext).webkitAudioContext;
             if (!AudioContextCtor) {
@@ -76,6 +104,10 @@ export function useAudioRecorder() {
             const actx = new AudioContextCtor({
                 sampleRate: 48000,
             });
+            if (operationId !== operationIdRef.current) {
+                await actx.close().catch(() => undefined);
+                return;
+            }
             context.current = actx;
 
             if (actx.state === 'suspended') {
@@ -83,6 +115,10 @@ export function useAudioRecorder() {
             }
 
             await actx.audioWorklet.addModule('/audio-processor.js');
+            if (operationId !== operationIdRef.current) {
+                await resetAudioPipeline();
+                return;
+            }
 
             const source = actx.createMediaStreamSource(stream);
             const worklet = new AudioWorkletNode(actx, 'my-audio-processor');
@@ -128,16 +164,19 @@ export function useAudioRecorder() {
             setRecording(true);
         } catch (err) {
             console.error('Mic access denied or AudioContext failed:', err);
-            resetAudioPipeline();
+            cleanupPromiseRef.current = resetAudioPipeline();
+            await cleanupPromiseRef.current;
             setRecording(false);
         } finally {
             isStartingRef.current = false;
         }
     }, [resetAudioPipeline, setRecording]);
 
-    const stopRecording = useCallback(() => {
-        resetAudioPipeline();
+    const stopRecording = useCallback(async () => {
+        operationIdRef.current += 1;
         isStartingRef.current = false;
+        cleanupPromiseRef.current = resetAudioPipeline();
+        await cleanupPromiseRef.current;
         setRecording(false);
     }, [resetAudioPipeline, setRecording]);
 

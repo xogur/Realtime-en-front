@@ -8,6 +8,7 @@ import { ChatOverlay } from '@/components/ChatOverlay';
 import { CopyrightAttribution } from '@/components/CopyrightAttribution';
 import { motion } from 'framer-motion';
 import { useChatSync } from '@/hooks/useChatSync';
+import { buildKioskUrl } from '@/lib/kioskIdentity';
 
 export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -42,7 +43,7 @@ export default function Home() {
       'resizable=yes',
     ].join(',');
 
-    const win = window.open('/chat', 'UXROOM_Chat', features);
+    const win = window.open(buildKioskUrl('/chat'), 'UXROOM_Chat', features);
 
     if (!win || win.closed || typeof win.closed === 'undefined') {
       console.warn(

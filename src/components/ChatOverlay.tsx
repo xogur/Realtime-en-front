@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, MessageSquare, Send, ExternalLink, Languages } from 'lucide-react';
+import { buildKioskUrl, createClientCommandId } from '@/lib/kioskIdentity';
 
 interface ChatOverlayProps {
     standalone?: boolean;
@@ -57,6 +58,8 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
             socket.send(JSON.stringify({
                 type: 'user_text_message',
                 text,
+                clientCommandId: createClientCommandId(),
+                interruptPolicy: 'hard',
             }));
             setInputValue('');
             return;
@@ -64,7 +67,11 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
 
         if (standalone) {
             const channel = new BroadcastChannel('uxroom_chat_sync');
-            channel.postMessage({ type: 'SEND_MESSAGE', payload: text });
+            channel.postMessage({
+                type: 'SEND_MESSAGE',
+                payload: text,
+                clientCommandId: createClientCommandId(),
+            });
             channel.close();
             setInputValue('');
         }
@@ -137,7 +144,7 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
                             {!standalone && (
                                 <button
                                     onClick={() => {
-                                        window.open('/chat', 'UXROOM_Chat', 'width=450,height=850,menubar=no,toolbar=no,location=no,status=no');
+                                        window.open(buildKioskUrl('/chat'), 'UXROOM_Chat', 'width=450,height=850,menubar=no,toolbar=no,location=no,status=no');
                                         toggleChat();
                                     }}
                                     className="p-1 rounded-full hover:bg-[#483c2d]/10 text-[#6b5a4a] transition-colors"

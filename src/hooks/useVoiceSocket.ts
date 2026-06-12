@@ -3,6 +3,7 @@ import { useStore, type TurnCorrection, type TurnEvaluation } from '@/stores/use
 import { useAudioPlayer } from './useAudioPlayer';
 import { useAudioRecorder } from './useAudioRecorder';
 import type { Emotion, TtsAudioChunk, TtsVisemeTimeline } from '@/lib/lipsync/types';
+import { withKioskSessionParams, type KioskRole } from '@/lib/kioskIdentity';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
 const EVALUATION_BATCH_MAX_TURNS = 4;
@@ -48,10 +49,12 @@ type SocketMessage = {
   maxTurns?: number;
   delaySeconds?: number;
   nextFlushAtEpochMs?: number | null;
+  eventSeq?: number;
 };
 
 type ConnectOptions = {
   startRecording?: boolean;
+  role?: KioskRole;
 };
 
 function getDefaultWsUrl(): string {
@@ -63,7 +66,7 @@ function getDefaultWsUrl(): string {
   return `${protocol}//${window.location.hostname}:18003/ws`;
 }
 
-function getConfiguredWsUrl(): string {
+function getConfiguredWsUrl(role: KioskRole): string {
   const configuredUrl = process.env.NEXT_PUBLIC_WS_URL;
   let wsUrl = configuredUrl && configuredUrl.trim().length > 0 ? configuredUrl : getDefaultWsUrl();
 
@@ -71,7 +74,7 @@ function getConfiguredWsUrl(): string {
     wsUrl = wsUrl.replace('ws://', 'wss://');
   }
 
-  return wsUrl;
+  return withKioskSessionParams(wsUrl, role);
 }
 
 function sanitizeModelText(text: string): string {
@@ -121,6 +124,8 @@ export function useVoiceSocket() {
   const isConnecting = useRef(false);
   const isDisconnecting = useRef(false);
   const activeGenerationIdRef = useRef<string | null>(null);
+  const roleRef = useRef<KioskRole>('controller');
+  const disconnectRef = useRef<() => void>(() => undefined);
 
   const setConnecting = useStore((state) => state.setConnecting);
   const setConnected = useStore((state) => state.setConnected);
@@ -221,6 +226,7 @@ export function useVoiceSocket() {
     (data: SocketMessage) => {
       bindActiveGenerationToPendingUser(data);
       if (!isCurrentGeneration(data)) return;
+      if (roleRef.current === 'viewer') return;
 
       const chunk: TtsAudioChunk = {
         content: data.content ?? '',
@@ -405,12 +411,14 @@ export function useVoiceSocket() {
     if (isConnecting.current || isDisconnecting.current) return;
     if (socketRef.current?.readyState === WebSocket.OPEN) return;
 
-    const shouldStartRecording = options?.startRecording ?? true;
+    const role = options?.role ?? 'controller';
+    const shouldStartRecording = options?.startRecording ?? role === 'controller';
+    roleRef.current = role;
 
     isConnecting.current = true;
     setConnecting(true);
 
-    const ws = new WebSocket(getConfiguredWsUrl());
+    const ws = new WebSocket(getConfiguredWsUrl(role));
 
     ws.onopen = () => {
       isConnecting.current = false;
@@ -430,6 +438,15 @@ export function useVoiceSocket() {
         const data = JSON.parse(event.data) as SocketMessage;
 
         switch (data.type) {
+          case 'session_replay_start':
+            clearMessages();
+            activeGenerationIdRef.current = null;
+            useStore.getState().setPartialMessage('');
+            useStore.getState().setThinking(false);
+            break;
+          case 'session_replay_end':
+          case 'kiosk_session_ready':
+            break;
           case 'tts_segment_start':
             handleSegmentStart(data);
             break;
@@ -566,6 +583,7 @@ export function useVoiceSocket() {
     setSocket,
     setThinking,
     setTurnEvaluationSkipped,
+    clearMessages,
     startRecording,
     stopRecording,
   ]);
@@ -601,6 +619,10 @@ export function useVoiceSocket() {
   }, [setOnDataAvailable]);
 
   useEffect(() => {
+    disconnectRef.current = disconnect;
+  }, [disconnect]);
+
+  useEffect(() => {
     let previousVoice = useStore.getState().voice;
     const unsubscribe = useStore.subscribe((state) => {
       if (state.voice === previousVoice) return;
@@ -623,8 +645,8 @@ export function useVoiceSocket() {
   }, []);
 
   useEffect(() => () => {
-    disconnect();
-  }, [disconnect]);
+    disconnectRef.current();
+  }, []);
 
   const clearHistory = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {

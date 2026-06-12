@@ -1,11 +1,22 @@
 'use client';
 
-import { useChatSync } from '@/hooks/useChatSync';
+import { useEffect, useRef } from 'react';
 import { ChatOverlay } from '@/components/ChatOverlay';
 import { AssessmentPanel } from '@/components/AssessmentPanel';
+import { useVoiceSocket } from '@/hooks/useVoiceSocket';
 
 export default function ChatPopout() {
-    useChatSync(false);
+    const { connect, disconnect } = useVoiceSocket();
+    const socketControlsRef = useRef({ connect, disconnect });
+
+    useEffect(() => {
+        socketControlsRef.current = { connect, disconnect };
+    }, [connect, disconnect]);
+
+    useEffect(() => {
+        socketControlsRef.current.connect({ role: 'viewer', startRecording: false });
+        return () => socketControlsRef.current.disconnect();
+    }, []);
 
     return (
         <main className="relative h-screen w-full overflow-hidden" style={{

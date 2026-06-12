@@ -94,7 +94,7 @@ export type MissionCheck = {
         | 'presentPerfect'
         | 'connector'
         | 'politeRequest';
-    value?: string | string[];
+    value?: string | readonly string[];
     min?: number;
 };
 
@@ -436,7 +436,7 @@ function firstMissionCheck(mission: PracticeMission): MissionCheck | undefined {
 
 function missionValues(check?: MissionCheck): string[] {
     if (!check?.value) return [];
-    return Array.isArray(check.value) ? check.value : [check.value];
+    return typeof check.value === 'string' ? [check.value] : [...check.value];
 }
 
 function getMissionGuidance(mission: PracticeMission): Pick<PracticeMission, 'usageContext' | 'exampleSentence'> {
