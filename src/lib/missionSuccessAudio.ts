@@ -93,6 +93,41 @@ export class MissionSuccessAudio {
         }
     }
 
+    async playTierPromotion() {
+        if (!this.enabled || typeof window === 'undefined' || document.visibilityState !== 'visible') return;
+        const audioContext = await this.ensureContext();
+        if (!audioContext) return;
+
+        try {
+            if (audioContext.state === 'suspended') {
+                await audioContext.resume();
+            }
+            if (audioContext.state !== 'running') return;
+            this.cancel();
+
+            const startAt = audioContext.currentTime + 0.02;
+            const fanfare = [
+                { frequency: 523.25, offset: 0, duration: 0.22, gain: 0.044 },
+                { frequency: 659.25, offset: 0.075, duration: 0.22, gain: 0.048 },
+                { frequency: 783.99, offset: 0.15, duration: 0.24, gain: 0.052 },
+                { frequency: 1046.5, offset: 0.255, duration: 0.34, gain: 0.06 },
+            ];
+
+            this.playTone(audioContext, 261.63, startAt, 0.48, 0.022, 'triangle');
+            this.playTone(audioContext, 392, startAt + 0.02, 0.42, 0.018, 'sine');
+
+            fanfare.forEach((note) => {
+                this.playTone(audioContext, note.frequency, startAt + note.offset, note.duration, note.gain, 'triangle');
+            });
+
+            this.playTone(audioContext, 1318.51, startAt + 0.42, 0.16, 0.02, 'sine');
+            this.playTone(audioContext, 1567.98, startAt + 0.49, 0.16, 0.018, 'sine');
+            this.playTone(audioContext, 2093, startAt + 0.58, 0.2, 0.014, 'sine');
+        } catch {
+            // Audio can be blocked by browser policy; visual tier promotion remains authoritative.
+        }
+    }
+
     cancel() {
         this.nodes.forEach((node) => {
             try {

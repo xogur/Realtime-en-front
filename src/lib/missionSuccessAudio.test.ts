@@ -92,6 +92,17 @@ describe('MissionSuccessAudio', () => {
         audio.dispose();
     });
 
+    it('schedules a brighter tier promotion fanfare', async () => {
+        const audio = new MissionSuccessAudio(true);
+
+        await audio.playTierPromotion();
+
+        expect(FakeAudioContext.instances).toHaveLength(1);
+        expect(startMock).toHaveBeenCalledTimes(9);
+        expect(setValueAtTimeMock).toHaveBeenCalledWith(2093, expect.any(Number));
+        audio.dispose();
+    });
+
     it('does not create an AudioContext when disabled', async () => {
         const audio = new MissionSuccessAudio(false);
 

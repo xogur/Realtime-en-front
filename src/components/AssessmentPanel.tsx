@@ -52,6 +52,7 @@ type AssessmentDetailTab = 'feedback' | 'evaluation';
 type MetricSnapshot = { key: MetricKey; label: string; value: number };
 
 const MISSION_CELEBRATION_VISIBLE_MS = 1800;
+const TIER_PROMOTION_VISIBLE_MS = 2200;
 
 type TierConfig = {
     id: TierId;
@@ -64,6 +65,16 @@ type TierConfig = {
     text: string;
     glow: string;
     symbol: 'dot' | 'star' | 'book' | 'mic' | 'spark' | 'gem' | 'crown';
+};
+
+type TierPromotionPresentation = {
+    id: string;
+    fromTier: TierConfig;
+    toTier: TierConfig;
+    delta: number;
+    totalLp: number;
+    nextTier: TierConfig | null;
+    nextTierRemainingLp: number;
 };
 
 const METRICS: Array<{ key: MetricKey; label: string }> = [
@@ -804,6 +815,79 @@ function getCelebrationParticles(id: string) {
     });
 }
 
+function getTierPromotionParticles(id: string) {
+    const seed = missionSeed(id);
+    return Array.from({ length: 18 }, (_, index) => {
+        const angle = ((seed + index * 37) % 160) - 80;
+        const distance = 46 + ((seed + index * 19) % 72);
+        return {
+            id: `${id}:tier:${index}`,
+            left: 50 + Math.sin((angle * Math.PI) / 180) * 34,
+            top: 48 + Math.cos((angle * Math.PI) / 180) * 18,
+            color: ['#facc15', '#fff7ad', '#22c55e', '#9ee7ff', '#ffffff'][index % 5],
+            x: Math.sin((angle * Math.PI) / 180) * distance,
+            y: -28 - ((seed + index * 13) % 64),
+        };
+    });
+}
+
+function getTierIndex(tierId: TierId): number {
+    return TIERS.findIndex((tier) => tier.id === tierId);
+}
+
+function useTierPromotionCelebration({
+    tier,
+    latestDelta,
+    totalLp,
+    nextTier,
+    nextTierRemainingLp,
+    visibleMs = TIER_PROMOTION_VISIBLE_MS,
+}: {
+    tier: TierConfig;
+    latestDelta: number;
+    totalLp: number;
+    nextTier: TierConfig | null;
+    nextTierRemainingLp: number;
+    visibleMs?: number;
+}) {
+    const previousTier = useRef<TierConfig | null>(null);
+    const clearTimer = useRef<number | null>(null);
+    const [presentation, setPresentation] = useState<TierPromotionPresentation | null>(null);
+
+    useEffect(() => {
+        const previous = previousTier.current;
+        previousTier.current = tier;
+
+        if (!previous) return;
+        const previousIndex = getTierIndex(previous.id);
+        const nextIndex = getTierIndex(tier.id);
+        if (previousIndex < 0 || nextIndex <= previousIndex) return;
+
+        const nextPresentation: TierPromotionPresentation = {
+            id: `${previous.id}-to-${tier.id}-${totalLp}-${Date.now()}`,
+            fromTier: previous,
+            toTier: tier,
+            delta: latestDelta,
+            totalLp,
+            nextTier,
+            nextTierRemainingLp,
+        };
+
+        if (clearTimer.current) window.clearTimeout(clearTimer.current);
+        setPresentation(nextPresentation);
+        clearTimer.current = window.setTimeout(() => {
+            setPresentation(null);
+            clearTimer.current = null;
+        }, visibleMs);
+    }, [latestDelta, nextTier, nextTierRemainingLp, tier, totalLp, visibleMs]);
+
+    useEffect(() => () => {
+        if (clearTimer.current) window.clearTimeout(clearTimer.current);
+    }, []);
+
+    return presentation;
+}
+
 function getMissionKindLabel(kind: PracticeMission['kind']): string {
     if (kind === 'grammar') return '문법';
     if (kind === 'tense') return '시제';
@@ -1091,6 +1175,134 @@ function MiniTierBadge({ tier }: { tier: TierConfig }) {
             <TierBadge tier={tier} size={28} />
             <span className="w-full whitespace-nowrap text-center text-[8px] font-bold leading-none text-[#6b5a4a] xl:text-[9px]">{tier.label}</span>
         </div>
+    );
+}
+
+function TierPromotionCelebration({ presentation }: { presentation: TierPromotionPresentation | null }) {
+    const prefersReducedMotion = usePrefersReducedMotion();
+    const particles = presentation && !prefersReducedMotion ? getTierPromotionParticles(presentation.id) : [];
+
+    return (
+        <AnimatePresence>
+            {presentation && (
+                <motion.div
+                    key={presentation.id}
+                    role="status"
+                    aria-live="polite"
+                    className="pointer-events-none absolute inset-0 z-30 overflow-hidden rounded-lg bg-[#1d1611]/70"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: prefersReducedMotion ? 0.01 : 0.16 }}
+                >
+                    {!prefersReducedMotion && (
+                        <>
+                            <motion.div
+                                aria-hidden="true"
+                                className="absolute left-1/2 top-1/2 h-44 w-44 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#facc15]/25 blur-2xl"
+                                initial={{ scale: 0.1, opacity: 0 }}
+                                animate={{ scale: [0.1, 1.2, 0.85], opacity: [0, 0.9, 0.5] }}
+                                transition={{ duration: 0.85, ease: 'easeOut' }}
+                            />
+                            <motion.div
+                                aria-hidden="true"
+                                className="absolute left-1/2 top-1/2 h-32 w-56 -translate-x-1/2 -translate-y-1/2 border-y border-[#fff4b4]/70"
+                                initial={{ scaleX: 0.1, opacity: 0 }}
+                                animate={{ scaleX: [0.1, 1.15, 0.95], opacity: [0, 1, 0.55] }}
+                                transition={{ duration: 0.7, ease: 'easeOut' }}
+                            />
+                            <motion.div
+                                aria-hidden="true"
+                                className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#fff7ad]/70"
+                                initial={{ scale: 0.2, opacity: 0 }}
+                                animate={{ scale: [0.2, 2.4], opacity: [0.8, 0] }}
+                                transition={{ duration: 0.9, ease: 'easeOut' }}
+                            />
+                            {particles.map((particle) => (
+                                <motion.span
+                                    key={particle.id}
+                                    aria-hidden="true"
+                                    className="absolute h-1.5 w-1.5 rounded-full"
+                                    style={{
+                                        left: `${particle.left}%`,
+                                        top: `${particle.top}%`,
+                                        backgroundColor: particle.color,
+                                        boxShadow: `0 0 12px ${particle.color}`,
+                                    }}
+                                    initial={{ x: 0, y: 0, scale: 0.4, opacity: 0 }}
+                                    animate={{ x: particle.x, y: particle.y, scale: [0.4, 1, 0.2], opacity: [0, 1, 0] }}
+                                    transition={{ duration: 0.95, ease: 'easeOut' }}
+                                />
+                            ))}
+                        </>
+                    )}
+
+                    <div className="absolute inset-0 flex items-center justify-center px-4">
+                        <motion.div
+                            className="relative flex min-w-0 flex-col items-center text-center"
+                            initial={prefersReducedMotion ? false : { y: 12, scale: 0.92, opacity: 0 }}
+                            animate={{ y: 0, scale: 1, opacity: 1 }}
+                            exit={{ y: -8, scale: 0.96, opacity: 0 }}
+                            transition={{ type: 'spring', stiffness: 420, damping: 30, mass: 0.8 }}
+                        >
+                            <div className="relative flex items-center justify-center">
+                                {!prefersReducedMotion && (
+                                    <>
+                                        <motion.div
+                                            aria-hidden="true"
+                                            className="absolute -left-20 h-12 w-20 rounded-l-full border-l-2 border-t-2 border-[#fff7ad]/70"
+                                            initial={{ x: 28, scaleX: 0.25, opacity: 0 }}
+                                            animate={{ x: 0, scaleX: 1, opacity: 0.85 }}
+                                            transition={{ delay: 0.12, duration: 0.38, ease: 'easeOut' }}
+                                        />
+                                        <motion.div
+                                            aria-hidden="true"
+                                            className="absolute -right-20 h-12 w-20 rounded-r-full border-r-2 border-t-2 border-[#fff7ad]/70"
+                                            initial={{ x: -28, scaleX: 0.25, opacity: 0 }}
+                                            animate={{ x: 0, scaleX: 1, opacity: 0.85 }}
+                                            transition={{ delay: 0.12, duration: 0.38, ease: 'easeOut' }}
+                                        />
+                                    </>
+                                )}
+                                <motion.div
+                                    initial={prefersReducedMotion ? false : { scale: 0.3, rotate: -10, opacity: 0 }}
+                                    animate={{ scale: 1, rotate: 0, opacity: 1 }}
+                                    transition={{ delay: 0.08, type: 'spring', stiffness: 460, damping: 20 }}
+                                >
+                                    <TierBadge tier={presentation.toTier} size={76} />
+                                </motion.div>
+                            </div>
+                            <motion.p
+                                className="mt-2 rounded-full border border-[#fff2a8]/60 bg-[#fff7d6]/95 px-3 py-1 text-[10px] font-black tracking-normal text-[#7a540f]"
+                                initial={prefersReducedMotion ? false : { y: 8, opacity: 0 }}
+                                animate={{ y: 0, opacity: 1 }}
+                                transition={{ delay: 0.22, duration: 0.22 }}
+                            >
+                                PROMOTED
+                            </motion.p>
+                            <motion.p
+                                className="mt-1 text-2xl font-black leading-none text-white drop-shadow"
+                                initial={prefersReducedMotion ? false : { y: 10, opacity: 0 }}
+                                animate={{ y: 0, opacity: 1 }}
+                                transition={{ delay: 0.28, duration: 0.25 }}
+                            >
+                                {presentation.toTier.label} 달성
+                            </motion.p>
+                            <motion.p
+                                className="mt-1 max-w-[220px] truncate text-xs font-bold text-[#fff4c7]"
+                                initial={prefersReducedMotion ? false : { y: 8, opacity: 0 }}
+                                animate={{ y: 0, opacity: 1 }}
+                                transition={{ delay: 0.34, duration: 0.25 }}
+                                title={presentation.nextTier ? `${presentation.nextTier.label}까지 ${presentation.nextTierRemainingLp} LP` : '최고 티어'}
+                            >
+                                {presentation.delta > 0 ? `▲ ${presentation.delta} LP · ` : ''}
+                                총 {presentation.totalLp} LP · {presentation.nextTier ? `${presentation.nextTier.label}까지 ${presentation.nextTierRemainingLp} LP` : '최고 티어'}
+                            </motion.p>
+                        </motion.div>
+                    </div>
+                </motion.div>
+            )}
+        </AnimatePresence>
     );
 }
 
@@ -1735,6 +1947,7 @@ export function AssessmentPanel() {
     const [developerControlsOpen, setDeveloperControlsOpen] = useState(false);
     const [nowEpochMs, setNowEpochMs] = useState(() => Date.now());
     const [detailTab, setDetailTab] = useState<AssessmentDetailTab>('feedback');
+    const prefersReducedMotion = usePrefersReducedMotion();
 
     const [missionSuccessSoundEnabled] = useMissionSuccessSoundEnabled();
     const missionAudioRef = useRef<MissionSuccessAudio | null>(null);
@@ -1852,6 +2065,17 @@ export function AssessmentPanel() {
         visibleMs: MISSION_CELEBRATION_VISIBLE_MS,
         onPresent: handleMissionPresentation,
     });
+    const tierPromotion = useTierPromotionCelebration({
+        tier: tier.tier,
+        latestDelta: tier.latestDelta,
+        totalLp: tier.totalLp,
+        nextTier: tier.nextTier,
+        nextTierRemainingLp: tier.nextTierRemainingLp,
+    });
+    useEffect(() => {
+        if (!tierPromotion) return;
+        void missionAudioRef.current?.playTierPromotion();
+    }, [tierPromotion]);
     useEffect(() => {
         if (turns.length === 0) return;
 
@@ -1939,7 +2163,8 @@ export function AssessmentPanel() {
                 ) : (
                     <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-2 lg:grid-rows-[minmax(160px,2fr)_minmax(178px,2.15fr)_minmax(0,5.85fr)] lg:overflow-hidden">
                         <div className="contents">
-                            <section className="order-2 flex min-h-0 flex-col overflow-hidden rounded-lg border border-white/50 bg-white/70 shadow-sm">
+                            <section className="relative order-2 flex min-h-0 flex-col overflow-hidden rounded-lg border border-white/50 bg-white/70 shadow-sm">
+                                <TierPromotionCelebration presentation={tierPromotion} />
                                 <div className="relative flex-1 p-2.5">
                                     <div className="absolute right-0 top-0 h-20 w-20 rounded-bl-full bg-white/45" />
                                     <div className="relative z-10 mb-1.5 flex min-w-0 items-center gap-2" aria-live="polite">
@@ -2216,11 +2441,18 @@ export function AssessmentPanel() {
                                                 key={value}
                                                 type="button"
                                                 onClick={() => setDetailTab(value)}
-                                                className={`rounded px-3 py-1.5 text-xs font-black transition-colors focus:outline-none focus:ring-2 focus:ring-[#6b5a4a]/25 ${detailTab === value
-                                                    ? 'bg-white text-[#483c2d] shadow-sm'
+                                                className={`relative overflow-hidden rounded px-3 py-1.5 text-xs font-black transition-colors focus:outline-none focus:ring-2 focus:ring-[#6b5a4a]/25 ${detailTab === value
+                                                    ? 'text-[#483c2d]'
                                                     : 'text-[#6b5a4a] hover:bg-white/55'}`}
                                             >
-                                                {label}
+                                                {detailTab === value && (
+                                                    <motion.span
+                                                        layoutId="assessment-detail-tab-active"
+                                                        className="absolute inset-0 rounded bg-white shadow-sm"
+                                                        transition={{ type: 'spring', stiffness: 480, damping: 36 }}
+                                                    />
+                                                )}
+                                                <span className="relative z-10">{label}</span>
                                             </button>
                                         ))}
                                     </div>
@@ -2229,56 +2461,78 @@ export function AssessmentPanel() {
                                     </span>
                                 </div>
 
-                                {detailTab === 'feedback' ? (
-                                    previousTurns.length === 0 ? (
-                                        <p className="text-xs leading-relaxed text-[#6b5a4a]">응답이 쌓이면 이곳에서 이전 피드백을 스크롤로 다시 볼 수 있습니다.</p>
-                                    ) : (
-                                        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                                            <div className="grid gap-2 2xl:grid-cols-2">
-                                                {previousTurns.map((turn, index) => (
-                                                    <FeedbackCard key={`${turn.evaluation.turnId}-${index}`} turn={turn} compact={index > 5} />
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )
-                                ) : (
-                                    <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                                        <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.8fr)_minmax(320px,1.2fr)]">
-                                            <div className="rounded-md bg-[#fdf8f4]/90 p-3">
-                                                <div className="grid grid-cols-3 gap-2">
-                                                    <div className="rounded-md bg-white/65 px-3 py-2">
-                                                        <p className="text-[11px] font-bold text-[#6b5a4a]/70">누적 응답</p>
-                                                        <p className="mt-1 text-lg font-black leading-none text-[#483c2d]">{turns.length}</p>
+                                <div className="relative min-h-0 flex-1 overflow-hidden">
+                                    <AnimatePresence mode="wait" initial={false}>
+                                        {detailTab === 'feedback' ? (
+                                            <motion.div
+                                                key="feedback-tab-panel"
+                                                className="absolute inset-0 min-h-0"
+                                                initial={prefersReducedMotion ? false : { opacity: 0, x: -16, filter: 'blur(2px)' }}
+                                                animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
+                                                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: -12, filter: 'blur(2px)' }}
+                                                transition={{ duration: 0.2, ease: 'easeOut' }}
+                                            >
+                                                {previousTurns.length === 0 ? (
+                                                    <p className="text-xs leading-relaxed text-[#6b5a4a]">응답이 쌓이면 이곳에서 이전 피드백을 스크롤로 다시 볼 수 있습니다.</p>
+                                                ) : (
+                                                    <div className="h-full min-h-0 overflow-y-auto pr-1">
+                                                        <div className="grid gap-2 2xl:grid-cols-2">
+                                                            {previousTurns.map((turn, index) => (
+                                                                <FeedbackCard key={`${turn.evaluation.turnId}-${index}`} turn={turn} compact={index > 5} />
+                                                            ))}
+                                                        </div>
                                                     </div>
-                                                    <div className="rounded-md bg-[#eef8f6] px-3 py-2">
-                                                        <p className="text-[11px] font-bold text-[#265651]/70">최근 점수</p>
-                                                        <p className="mt-1 text-lg font-black leading-none text-[#1f4f4a]">
-                                                            {latestTurn ? getMetricScore(latestTurn.evaluation, 'overall') : '--'}
-                                                        </p>
-                                                    </div>
-                                                    <div className="rounded-md bg-[#fff7e8] px-3 py-2">
-                                                        <p className="text-[11px] font-bold text-[#7a5a23]/70">우선 연습</p>
-                                                        <p className="mt-1 truncate text-sm font-black text-[#6b4f20]" title={weakestMetric?.label}>
-                                                            {weakestMetric?.label ?? '--'}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                <p className="mt-3 text-xs leading-relaxed text-[#6b5a4a]">
-                                                    평가는 교정 문장이나 미션 상태와 분리되어 누적 점수 기준으로 표시됩니다.
-                                                </p>
-                                            </div>
+                                                )}
+                                            </motion.div>
+                                        ) : (
+                                            <motion.div
+                                                key="evaluation-tab-panel"
+                                                className="absolute inset-0 min-h-0"
+                                                initial={prefersReducedMotion ? false : { opacity: 0, x: 16, filter: 'blur(2px)' }}
+                                                animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
+                                                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, x: 12, filter: 'blur(2px)' }}
+                                                transition={{ duration: 0.2, ease: 'easeOut' }}
+                                            >
+                                                <div className="h-full min-h-0 overflow-y-auto pr-1">
+                                                    <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.8fr)_minmax(320px,1.2fr)]">
+                                                        <div className="rounded-md bg-[#fdf8f4]/90 p-3">
+                                                            <div className="grid grid-cols-3 gap-2">
+                                                                <div className="rounded-md bg-white/65 px-3 py-2">
+                                                                    <p className="text-[11px] font-bold text-[#6b5a4a]/70">누적 응답</p>
+                                                                    <p className="mt-1 text-lg font-black leading-none text-[#483c2d]">{turns.length}</p>
+                                                                </div>
+                                                                <div className="rounded-md bg-[#eef8f6] px-3 py-2">
+                                                                    <p className="text-[11px] font-bold text-[#265651]/70">최근 점수</p>
+                                                                    <p className="mt-1 text-lg font-black leading-none text-[#1f4f4a]">
+                                                                        {latestTurn ? getMetricScore(latestTurn.evaluation, 'overall') : '--'}
+                                                                    </p>
+                                                                </div>
+                                                                <div className="rounded-md bg-[#fff7e8] px-3 py-2">
+                                                                    <p className="text-[11px] font-bold text-[#7a5a23]/70">우선 연습</p>
+                                                                    <p className="mt-1 truncate text-sm font-black text-[#6b4f20]" title={weakestMetric?.label}>
+                                                                        {weakestMetric?.label ?? '--'}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                            <p className="mt-3 text-xs leading-relaxed text-[#6b5a4a]">
+                                                                평가는 교정 문장이나 미션 상태와 분리되어 누적 점수 기준으로 표시됩니다.
+                                                            </p>
+                                                        </div>
 
-                                            <div className="rounded-md bg-white/65 p-3">
-                                                <h3 className="mb-3 text-sm font-bold text-[#483c2d]">영역별 평균</h3>
-                                                <div className="space-y-3">
-                                                    {metricAverages.map((metric) => (
-                                                        <MetricBar key={metric.key} label={metric.label} value={metric.value} />
-                                                    ))}
+                                                        <div className="rounded-md bg-white/65 p-3">
+                                                            <h3 className="mb-3 text-sm font-bold text-[#483c2d]">영역별 평균</h3>
+                                                            <div className="space-y-3">
+                                                                {metricAverages.map((metric) => (
+                                                                    <MetricBar key={metric.key} label={metric.label} value={metric.value} />
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
                             </section>
                         </div>
                     </div>

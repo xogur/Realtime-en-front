@@ -216,9 +216,9 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                                             <Volume2 className="h-5 w-5" />
                                         </span>
                                         <span className="min-w-0">
-                                            <span className="block text-sm font-black text-zinc-900 dark:text-zinc-50">미션 성공 효과음</span>
+                                            <span className="block text-sm font-black text-zinc-900 dark:text-zinc-50">성공 효과음</span>
                                             <span className="mt-0.5 block text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-                                                퀘스트를 완료했을 때 짧은 성공음을 재생합니다.
+                                                퀘스트 완료나 등급 상승 때 짧은 성공음을 재생합니다.
                                             </span>
                                         </span>
                                     </span>
