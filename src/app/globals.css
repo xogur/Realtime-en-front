@@ -62,7 +62,7 @@ nextjs-portal {
 
 @page {
   size: A4 portrait;
-  margin: 12mm;
+  margin: 10mm;
 }
 
 @media print {
@@ -107,7 +107,8 @@ nextjs-portal {
   }
 
   .print-document > div {
-    width: 100% !important;
+    width: 190mm !important;
+    max-width: 190mm !important;
     min-height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -115,7 +116,13 @@ nextjs-portal {
   }
 
   .print-document .print-page {
-    min-height: 0 !important;
+    box-sizing: border-box !important;
+    width: 190mm !important;
+    max-width: 190mm !important;
+    height: 277mm !important;
+    max-height: 277mm !important;
+    min-height: 277mm !important;
+    overflow: hidden !important;
     break-inside: avoid;
     page-break-inside: avoid;
   }
@@ -129,5 +136,12 @@ nextjs-portal {
   .print-document .print-card {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  .print-document .line-clamp-2 {
+    display: -webkit-box !important;
+    -webkit-box-orient: vertical !important;
+    -webkit-line-clamp: 2 !important;
+    overflow: hidden !important;
   }
 }

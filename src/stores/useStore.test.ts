@@ -83,6 +83,27 @@ describe('mission completion store rules', () => {
     });
 
     it.each([
+        ['it depends', '상황에 따라 답이 달라진다고 말할 때 사용합니다.', 'It depends on the weather.'],
+        ['if', '조건을 붙여서 더 정확하게 말하고 싶을 때 사용합니다.', 'If I have time, I will practice more.'],
+        ['used to', '지금은 아니지만 예전에 자주 했던 일을 말할 때 사용합니다.', 'I used to play soccer after school.'],
+    ])('adds natural guidance for %s expression missions', (expression, usageContext, exampleSentence) => {
+        useStore.getState().addMissionCandidates([
+            mission({
+                id: `mission-${expression}`,
+                kind: 'grammar',
+                title: 'Expression practice',
+                target: `Use ${expression}.`,
+                checks: [{ type: 'includesAny', value: [expression] }],
+            }),
+        ]);
+
+        const [activeMission] = useStore.getState().activeMissions;
+        expect(activeMission.target).toBe(`답변에 ${expression}를 자연스럽게 사용해보세요.`);
+        expect(activeMission.usageContext).toBe(usageContext);
+        expect(activeMission.exampleSentence).toBe(exampleSentence);
+    });
+
+    it.each([
         ['minWords', [{ type: 'minWords', min: 8 }], 'I really enjoy walking around the park after dinner.', 'I enjoy the park.'],
         ['includesAny', [{ type: 'includesAny', value: ['in my opinion', 'I think'] }], 'In my opinion, this option is better.', 'This option is better.'],
         ['sentenceCount', [{ type: 'sentenceCount', min: 2 }], 'I like this cafe. The coffee is excellent.', 'I like this cafe very much.'],

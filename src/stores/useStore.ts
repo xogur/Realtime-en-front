@@ -441,10 +441,49 @@ function missionValues(check?: MissionCheck): string[] {
     return typeof check.value === 'string' ? [check.value] : [...check.value];
 }
 
+function formatMissionValues(values: string[]): string {
+    if (values.length === 0) return '목표 표현';
+    if (values.length === 1) return values[0];
+    return values.join(', ');
+}
+
+function getIncludesAnyGuidance(values: string[]): Pick<PracticeMission, 'usageContext' | 'exampleSentence'> {
+    const normalizedValues = values.map((value) => value.toLowerCase());
+
+    if (normalizedValues.includes('it depends')) {
+        return {
+            usageContext: '상황에 따라 답이 달라진다고 말할 때 사용합니다.',
+            exampleSentence: 'It depends on the weather.',
+        };
+    }
+
+    if (normalizedValues.includes('if')) {
+        return {
+            usageContext: '조건을 붙여서 더 정확하게 말하고 싶을 때 사용합니다.',
+            exampleSentence: 'If I have time, I will practice more.',
+        };
+    }
+
+    if (normalizedValues.includes('used to')) {
+        return {
+            usageContext: '지금은 아니지만 예전에 자주 했던 일을 말할 때 사용합니다.',
+            exampleSentence: 'I used to play soccer after school.',
+        };
+    }
+
+    const valueText = formatMissionValues(values);
+
+    return {
+        usageContext: `${valueText} 표현을 답변 안에 자연스럽게 넣고 싶을 때 사용합니다.`,
+        exampleSentence: values.length > 0
+            ? `I can use "${values[0]}" to make my answer clearer.`
+            : 'I can add one useful expression to my answer.',
+    };
+}
+
 function getMissionGuidance(mission: PracticeMission): Pick<PracticeMission, 'usageContext' | 'exampleSentence'> {
     const check = firstMissionCheck(mission);
     const values = missionValues(check).filter(Boolean);
-    const firstValue = values[0];
     const min = check?.min;
 
     if (shouldForceConnectorCheck(mission)) {
@@ -491,14 +530,7 @@ function getMissionGuidance(mission: PracticeMission): Pick<PracticeMission, 'us
                 exampleSentence: 'Could you explain that again, please?',
             };
         case 'includesAny':
-            return {
-                usageContext: firstValue
-                    ? `${firstValue} 같은 표현을 자연스럽게 답변에 넣고 싶을 때 사용합니다.`
-                    : '목표 표현을 답변 안에 자연스럽게 넣고 싶을 때 사용합니다.',
-                exampleSentence: firstValue
-                    ? `${firstValue.charAt(0).toUpperCase()}${firstValue.slice(1)} it is useful for me.`
-                    : 'I think it is useful for me.',
-            };
+            return getIncludesAnyGuidance(values);
         default:
             return {
                 usageContext: '답변을 조금 더 자연스럽고 구체적으로 만들고 싶을 때 사용합니다.',
@@ -576,7 +608,9 @@ function localizeMission(mission: PracticeMission): PracticeMission {
                 ...mission,
                 title: mission.kind === 'vocabulary' ? '어휘 사용' : '표현 사용',
                 target: values.length > 0
-                    ? `답변에 ${values.join(', ')} 중 하나를 사용해보세요.`
+                    ? values.length === 1
+                        ? `답변에 ${values[0]}를 자연스럽게 사용해보세요.`
+                        : `답변에 ${values.join(', ')} 중 하나를 자연스럽게 사용해보세요.`
                     : '답변에 새 표현을 하나 사용해보세요.',
                 successHint: '목표 표현을 답변에 사용했습니다.',
             };

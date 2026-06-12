@@ -89,6 +89,7 @@ describe('MissionSuccessAudio', () => {
         expect(FakeAudioContext.instances).toHaveLength(1);
         expect(startMock).toHaveBeenCalled();
         expect(stopMock).toHaveBeenCalled();
+        expect(exponentialRampToValueAtTimeMock).toHaveBeenCalledWith(0.16, expect.any(Number));
         audio.dispose();
     });
 
@@ -100,6 +101,7 @@ describe('MissionSuccessAudio', () => {
         expect(FakeAudioContext.instances).toHaveLength(1);
         expect(startMock).toHaveBeenCalledTimes(9);
         expect(setValueAtTimeMock).toHaveBeenCalledWith(2093, expect.any(Number));
+        expect(exponentialRampToValueAtTimeMock).toHaveBeenCalledWith(0.24, expect.any(Number));
         audio.dispose();
     });
 

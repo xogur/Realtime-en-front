@@ -28,9 +28,8 @@ import {
     getCurrentMessageLp,
     getMetricScore,
     getMissionResultsFromCompletions,
-    getTurnLp,
 } from '@/lib/missionLp';
-import { calculateTierProgress } from '@/lib/tierProgress';
+import { calculateTierProgress, type TierProgress } from '@/lib/tierProgress';
 
 type EvaluatedTurn = {
     message: ChatMessage;
@@ -53,6 +52,9 @@ type MetricSnapshot = { key: MetricKey; label: string; value: number };
 
 const MISSION_CELEBRATION_VISIBLE_MS = 1800;
 const TIER_PROMOTION_VISIBLE_MS = 2200;
+const PRINT_CORE_CORRECTION_LIMIT = 3;
+const PRINT_EXTRA_CORRECTION_LIMIT = 2;
+const PRINT_TOTAL_CORRECTION_LIMIT = PRINT_CORE_CORRECTION_LIMIT + PRINT_EXTRA_CORRECTION_LIMIT;
 
 type TierConfig = {
     id: TierId;
@@ -254,20 +256,6 @@ function getMissionResult(turn: EvaluatedTurn): MissionResult {
 }
 
 */
-
-function getTierProgress(
-    turns: EvaluatedTurn[],
-    pendingMissionBonus = 0,
-    latestPendingMissionBonus = 0,
-    developerLpDeltas: number[] = [],
-) {
-    return calculateTierProgress({
-        tiers: TIERS,
-        turnLps: [...turns.map((turn) => getTurnLp(turn)), ...developerLpDeltas],
-        pendingMissionBonus,
-        latestPendingMissionBonus: developerLpDeltas.length > 0 ? 0 : latestPendingMissionBonus,
-    });
-}
 
 function getScoreAccent(score: number): string {
     if (score >= 85) return 'bg-[#edf5ed] text-[#29452c]';
@@ -1011,7 +999,7 @@ function ActiveMissionsPanel({
                             <div className="relative z-10 mt-1 grid gap-1">
                                 <p className="flex min-w-0 items-start gap-1 rounded bg-[#eef8ed]/80 px-2 py-1 text-[10px] font-bold leading-tight text-[#29452c]" title={support.usage}>
                                     <Info className="mt-0.5 h-3 w-3 shrink-0" />
-                                    <span className="line-clamp-2">언제: {support.usage}</span>
+                                    <span className="line-clamp-2">활용: {support.usage}</span>
                                 </p>
                                 {support.example && (
                                     <p className="flex min-w-0 items-center gap-1 rounded bg-white/75 px-2 py-0.5 text-[10px] font-bold leading-tight text-[#6b5a4a]" title={support.example}>
@@ -1643,7 +1631,7 @@ function getReportCorrections(turns: EvaluatedTurn[], messages: ChatMessage[]): 
     });
 
     return (correctionTurns.length > 0 ? correctionTurns : turns)
-        .slice(-6)
+        .slice(-PRINT_TOTAL_CORRECTION_LIMIT)
         .reverse()
         .map((turn) => ({
             ...turn,
@@ -1725,16 +1713,19 @@ function PrintInsightCard({ title, value, tone = 'neutral' }: { title: string; v
 function PrintReport({
     messages,
     turns,
+    tier,
     sessionScore,
     metricAverages,
 }: {
     messages: ChatMessage[];
     turns: EvaluatedTurn[];
+    tier: TierProgress<TierConfig>;
     sessionScore: number | null;
     metricAverages: MetricSnapshot[];
 }) {
     const correctionTurns = getReportCorrections(turns, messages);
-    const reportTier = getTierProgress(turns);
+    const coreCorrections = correctionTurns.slice(0, PRINT_CORE_CORRECTION_LIMIT);
+    const extraCorrections = correctionTurns.slice(PRINT_CORE_CORRECTION_LIMIT, PRINT_TOTAL_CORRECTION_LIMIT);
     const latestTurn = turns[turns.length - 1] ?? null;
     const highlights = getReportHighlights(turns, metricAverages);
     const reportDate = new Intl.DateTimeFormat('ko-KR', {
@@ -1759,8 +1750,8 @@ function PrintReport({
                         </div>
                         <div className="text-right">
                             <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">현재 티어</p>
-                            <p className="mt-1 text-[22px] font-black leading-none" style={{ color: reportTier.tier.text }}>{reportTier.tier.label}</p>
-                            <p className="mt-1 text-[10px] font-bold text-[#6b5a4a]">{reportTier.totalLp} LP</p>
+                            <p className="mt-1 text-[22px] font-black leading-none" style={{ color: tier.tier.text }}>{tier.tier.label}</p>
+                            <p className="mt-1 text-[10px] font-bold text-[#6b5a4a]">{tier.totalLp} LP</p>
                         </div>
                     </header>
 
@@ -1780,12 +1771,12 @@ function PrintReport({
                             </div>
                         </div>
                         <div className="flex flex-col items-center justify-center rounded-md border border-[#6b5a4a]/15 p-3">
-                            <TierBadge tier={reportTier.tier} size={90} />
-                            <p className="mt-2 text-center text-[11px] font-black leading-tight" style={{ color: reportTier.tier.text }}>
-                                {reportTier.tier.subtitle}
+                            <TierBadge tier={tier.tier} size={90} />
+                            <p className="mt-2 text-center text-[11px] font-black leading-tight" style={{ color: tier.tier.text }}>
+                                {tier.tier.subtitle}
                             </p>
                             <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#efe5d8]">
-                                <div className="h-full rounded-full bg-[#2f6f4f]" style={{ width: `${reportTier.progress}%` }} />
+                                <div className="h-full rounded-full bg-[#2f6f4f]" style={{ width: `${tier.progress}%` }} />
                             </div>
                         </div>
                     </section>
@@ -1824,26 +1815,26 @@ function PrintReport({
                                 <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">핵심 교정</p>
                                 <h2 className="text-[18px] font-black text-[#2f261e]">다시 연습할 문장</h2>
                             </div>
-                            <p className="text-[10px] font-bold text-[#6b5a4a]">최대 {Math.min(correctionTurns.length, 4)}개</p>
+                            <p className="text-[10px] font-bold text-[#6b5a4a]">최대 {Math.min(correctionTurns.length, PRINT_CORE_CORRECTION_LIMIT)}개</p>
                         </div>
                         <div className="grid gap-2.5">
-                            {correctionTurns.slice(0, 4).map((turn, index) => (
+                            {coreCorrections.map((turn, index) => (
                                 <article key={`${turn.evaluation.turnId}:page1`} className="rounded-md border-l-4 border-[#2f6f4f] bg-[#f8f1ea] px-3 py-2">
                                     <div className="flex items-start gap-3">
                                         <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#2f6f4f] text-[11px] font-black text-white">{index + 1}</span>
                                         <div className="min-w-0 flex-1">
                                             {turn.assistantPrompt && (
-                                                <p className="break-words rounded bg-white/70 px-2 py-1 text-[10px] font-semibold leading-snug text-[#6b5a4a]">
+                                                <p className="line-clamp-2 break-words rounded bg-white/70 px-2 py-1 text-[10px] font-semibold leading-snug text-[#6b5a4a]">
                                                     <span className="font-black text-[#2f6f4f]">AI 질문: </span>{turn.assistantPrompt}
                                                 </p>
                                             )}
-                                            <p className="mt-1 break-words text-[11px] font-bold leading-snug text-[#6b5a4a]">
+                                            <p className="mt-1 line-clamp-2 break-words text-[11px] font-bold leading-snug text-[#6b5a4a]">
                                                 <span className="font-black text-[#7a4b3a]">내 답변: </span>{turn.evaluation.correction.original || turn.message.content}
                                             </p>
-                                            <p className="mt-1 break-words rounded bg-white px-2 py-1 text-[12px] font-black leading-snug text-[#29452c]">
+                                            <p className="mt-1 line-clamp-2 break-words rounded bg-white px-2 py-1 text-[12px] font-black leading-snug text-[#29452c]">
                                                 <span>교정: </span>{turn.evaluation.correction.suggested || turn.message.content}
                                             </p>
-                                            <p className="mt-1 break-words text-[10px] font-semibold leading-snug text-[#514337]">
+                                            <p className="mt-1 line-clamp-2 break-words text-[10px] font-semibold leading-snug text-[#514337]">
                                                 <span className="font-black">근거: </span>{turn.evaluation.correction.reason || turn.evaluation.evidence.overall}
                                             </p>
                                         </div>
@@ -1883,30 +1874,30 @@ function PrintReport({
                     <section className="mt-5">
                         <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">추가 교정</p>
                         <div className="mt-3 grid gap-2.5">
-                            {correctionTurns.slice(4, 6).map((turn, index) => (
+                            {extraCorrections.map((turn, index) => (
                                 <article key={`${turn.evaluation.turnId}:page2`} className="rounded-md border-l-4 border-[#b77f1e] bg-[#fff7e8] px-3 py-2">
                                     <div className="flex items-start gap-3">
-                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#b77f1e] text-[11px] font-black text-white">{index + 5}</span>
+                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#b77f1e] text-[11px] font-black text-white">{index + PRINT_CORE_CORRECTION_LIMIT + 1}</span>
                                         <div className="min-w-0 flex-1">
                                             {turn.assistantPrompt && (
-                                                <p className="break-words rounded bg-white/70 px-2 py-1 text-[10px] font-semibold leading-snug text-[#6b5a4a]">
+                                                <p className="line-clamp-2 break-words rounded bg-white/70 px-2 py-1 text-[10px] font-semibold leading-snug text-[#6b5a4a]">
                                                     <span className="font-black text-[#b77f1e]">AI 질문: </span>{turn.assistantPrompt}
                                                 </p>
                                             )}
-                                            <p className="mt-1 break-words text-[11px] font-bold leading-snug text-[#6b5a4a]">
+                                            <p className="mt-1 line-clamp-2 break-words text-[11px] font-bold leading-snug text-[#6b5a4a]">
                                                 <span className="font-black text-[#7a4b3a]">내 답변: </span>{turn.evaluation.correction.original || turn.message.content}
                                             </p>
-                                            <p className="mt-1 break-words rounded bg-white px-2 py-1 text-[12px] font-black leading-snug text-[#6b4f20]">
+                                            <p className="mt-1 line-clamp-2 break-words rounded bg-white px-2 py-1 text-[12px] font-black leading-snug text-[#6b4f20]">
                                                 <span>교정: </span>{turn.evaluation.correction.suggested || turn.message.content}
                                             </p>
-                                            <p className="mt-1 break-words text-[10px] font-semibold leading-snug text-[#514337]">
+                                            <p className="mt-1 line-clamp-2 break-words text-[10px] font-semibold leading-snug text-[#514337]">
                                                 <span className="font-black">근거: </span>{turn.evaluation.correction.reason || turn.evaluation.evidence.overall}
                                             </p>
                                         </div>
                                     </div>
                                 </article>
                             ))}
-                            {correctionTurns.length <= 4 && (
+                            {extraCorrections.length === 0 && (
                                 <p className="rounded-md bg-[#f8f1ea] px-3 py-2 text-[12px] font-semibold text-[#514337]">
                                     추가 교정 항목이 없습니다. 첫 페이지의 핵심 교정을 상담 자료로 사용하세요.
                                 </p>
@@ -2113,7 +2104,7 @@ export function AssessmentPanel() {
         <aside className="relative flex h-full min-h-0 flex-col border-t border-[#483c2d]/10 bg-[#f4ece4]/75 backdrop-blur-xl print:border-0 print:bg-white lg:border-l lg:border-t-0">
             <MissionSuccessCelebration presentation={missionCelebration.current} />
             {printRoot ? createPortal(
-                <PrintReport messages={messages} turns={turns} sessionScore={sessionScore} metricAverages={metricAverages} />,
+                <PrintReport messages={messages} turns={turns} tier={tier} sessionScore={sessionScore} metricAverages={metricAverages} />,
                 printRoot,
             ) : null}
 

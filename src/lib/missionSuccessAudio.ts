@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 
 export const MISSION_SUCCESS_SOUND_STORAGE_KEY = 'mission-success-sound-enabled';
 const MISSION_SUCCESS_SOUND_EVENT = 'mission-success-sound-preference-change';
+const MISSION_SUCCESS_GAIN_MULTIPLIER = 4;
 
 type BrowserWindow = Window & {
     webkitAudioContext?: typeof AudioContext;
@@ -174,10 +175,11 @@ export class MissionSuccessAudio {
     ) {
         const oscillator = audioContext.createOscillator();
         const gain = audioContext.createGain();
+        const boostedPeakGain = peakGain * MISSION_SUCCESS_GAIN_MULTIPLIER;
         oscillator.type = type;
         oscillator.frequency.setValueAtTime(frequency, startAt);
         gain.gain.setValueAtTime(0.0001, startAt);
-        gain.gain.exponentialRampToValueAtTime(peakGain, startAt + 0.015);
+        gain.gain.exponentialRampToValueAtTime(boostedPeakGain, startAt + 0.015);
         gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
         oscillator.connect(gain).connect(audioContext.destination);
         oscillator.start(startAt);
