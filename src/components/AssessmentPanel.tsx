@@ -14,7 +14,7 @@ import {
     Target,
     X,
 } from 'lucide-react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useAnimate } from 'framer-motion';
 import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore, type ChatMessage, type EvaluationBatchStatus, type PracticeMission, type TurnCorrection, type TurnEvaluation } from '@/stores/useStore';
@@ -1241,6 +1241,132 @@ function FeedbackCard({ turn, compact = false }: { turn: EvaluatedTurn; compact?
     );
 }
 
+type CorrectionCoachCardProps = {
+    sentence: string;
+    reason?: string;
+    score: string;
+    scoreClassName: string;
+    context?: string;
+    lp: number;
+    lpIsFinal: boolean;
+};
+
+type StoppableAnimation = { stop: () => void };
+
+function stopAnimations(animations: StoppableAnimation[]) {
+    animations.forEach((animation) => animation.stop());
+    animations.length = 0;
+}
+
+export function CorrectionCoachCard({
+    sentence,
+    reason,
+    score,
+    scoreClassName,
+    context,
+    lp,
+    lpIsFinal,
+}: CorrectionCoachCardProps) {
+    const prefersReducedMotion = usePrefersReducedMotion();
+    const [scope, animate] = useAnimate<HTMLElement>();
+    const cardAnimations = useRef<StoppableAnimation[]>([]);
+    const scoreAnimations = useRef<StoppableAnimation[]>([]);
+    const lpAnimations = useRef<StoppableAnimation[]>([]);
+    const previousSentence = useRef(sentence);
+    const previousScore = useRef(score);
+    const previousLp = useRef(lp);
+
+    useEffect(() => {
+        if (previousSentence.current === sentence) return;
+        previousSentence.current = sentence;
+        stopAnimations(cardAnimations.current);
+        if (prefersReducedMotion || !scope.current) return;
+
+        cardAnimations.current = [
+            animate(scope.current, {
+                backgroundColor: ['#edf5ed', '#e1f2e4', '#edf5ed'],
+                borderColor: ['rgba(61, 111, 74, 0.2)', 'rgba(61, 111, 74, 0.55)', 'rgba(61, 111, 74, 0.2)'],
+                boxShadow: ['0 1px 2px rgba(36, 63, 39, 0.04)', '0 0 18px rgba(78, 146, 91, 0.2)', '0 1px 2px rgba(36, 63, 39, 0.04)'],
+            }, { duration: 0.56, ease: [0.22, 1, 0.36, 1] }),
+            animate('[data-correction-icon]', {
+                rotate: [0, -12, 10, 0],
+                scale: [1, 1.18, 1],
+            }, { duration: 0.42, ease: 'easeOut' }),
+        ];
+    }, [animate, prefersReducedMotion, scope, sentence]);
+
+    useEffect(() => {
+        if (previousScore.current === score) return;
+        previousScore.current = score;
+        stopAnimations(scoreAnimations.current);
+        if (prefersReducedMotion || !scope.current) return;
+
+        scoreAnimations.current = [animate('[data-correction-score]', {
+            scale: [1, 1.16, 1],
+        }, { duration: 0.3, ease: 'easeOut' })];
+    }, [animate, prefersReducedMotion, scope, score]);
+
+    useEffect(() => {
+        if (previousLp.current === lp) return;
+        previousLp.current = lp;
+        stopAnimations(lpAnimations.current);
+        if (prefersReducedMotion || !scope.current) return;
+
+        lpAnimations.current = [animate('[data-correction-lp]', {
+            scale: [1, 1.12, 1],
+            color: ['#3d6f4a', '#17662b', '#3d6f4a'],
+        }, { duration: 0.34, ease: 'easeOut' })];
+    }, [animate, lp, prefersReducedMotion, scope]);
+
+    useEffect(() => () => {
+        stopAnimations(cardAnimations.current);
+        stopAnimations(scoreAnimations.current);
+        stopAnimations(lpAnimations.current);
+    }, []);
+
+    return (
+        <section
+            ref={scope}
+            className="order-1 min-h-0 overflow-hidden rounded-lg border border-[#3d6f4a]/20 bg-[#edf5ed] shadow-sm"
+            aria-live="polite"
+            aria-atomic="true"
+        >
+            <div className="h-full overflow-hidden px-4 py-3">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                        <p className="flex items-center gap-1 text-xs font-black uppercase tracking-normal text-[#29452c]">
+                            <span data-correction-icon className="inline-flex">
+                                <Sparkles className="h-3.5 w-3.5" />
+                            </span>
+                            다음엔 이렇게 말해보세요
+                        </p>
+                        <p className="mt-1 line-clamp-2 break-words text-lg font-black leading-snug text-[#243f27]">
+                            {sentence}
+                        </p>
+                    </div>
+                    <span
+                        data-correction-score
+                        className={`shrink-0 rounded-full px-3 py-1 text-xs font-black tabular-nums ${scoreClassName}`}
+                    >
+                        {score}
+                    </span>
+                </div>
+                {reason && (
+                    <p className="mt-1 line-clamp-2 break-words text-xs font-semibold leading-snug text-[#3f6543]">
+                        {reason}
+                    </p>
+                )}
+                {context && (
+                    <p className="mt-1 break-words text-xs font-semibold leading-relaxed text-[#5e5549]">{context}</p>
+                )}
+                <p data-correction-lp className="mt-1 origin-left text-xs font-black text-[#3d6f4a]">
+                    {lpIsFinal ? '평가 LP' : '실시간 LP'} {lp > 0 ? '+' : ''}{lp} LP
+                </p>
+            </div>
+        </section>
+    );
+}
+
 function getReportCorrections(turns: EvaluatedTurn[], messages: ChatMessage[]): ReportCorrection[] {
     const correctionTurns = turns.filter((turn) => {
         const original = turn.evaluation.correction.original.trim() || turn.message.content.trim();
@@ -1605,6 +1731,33 @@ export function AssessmentPanel() {
     const latestRealtimeCorrection = latestFeedbackMessage?.correctionStatus === 'ready'
         ? latestFeedbackMessage
         : null;
+    const latestCoachMessage = latestFeedbackMessage ?? latestCorrectionMessage;
+    const latestCoachSentence = latestFeedbackTurn
+        ? getRetrySentence(latestFeedbackTurn)
+        : latestRealtimeCorrection?.correction?.suggested
+            || latestRealtimeCorrection?.content
+            || latestCorrectionMessage?.correction?.suggested
+            || latestCorrectionMessage?.content
+            || '';
+    const latestCoachReason = latestFeedbackTurn
+        ? getCoachReason(latestFeedbackTurn.evaluation, latestFeedbackTurn.message.correction)
+        : latestRealtimeCorrection?.correction?.reason || latestCorrectionMessage?.correction?.reason;
+    const latestCoachScore = latestFeedbackTurn
+        ? `${getMetricScore(latestFeedbackTurn.evaluation, 'overall')}점`
+        : `${latestRealtimeCorrection?.correction?.provisionalScore
+            ?? latestCorrectionMessage?.correction?.provisionalScore
+            ?? '--'}점`;
+    const latestCoachContext = !latestFeedbackTurn && (
+        latestRealtimeCorrection?.correction?.contextReason
+        || latestCorrectionMessage?.correction?.contextReason
+    )
+        ? `${getContextFitLabel(
+            latestRealtimeCorrection?.correction?.contextFit
+            || latestCorrectionMessage?.correction?.contextFit,
+        )} · ${latestRealtimeCorrection?.correction?.contextReason
+            || latestCorrectionMessage?.correction?.contextReason}`
+        : undefined;
+    const latestCoachLp = latestCoachMessage ? getCurrentMessageLp(latestCoachMessage) : 0;
     const showCoachContent = shouldShowCoachContent(turns.length, Boolean(latestCorrectionMessage));
     const realtimeTurnLps = userMessages.map((message) => getCurrentMessageLp(message));
     const tier = calculateTierProgress({
@@ -1927,65 +2080,18 @@ export function AssessmentPanel() {
                             </div>
 
                             {(latestFeedbackTurn || latestRealtimeCorrection || latestCorrectionMessage) && (
-                                <section className="order-1 min-h-0 overflow-hidden rounded-lg border border-[#3d6f4a]/20 bg-[#edf5ed] shadow-sm">
-                                    <div className="h-full overflow-hidden px-4 py-3">
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <p className="flex items-center gap-1 text-xs font-black uppercase tracking-normal text-[#29452c]">
-                                                    <Sparkles className="h-3.5 w-3.5" />
-                                                    다음엔 이렇게 말해보세요
-                                                </p>
-                                                <p className="mt-1 line-clamp-2 break-words text-lg font-black leading-snug text-[#243f27]">
-                                                    {latestFeedbackTurn
-                                                        ? getRetrySentence(latestFeedbackTurn)
-                                                        : latestRealtimeCorrection?.correction?.suggested
-                                                            || latestRealtimeCorrection?.content
-                                                            || latestCorrectionMessage?.correction?.suggested
-                                                            || latestCorrectionMessage?.content}
-                                                </p>
-                                            </div>
-                                            <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${latestFeedbackTurn ? getScoreAccent(getMetricScore(latestFeedbackTurn.evaluation, 'overall')) : 'bg-[#eef8f6] text-[#1f4f4a]'}`}>
-                                                {latestFeedbackTurn
-                                                    ? getMetricScore(latestFeedbackTurn.evaluation, 'overall')
-                                                    : `${latestRealtimeCorrection?.correction?.provisionalScore
-                                                        ?? latestCorrectionMessage?.correction?.provisionalScore
-                                                        ?? '--'}점`}
-                                            </span>
-                                        </div>
-                                        {(latestFeedbackTurn
-                                            ? getCoachReason(latestFeedbackTurn.evaluation, latestFeedbackTurn.message.correction)
-                                            : latestRealtimeCorrection?.correction?.reason || latestCorrectionMessage?.correction?.reason) && (
-                                            <p className="mt-1 line-clamp-2 break-words text-xs font-semibold leading-snug text-[#3f6543]">
-                                                {latestFeedbackTurn
-                                                    ? getCoachReason(latestFeedbackTurn.evaluation, latestFeedbackTurn.message.correction)
-                                                    : latestRealtimeCorrection?.correction?.reason || latestCorrectionMessage?.correction?.reason}
-                                            </p>
-                                        )}
-                                        {!latestFeedbackTurn && (
-                                            latestRealtimeCorrection?.correction?.contextReason
-                                            || latestCorrectionMessage?.correction?.contextReason
-                                        ) && (
-                                            <p className="mt-1 break-words text-xs font-semibold leading-relaxed text-[#5e5549]">
-                                                {getContextFitLabel(
-                                                    latestRealtimeCorrection?.correction?.contextFit
-                                                    || latestCorrectionMessage?.correction?.contextFit,
-                                                )} · {latestRealtimeCorrection?.correction?.contextReason
-                                                    || latestCorrectionMessage?.correction?.contextReason}
-                                            </p>
-                                        )}
-                                        {!latestFeedbackTurn && Number.isFinite(
-                                            latestRealtimeCorrection?.correction?.provisionalLp
-                                            ?? latestCorrectionMessage?.correction?.provisionalLp,
-                                        ) && (
-                                            <p className="mt-1 text-xs font-black text-[#3d6f4a]">
-                                                실시간 LP {(latestRealtimeCorrection?.correction?.provisionalLp
-                                                    ?? latestCorrectionMessage?.correction?.provisionalLp
-                                                    ?? 0) > 0 ? '+' : ''}
-                                                {latestRealtimeCorrection?.correction?.provisionalLp
-                                                    ?? latestCorrectionMessage?.correction?.provisionalLp} LP
-                                            </p>
-                                        )}
-                                    </div>
+                                <>
+                                    <CorrectionCoachCard
+                                        sentence={latestCoachSentence}
+                                        reason={latestCoachReason}
+                                        score={latestCoachScore}
+                                        scoreClassName={latestFeedbackTurn
+                                            ? getScoreAccent(getMetricScore(latestFeedbackTurn.evaluation, 'overall'))
+                                            : 'bg-[#eef8f6] text-[#1f4f4a]'}
+                                        context={latestCoachContext}
+                                        lp={latestCoachLp}
+                                        lpIsFinal={Boolean(latestCoachMessage?.evaluation)}
+                                    />
 
                                     {latestFeedbackTurn && (
                                     <div className="hidden p-4">
@@ -2053,7 +2159,7 @@ export function AssessmentPanel() {
                                         </p>
                                     </div>
                                     )}
-                                </section>
+                                </>
                             )}
 
                             <section className="order-4 flex min-h-0 flex-col rounded-lg border border-white/50 bg-white/70 p-3 shadow-sm lg:col-span-2">
