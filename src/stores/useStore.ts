@@ -212,6 +212,8 @@ interface AppState {
     setTurnCorrectionUnavailable: (turnId: string, code?: string) => void;
     setTurnEvaluationSkipped: (turnId: string, reason?: string) => void;
     setTurnEvaluationUnavailable: (turnId: string, code?: string) => void;
+    getPendingEvaluationTurnIds: () => string[];
+    skipPendingTurnEvaluations: (reason?: string) => void;
     setEvaluationBatchStatus: (status: Omit<EvaluationBatchStatus, 'receivedAtEpochMs'>) => void;
     queueLocalEvaluationBatchTurn: (delaySeconds: number, maxTurns: number) => void;
     clearEvaluationBatchStatus: () => void;
@@ -588,7 +590,7 @@ function localizeMission(mission: PracticeMission): PracticeMission {
     }
 }
 
-export const useStore = create<AppState>((set) => ({
+export const useStore = create<AppState>((set, get) => ({
     isConnecting: false,
     isConnected: false,
     isRecording: false,
@@ -804,6 +806,9 @@ export const useStore = create<AppState>((set) => ({
             const fallbackMatchIndex = messages.findLastIndex((message) => message.role === 'user' && message.id === turnId);
 
             if (fallbackMatchIndex >= 0) {
+                if (messages[fallbackMatchIndex].evaluationStatus !== 'pending') {
+                    return state;
+                }
                 messages[fallbackMatchIndex] = {
                     ...messages[fallbackMatchIndex],
                     evaluation,
@@ -918,6 +923,36 @@ export const useStore = create<AppState>((set) => ({
                 }
             }
             return state;
+        }),
+    getPendingEvaluationTurnIds: () =>
+        get()
+            .messages
+            .filter((message) => message.role === 'user' && message.id && message.evaluationStatus === 'pending')
+            .map((message) => message.id as string),
+    skipPendingTurnEvaluations: (reason) =>
+        set((state) => {
+            let changed = false;
+            const messages = state.messages.map((message) => {
+                if (message.role !== 'user' || message.evaluationStatus !== 'pending') {
+                    return message;
+                }
+
+                changed = true;
+                return {
+                    ...message,
+                    evaluationStatus: 'skipped' as const,
+                    evaluationSkipReason: reason,
+                };
+            });
+
+            if (!changed && !state.evaluationBatchStatus) {
+                return state;
+            }
+
+            return {
+                messages,
+                evaluationBatchStatus: null,
+            };
         }),
     setTurnCorrectionUnavailable: (turnId, code) =>
         set((state) => {

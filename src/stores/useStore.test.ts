@@ -65,6 +65,13 @@ describe('mission completion store rules', () => {
         expect(completed.map((item) => item.missionId)).toEqual(['mission-because']);
     });
 
+    it('keeps reconnect turns separate when backend generation ids repeat with new event sequences', () => {
+        useStore.getState().addMessage('user', 'Hi!', '1:event-1225');
+        useStore.getState().addMessage('user', 'Hello!', '1:event-1348');
+
+        expect(useStore.getState().messages.map((message) => message.content)).toEqual(['Hi!', 'Hello!']);
+    });
+
     it('does not complete a mission introduced after the matching past utterance', () => {
         useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-1');
         useStore.getState().addMissionCandidates([mission()]);
@@ -184,25 +191,44 @@ describe('turn evaluation policy state', () => {
 
     it('does not overwrite a completed evaluation with a late skip event', () => {
         useStore.getState().addMessage('user', 'Yes, I do.', 'turn-ready');
-        useStore.getState().setTurnEvaluation('turn-ready', {
-            rubricVersion: 'speaking-v2',
-            turnId: 'turn-ready',
-            provider: 'test',
-            model: 'test',
-            createdAt: '2026-06-11T00:00:00.000Z',
-            scores: { overall: 80, grammar: 80, vocabulary: 80, relevance: 80, fluency: 80, interaction: 80 },
-            feedback: { summary: 'Clear answer', strength: 'Clear answer', improvement: 'Add detail', nextPractice: 'Add a reason' },
-            correction: { original: 'Yes, I do.', suggested: 'Yes, I do.', reason: 'No correction needed' },
-            evidence: { grammar: '', vocabulary: '', relevance: '', fluency: '', interaction: '', overall: 'Clear and relevant' },
-            cefrEstimate: { level: 'A2', reason: 'Short clear answer' },
-            capabilities: { pronunciation: 'not_available' },
-            confidence: 'high',
-            confidenceReasons: [],
-        });
+        useStore.getState().setTurnEvaluation('turn-ready', evaluation());
 
         useStore.getState().setTurnEvaluationSkipped('turn-ready', 'generation_aborted');
 
         expect(useStore.getState().messages[0].evaluationStatus).toBe('ready');
+    });
+
+    it('marks all pending evaluations skipped when the mic session is stopped', () => {
+        useStore.getState().addMessage('user', 'First answer.', 'turn-1');
+        useStore.getState().addMessage('assistant', 'Thanks.');
+        useStore.getState().addMessage('user', 'Second answer.', 'turn-2');
+        useStore.getState().setEvaluationBatchStatus({
+            pendingCount: 2,
+            maxTurns: 4,
+            delaySeconds: 30,
+            nextFlushAtEpochMs: 1800000000000,
+        });
+
+        expect(useStore.getState().getPendingEvaluationTurnIds()).toEqual(['turn-1', 'turn-2']);
+
+        useStore.getState().skipPendingTurnEvaluations('mic_disconnected');
+
+        const state = useStore.getState();
+        expect(state.messages.filter((message) => message.role === 'user').map((message) => message.evaluationStatus))
+            .toEqual(['skipped', 'skipped']);
+        expect(state.messages[0].evaluationSkipReason).toBe('mic_disconnected');
+        expect(state.evaluationBatchStatus).toBeNull();
+    });
+
+    it('does not overwrite a skipped evaluation with a late evaluation result', () => {
+        useStore.getState().addMessage('user', 'Yes, I do.', 'turn-skipped');
+        useStore.getState().setTurnEvaluationSkipped('turn-skipped', 'mic_disconnected');
+
+        useStore.getState().setTurnEvaluation('turn-skipped', evaluation({ turnId: 'turn-skipped' }));
+
+        const message = useStore.getState().messages[0];
+        expect(message.evaluationStatus).toBe('skipped');
+        expect(message.evaluation).toBeUndefined();
     });
 
     it('stores normalized evaluation batch status for the UI countdown', () => {

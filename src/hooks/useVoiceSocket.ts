@@ -7,6 +7,12 @@ import { withKioskSessionParams, type KioskRole } from '@/lib/kioskIdentity';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
 const EVALUATION_BATCH_MAX_TURNS = 4;
+const MAX_SEEN_EVENT_SEQS = 2000;
+const EVENT_SEQ_DEDUPE_EXEMPT_TYPES = new Set([
+  'session_replay_start',
+  'session_replay_end',
+  'kiosk_session_ready',
+]);
 
 const EMOTION_TAG_MAP: Record<string, Emotion> = {
   '기쁨': 'happy',
@@ -56,6 +62,39 @@ type ConnectOptions = {
   startRecording?: boolean;
   role?: KioskRole;
 };
+
+export function buildClientTurnId(backendTurnId: string | null, eventSeq?: number): string | undefined {
+  if (!backendTurnId) {
+    return undefined;
+  }
+  return typeof eventSeq === 'number' ? `${backendTurnId}:event-${eventSeq}` : backendTurnId;
+}
+
+export function shouldProcessEventSeq(
+  data: Pick<SocketMessage, 'type' | 'eventSeq'>,
+  seenEventSeqs: Set<string>,
+  eventSeqOrder: string[],
+): boolean {
+  if (typeof data.eventSeq !== 'number' || EVENT_SEQ_DEDUPE_EXEMPT_TYPES.has(data.type)) {
+    return true;
+  }
+
+  const key = `${data.type}:${data.eventSeq}`;
+  if (seenEventSeqs.has(key)) {
+    return false;
+  }
+
+  seenEventSeqs.add(key);
+  eventSeqOrder.push(key);
+  while (eventSeqOrder.length > MAX_SEEN_EVENT_SEQS) {
+    const oldest = eventSeqOrder.shift();
+    if (oldest) {
+      seenEventSeqs.delete(oldest);
+    }
+  }
+
+  return true;
+}
 
 function getDefaultWsUrl(): string {
   if (typeof window === 'undefined') {
@@ -124,6 +163,10 @@ export function useVoiceSocket() {
   const isConnecting = useRef(false);
   const isDisconnecting = useRef(false);
   const activeGenerationIdRef = useRef<string | null>(null);
+  const backendTurnIdToClientTurnIdRef = useRef<Map<string, string>>(new Map());
+  const abandonedEvaluationTurnIdsRef = useRef<Set<string>>(new Set());
+  const seenEventSeqsRef = useRef<Set<string>>(new Set());
+  const eventSeqOrderRef = useRef<string[]>([]);
   const roleRef = useRef<KioskRole>('controller');
   const disconnectRef = useRef<() => void>(() => undefined);
 
@@ -140,6 +183,8 @@ export function useVoiceSocket() {
   const setTurnEvaluation = useStore((state) => state.setTurnEvaluation);
   const setTurnEvaluationSkipped = useStore((state) => state.setTurnEvaluationSkipped);
   const setTurnEvaluationUnavailable = useStore((state) => state.setTurnEvaluationUnavailable);
+  const getPendingEvaluationTurnIds = useStore((state) => state.getPendingEvaluationTurnIds);
+  const skipPendingTurnEvaluations = useStore((state) => state.skipPendingTurnEvaluations);
   const setEvaluationBatchStatus = useStore((state) => state.setEvaluationBatchStatus);
   const queueLocalEvaluationBatchTurn = useStore((state) => state.queueLocalEvaluationBatchTurn);
   const clearEvaluationBatchStatus = useStore((state) => state.clearEvaluationBatchStatus);
@@ -195,8 +240,24 @@ export function useVoiceSocket() {
   }, []);
 
   const getTurnId = useCallback(
-    (data: SocketMessage): string | null => data.turnId ?? getGenerationId(data),
+    (data: SocketMessage): string | null => {
+      const backendTurnId = data.turnId ?? getGenerationId(data);
+      if (!backendTurnId) {
+        return null;
+      }
+      return backendTurnIdToClientTurnIdRef.current.get(backendTurnId) ?? backendTurnId;
+    },
     [getGenerationId],
+  );
+
+  const discardPendingEvaluations = useCallback(
+    (reason = 'mic_disconnected') => {
+      getPendingEvaluationTurnIds().forEach((turnId) => {
+        abandonedEvaluationTurnIdsRef.current.add(turnId);
+      });
+      skipPendingTurnEvaluations(reason);
+    },
+    [getPendingEvaluationTurnIds, skipPendingTurnEvaluations],
   );
 
   const isCurrentGeneration = useCallback(
@@ -216,7 +277,8 @@ export function useVoiceSocket() {
         activeGenerationIdRef.current = generationId;
       }
       if (generationId === activeGenerationIdRef.current) {
-        assignLatestPendingUserTurnId(generationId);
+        const clientTurnId = backendTurnIdToClientTurnIdRef.current.get(generationId) ?? generationId;
+        assignLatestPendingUserTurnId(clientTurnId);
       }
     },
     [assignLatestPendingUserTurnId, getGenerationId],
@@ -437,10 +499,17 @@ export function useVoiceSocket() {
       try {
         const data = JSON.parse(event.data) as SocketMessage;
 
+        if (!shouldProcessEventSeq(data, seenEventSeqsRef.current, eventSeqOrderRef.current)) {
+          return;
+        }
+
         switch (data.type) {
           case 'session_replay_start':
             clearMessages();
             activeGenerationIdRef.current = null;
+            backendTurnIdToClientTurnIdRef.current.clear();
+            seenEventSeqsRef.current.clear();
+            eventSeqOrderRef.current = [];
             useStore.getState().setPartialMessage('');
             useStore.getState().setThinking(false);
             break;
@@ -470,12 +539,18 @@ export function useVoiceSocket() {
             break;
           case 'final_user_request':
             activeGenerationIdRef.current = getGenerationId(data);
+            const clientTurnId = buildClientTurnId(activeGenerationIdRef.current, data.eventSeq);
+            if (activeGenerationIdRef.current && clientTurnId) {
+              backendTurnIdToClientTurnIdRef.current.set(activeGenerationIdRef.current, clientTurnId);
+            }
             setThinking(true);
             useStore.getState().setPartialMessage('');
-            addMessage('user', sanitizeModelText(data.content ?? ''), activeGenerationIdRef.current ?? undefined);
-            if (activeGenerationIdRef.current && data.evaluation_policy === 'skip') {
+            addMessage('user', sanitizeModelText(data.content ?? ''), clientTurnId);
+            if (clientTurnId && abandonedEvaluationTurnIdsRef.current.has(clientTurnId)) {
+              setTurnEvaluationSkipped(clientTurnId, 'mic_disconnected');
+            } else if (clientTurnId && data.evaluation_policy === 'skip') {
               setTurnEvaluationSkipped(
-                activeGenerationIdRef.current,
+                clientTurnId,
                 data.evaluation_reason ?? 'policy_skip',
               );
             } else {
@@ -540,7 +615,7 @@ export function useVoiceSocket() {
       setConnected(false);
       setSocket(null);
       activeGenerationIdRef.current = null;
-      clearEvaluationBatchStatus();
+      discardPendingEvaluations();
       flushActiveTts();
       stopRecording();
     };
@@ -559,6 +634,7 @@ export function useVoiceSocket() {
   }, [
     addMessage,
     clearEvaluationBatchStatus,
+    discardPendingEvaluations,
     flushActiveTts,
     handleEvaluationBatchStatus,
     handleAssistantReplySuggestions,
@@ -593,13 +669,13 @@ export function useVoiceSocket() {
     isDisconnecting.current = true;
     cleanupSocket();
     activeGenerationIdRef.current = null;
-    clearEvaluationBatchStatus();
+    discardPendingEvaluations();
     flushActiveTts();
     setConnected(false);
     setSocket(null);
     stopRecording();
     isDisconnecting.current = false;
-  }, [cleanupSocket, clearEvaluationBatchStatus, flushActiveTts, setConnected, setSocket, stopRecording]);
+  }, [cleanupSocket, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, stopRecording]);
 
   useEffect(() => {
     setOnDataAvailable((pcmData) => {
@@ -651,8 +727,16 @@ export function useVoiceSocket() {
   const clearHistory = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({ type: 'clear_history' }));
+    } else if (typeof window !== 'undefined') {
+      const ws = new WebSocket(getConfiguredWsUrl('controller'));
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'clear_history' }));
+        window.setTimeout(() => ws.close(), 100);
+      };
+      ws.onerror = () => ws.close();
     }
     clearMessages();
+    abandonedEvaluationTurnIdsRef.current.clear();
     activeGenerationIdRef.current = null;
     useStore.getState().setPartialMessage('');
     addMessage('assistant', '(시스템) 대화 내용이 초기화되었습니다.');
