@@ -3,7 +3,7 @@ import { useStore, type TurnCorrection, type TurnEvaluation } from '@/stores/use
 import { useAudioPlayer } from './useAudioPlayer';
 import { useAudioRecorder } from './useAudioRecorder';
 import type { Emotion, TtsAudioChunk, TtsVisemeTimeline } from '@/lib/lipsync/types';
-import { withKioskSessionParams, type KioskRole } from '@/lib/kioskIdentity';
+import { getKioskIdFromLocation, withKioskSessionParams, type KioskRole } from '@/lib/kioskIdentity';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
 const EVALUATION_BATCH_MAX_TURNS = 4;
@@ -56,6 +56,11 @@ type SocketMessage = {
   delaySeconds?: number;
   nextFlushAtEpochMs?: number | null;
   eventSeq?: number;
+};
+
+type TurnResultsResponse = {
+  results?: SocketMessage[];
+  evaluationBatchStatus?: SocketMessage | null;
 };
 
 type ConnectOptions = {
@@ -116,6 +121,22 @@ function getConfiguredWsUrl(role: KioskRole): string {
   return withKioskSessionParams(wsUrl, role);
 }
 
+function getTurnResultsUrl(generationId: string): string {
+  const configuredUrl = process.env.NEXT_PUBLIC_WS_URL;
+  const wsUrl = configuredUrl && configuredUrl.trim().length > 0 ? configuredUrl : getDefaultWsUrl();
+  const url = new URL(wsUrl, typeof window === 'undefined' ? 'ws://localhost' : window.location.href);
+
+  if (url.protocol === 'wss:') {
+    url.protocol = 'https:';
+  } else {
+    url.protocol = 'http:';
+  }
+  url.pathname = `/api/kiosks/${encodeURIComponent(getKioskIdFromLocation())}/turn-results`;
+  url.search = '';
+  url.searchParams.set('generationId', generationId);
+  return url.toString();
+}
+
 function sanitizeModelText(text: string): string {
   return text
     .replace(/<\/?start_of_turn>/gi, ' ')
@@ -169,6 +190,9 @@ export function useVoiceSocket() {
   const eventSeqOrderRef = useRef<string[]>([]);
   const roleRef = useRef<KioskRole>('controller');
   const disconnectRef = useRef<() => void>(() => undefined);
+  const isReplayingSessionRef = useRef(false);
+  const supplementaryPollTimeoutsRef = useRef<number[]>([]);
+  const processedSupplementaryKeysRef = useRef<Set<string>>(new Set());
 
   const setConnecting = useStore((state) => state.setConnecting);
   const setConnected = useStore((state) => state.setConnected);
@@ -220,6 +244,11 @@ export function useVoiceSocket() {
       socketRef.current.close();
     }
     socketRef.current = null;
+  }, []);
+
+  const clearSupplementaryPolling = useCallback(() => {
+    supplementaryPollTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    supplementaryPollTimeoutsRef.current = [];
   }, []);
 
   const flushActiveTts = useCallback(
@@ -429,6 +458,94 @@ export function useVoiceSocket() {
     [setEvaluationBatchStatus],
   );
 
+  const getSupplementaryEventKey = useCallback((data: SocketMessage): string => {
+    const generationId = getGenerationId(data) ?? data.turnId ?? 'none';
+    const payloadKey = data.code ?? data.reason ?? data.content ?? JSON.stringify(data.suggestions ?? data.evaluation ?? data.correction ?? '');
+    return `${data.type}:${generationId}:${payloadKey}`;
+  }, [getGenerationId]);
+
+  const handleSupplementaryHttpMessage = useCallback(
+    (data: SocketMessage) => {
+      const key = getSupplementaryEventKey(data);
+      if (processedSupplementaryKeysRef.current.has(key)) return;
+      processedSupplementaryKeysRef.current.add(key);
+
+      switch (data.type) {
+        case 'assistant_translation':
+          handleAssistantTranslation(data);
+          break;
+        case 'assistant_reply_suggestions':
+          handleAssistantReplySuggestions(data);
+          break;
+        case 'turn_evaluation':
+          handleTurnEvaluation(data);
+          break;
+        case 'turn_correction':
+          handleTurnCorrection(data);
+          break;
+        case 'turn_correction_skipped':
+          handleTurnCorrectionSkipped(data);
+          break;
+        case 'turn_correction_error':
+          handleTurnCorrectionError(data);
+          break;
+        case 'turn_evaluation_skipped':
+          handleTurnEvaluationSkipped(data);
+          break;
+        case 'turn_evaluation_error':
+          handleTurnEvaluationError(data);
+          break;
+        default:
+          break;
+      }
+    },
+    [
+      getSupplementaryEventKey,
+      handleAssistantReplySuggestions,
+      handleAssistantTranslation,
+      handleTurnCorrection,
+      handleTurnCorrectionError,
+      handleTurnCorrectionSkipped,
+      handleTurnEvaluation,
+      handleTurnEvaluationError,
+      handleTurnEvaluationSkipped,
+    ],
+  );
+
+  const fetchSupplementaryTurnResults = useCallback(
+    async (generationId: string) => {
+      const response = await fetch(getTurnResultsUrl(generationId), { cache: 'no-store' });
+      if (!response.ok) return;
+
+      const payload = (await response.json()) as TurnResultsResponse;
+      payload.results?.forEach(handleSupplementaryHttpMessage);
+      if (payload.evaluationBatchStatus) {
+        handleEvaluationBatchStatus(payload.evaluationBatchStatus);
+      }
+    },
+    [handleEvaluationBatchStatus, handleSupplementaryHttpMessage],
+  );
+
+  const scheduleSupplementaryPolling = useCallback(
+    (generationId: string | null, attempts = 40) => {
+      if (!generationId || typeof window === 'undefined') return;
+      if (isReplayingSessionRef.current) return;
+
+      const poll = (remainingAttempts: number) => {
+        fetchSupplementaryTurnResults(generationId).catch((error) => {
+          console.warn('Could not fetch turn results:', error);
+        });
+        if (remainingAttempts <= 1) return;
+
+        const timeoutId = window.setTimeout(() => poll(remainingAttempts - 1), 2000);
+        supplementaryPollTimeoutsRef.current.push(timeoutId);
+      };
+
+      poll(attempts);
+    },
+    [fetchSupplementaryTurnResults],
+  );
+
   const handleSegmentStart = useCallback(
     (data: SocketMessage) => {
       if (!isCurrentGeneration(data)) return;
@@ -505,6 +622,9 @@ export function useVoiceSocket() {
 
         switch (data.type) {
           case 'session_replay_start':
+            isReplayingSessionRef.current = true;
+            clearSupplementaryPolling();
+            processedSupplementaryKeysRef.current.clear();
             clearMessages();
             activeGenerationIdRef.current = null;
             backendTurnIdToClientTurnIdRef.current.clear();
@@ -514,6 +634,8 @@ export function useVoiceSocket() {
             useStore.getState().setThinking(false);
             break;
           case 'session_replay_end':
+            isReplayingSessionRef.current = false;
+            break;
           case 'kiosk_session_ready':
             break;
           case 'tts_segment_start':
@@ -556,33 +678,35 @@ export function useVoiceSocket() {
             } else {
               queueLocalEvaluationBatchTurn(EVALUATION_BATCH_DELAY_SECONDS, EVALUATION_BATCH_MAX_TURNS);
             }
+            scheduleSupplementaryPolling(activeGenerationIdRef.current);
             break;
           case 'final_assistant_answer':
             handleFinalAssistantAnswer(data);
+            scheduleSupplementaryPolling(getGenerationId(data));
             break;
           case 'assistant_translation':
-            handleAssistantTranslation(data);
+            handleSupplementaryHttpMessage(data);
             break;
           case 'assistant_reply_suggestions':
-            handleAssistantReplySuggestions(data);
+            handleSupplementaryHttpMessage(data);
             break;
           case 'turn_evaluation':
-            handleTurnEvaluation(data);
+            handleSupplementaryHttpMessage(data);
             break;
           case 'turn_correction':
-            handleTurnCorrection(data);
+            handleSupplementaryHttpMessage(data);
             break;
           case 'turn_correction_skipped':
-            handleTurnCorrectionSkipped(data);
+            handleSupplementaryHttpMessage(data);
             break;
           case 'turn_correction_error':
-            handleTurnCorrectionError(data);
+            handleSupplementaryHttpMessage(data);
             break;
           case 'turn_evaluation_skipped':
-            handleTurnEvaluationSkipped(data);
+            handleSupplementaryHttpMessage(data);
             break;
           case 'turn_evaluation_error':
-            handleTurnEvaluationError(data);
+            handleSupplementaryHttpMessage(data);
             break;
           case 'evaluation_batch_status':
             handleEvaluationBatchStatus(data);
@@ -627,6 +751,7 @@ export function useVoiceSocket() {
       setConnected(false);
       setSocket(null);
       activeGenerationIdRef.current = null;
+      clearSupplementaryPolling();
       clearEvaluationBatchStatus();
     };
 
@@ -634,26 +759,21 @@ export function useVoiceSocket() {
   }, [
     addMessage,
     clearEvaluationBatchStatus,
+    clearSupplementaryPolling,
     discardPendingEvaluations,
     flushActiveTts,
     handleEvaluationBatchStatus,
-    handleAssistantReplySuggestions,
-    handleAssistantTranslation,
     handleFinalAssistantAnswer,
     handlePartialAssistantAnswer,
     handleSegmentEnd,
     handleSegmentStart,
     handleSegmentTimeline,
     handleTtsChunk,
-    handleTurnCorrection,
-    handleTurnCorrectionError,
-    handleTurnCorrectionSkipped,
-    handleTurnEvaluation,
-    handleTurnEvaluationSkipped,
-    handleTurnEvaluationError,
+    handleSupplementaryHttpMessage,
     getGenerationId,
     isCurrentGeneration,
     queueLocalEvaluationBatchTurn,
+    scheduleSupplementaryPolling,
     setConnected,
     setConnecting,
     setSocket,
@@ -669,13 +789,14 @@ export function useVoiceSocket() {
     isDisconnecting.current = true;
     cleanupSocket();
     activeGenerationIdRef.current = null;
+    clearSupplementaryPolling();
     discardPendingEvaluations();
     flushActiveTts();
     setConnected(false);
     setSocket(null);
     stopRecording();
     isDisconnecting.current = false;
-  }, [cleanupSocket, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, stopRecording]);
+  }, [cleanupSocket, clearSupplementaryPolling, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, stopRecording]);
 
   useEffect(() => {
     setOnDataAvailable((pcmData) => {
@@ -736,11 +857,13 @@ export function useVoiceSocket() {
       ws.onerror = () => ws.close();
     }
     clearMessages();
+    clearSupplementaryPolling();
+    processedSupplementaryKeysRef.current.clear();
     abandonedEvaluationTurnIdsRef.current.clear();
     activeGenerationIdRef.current = null;
     useStore.getState().setPartialMessage('');
     addMessage('assistant', '(시스템) 대화 내용이 초기화되었습니다.');
-  }, [addMessage, clearMessages]);
+  }, [addMessage, clearMessages, clearSupplementaryPolling]);
 
   return { connect, disconnect, isConnected, clearHistory };
 }
