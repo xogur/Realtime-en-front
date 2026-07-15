@@ -177,10 +177,14 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
                         ) : (
                             messages.map((msg, idx) => {
                                 const assistantParts = msg.role === 'assistant' ? splitAssistantMessage(msg.content) : null;
+                                const messageKey = msg.id
+                                    ? `${msg.role}:${msg.id}`
+                                    : `${msg.role}:${msg.content}:${idx}`;
                                 return (
                                     <motion.div
-                                        key={idx}
-                                        initial={{ opacity: 0, y: 10 }}
+                                        key={messageKey}
+                                        data-chat-message={msg.role}
+                                        initial={false}
                                         animate={{ opacity: 1, y: 0 }}
                                         className={`flex w-full ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
                                     >

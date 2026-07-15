@@ -82,6 +82,24 @@ describe('useMissionCelebration', () => {
         expect(onPresent).toHaveBeenCalledTimes(1);
     });
 
+    it('presents the first completion added after mount', () => {
+        const onPresent = vi.fn();
+        const { result, rerender } = renderHook((props: { messages: ChatMessage[] }) => useMissionCelebration({
+            messages: props.messages,
+            activeMissions: [],
+            visibleMs: 1000,
+            onPresent,
+        }), { initialProps: { messages: [] as ChatMessage[] } });
+
+        rerender({ messages: [message('turn-1', ['mission-a'])] });
+        act(() => {
+            vi.advanceTimersByTime(0);
+        });
+
+        expect(result.current.current?.cards[0].missionId).toBe('mission-a');
+        expect(onPresent).toHaveBeenCalledTimes(1);
+    });
+
     it('queues different answer completions sequentially', () => {
         const onPresent = vi.fn();
         const { result, rerender } = renderHook((props: {

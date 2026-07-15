@@ -50,7 +50,7 @@ type AssessmentDetailTab = 'feedback' | 'evaluation';
 
 type MetricSnapshot = { key: MetricKey; label: string; value: number };
 
-const MISSION_CELEBRATION_VISIBLE_MS = 1800;
+const MISSION_CELEBRATION_VISIBLE_MS = 2600;
 const TIER_PROMOTION_VISIBLE_MS = 2200;
 const PRINT_CORE_CORRECTION_LIMIT = 3;
 const PRINT_EXTRA_CORRECTION_LIMIT = 2;
@@ -906,26 +906,73 @@ function ActiveMissionsPanel({
     missions,
     completedMissionIds,
     enteringMissionIds,
+    completion,
 }: {
     missions: PracticeMission[];
     completedMissionIds: Set<string>;
     enteringMissionIds: Set<string>;
+    completion: MissionCelebrationPresentation | null;
 }) {
     const missionSlots = [0, 1, 2];
 
     return (
-        <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-[#4b3b24]/10 bg-[#fffbf2]/90 p-2 shadow-sm">
+        <section className="group relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-[#483c2d]/10 bg-[#f8f1ea]/90 p-2.5 shadow-[0_8px_24px_rgba(72,60,45,0.08)]">
+            <AnimatePresence initial={false}>
+                {completion && (
+                    <motion.div
+                        key={completion.id}
+                        data-testid="mission-panel-completion"
+                        role="status"
+                        aria-live="polite"
+                        className="pointer-events-none absolute inset-2 z-30 flex items-center overflow-hidden rounded-lg border border-[#9fbd75]/55 bg-[#263522]/95 px-4 py-3 text-white shadow-[0_16px_38px_rgba(38,53,34,0.34)]"
+                        initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.98, y: -6 }}
+                        transition={{ type: 'spring', stiffness: 430, damping: 28 }}
+                    >
+                        <motion.span
+                            aria-hidden="true"
+                            className="absolute inset-y-0 w-28 bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                            initial={{ left: '-30%' }}
+                            animate={{ left: '115%' }}
+                            transition={{ duration: 1.1, ease: 'easeInOut' }}
+                        />
+                        <div className="relative flex min-w-0 flex-1 items-center gap-3">
+                            <motion.span
+                                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#d8ff73] text-[#263522] shadow-[0_0_22px_rgba(216,255,115,0.5)]"
+                                initial={{ scale: 0.7, rotate: -18 }}
+                                animate={{ scale: [0.7, 1.12, 1], rotate: [-18, 5, 0] }}
+                                transition={{ duration: 0.55, ease: 'easeOut' }}
+                            >
+                                <CheckCircle2 className="h-6 w-6" />
+                            </motion.span>
+                            <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[11px] font-black tracking-[0.14em] text-[#d8ff73]">MISSION CLEAR</span>
+                                    <span className="rounded-full bg-[#d8ff73]/15 px-2 py-0.5 font-mono text-xs font-black text-[#d8ff73]">+{completion.totalLp} LP</span>
+                                </div>
+                                <p className="mt-1 truncate text-sm font-black text-white">
+                                    {completion.cards.map((card) => card.title).join(' · ')}
+                                </p>
+                                <p className="mt-0.5 truncate text-[11px] font-semibold text-white/70">
+                                    새 미션이 이어서 배치됩니다.
+                                </p>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
             <div className="flex shrink-0 items-center justify-between gap-3">
                 <div className="min-w-0">
-                    <p className="flex items-center gap-1 text-xs font-black uppercase tracking-normal text-[#6b5a4a]">
-                        <Flag className="h-3.5 w-3.5 text-[#b17a16]" />
+                    <p className="flex items-center gap-1.5 text-xs font-black text-[#5b4939]">
+                        <Flag className="h-3.5 w-3.5 text-[#a8792f]" />
                         오늘의 퀘스트
                     </p>
-                    <p className="mt-0.5 text-xs font-bold text-[#6b5a4a]">표현을 쓰면 완료되고 새 목표가 들어옵니다.</p>
+                    <p className="mt-0.5 text-xs font-medium text-[#7a695b]">표현을 쓰면 완료되고 새 목표가 들어옵니다.</p>
                 </div>
-                <span className="shrink-0 rounded-full border border-[#d7b56d]/45 bg-[#fff4cb] px-2.5 py-0.5 text-xs font-black text-[#7a540f]">{missions.length}/3</span>
+                <span className="shrink-0 rounded-md border border-[#c59b55]/25 bg-[#fff4d9] px-2.5 py-0.5 font-mono text-xs font-black text-[#7a540f]">{missions.length}/3</span>
             </div>
-            <div className="mt-1.5 grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden sm:grid-cols-3">
+            <div className="mt-1.5 grid min-h-0 flex-1 auto-rows-fr grid-cols-1 gap-2 overflow-hidden sm:grid-cols-3">
                 <AnimatePresence initial={false} mode="popLayout">
                 {missionSlots.map((slotIndex) => {
                     const mission = missions[slotIndex];
@@ -933,17 +980,16 @@ function ActiveMissionsPanel({
                     if (!mission) {
                         return (
                             <motion.div
-                                layout
                                 key={`mission-slot-${slotIndex}`}
-                                className="relative min-h-0 overflow-hidden rounded-md border border-dashed border-[#d7b56d]/40 bg-white/55 px-2.5 py-1.5"
+                                className="relative min-h-0 overflow-hidden rounded-lg border border-dashed border-[#8a6f5a]/20 bg-white/45 px-2.5 py-1.5"
                             >
                                 <div className="flex items-center gap-1.5">
-                                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#f1eadf] text-[10px] font-black text-[#6b5a4a]">
+                                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#eee4da] text-[10px] font-black text-[#6b5a4a]">
                                         {slotIndex + 1}
                                     </span>
                                     <span className="text-[11px] font-black text-[#6b5a4a]">대기 슬롯</span>
                                 </div>
-                                <p className="mt-2 line-clamp-3 text-xs font-semibold leading-snug text-[#6b5a4a]/75">
+                                <p className="mt-2 line-clamp-3 text-xs font-medium leading-snug text-[#8a796b]">
                                     다음 응답 평가 후 새 미션이 표시됩니다.
                                 </p>
                             </motion.div>
@@ -956,30 +1002,35 @@ function ActiveMissionsPanel({
 
                     return (
                         <motion.div
-                            layout
                             key={mission.id}
+                            data-mission-id={mission.id}
+                            data-mission-entering={entering ? 'true' : undefined}
+                            layout
                             initial={{ opacity: 0, y: 12, scale: 0.98 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            animate={entering
+                                ? { opacity: 1, y: 0, scale: [0.98, 1.018, 1] }
+                                : { opacity: 1, y: 0, scale: 1 }}
                             exit={{ opacity: 0, y: -10, scale: 0.97 }}
                             transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.75 }}
-                            className={`relative min-h-0 overflow-hidden rounded-md border px-2.5 py-1.5 shadow-sm ${completed
-                                ? 'border-[#22c55e]/45 bg-[#edf8ed]'
-                                : 'border-[#d7b56d]/45 bg-gradient-to-br from-white via-[#fffaf0] to-[#f6ecd7]'}`}
+                            whileHover={{ y: -2, boxShadow: '0 8px 18px rgba(72,60,45,0.13)', transition: { duration: 0.18 } }}
+                            className={`relative min-h-0 overflow-hidden rounded-lg border px-2.5 py-1.5 shadow-[0_3px_10px_rgba(72,60,45,0.07)] ${completed
+                                ? 'border-[#83926f]/40 bg-[#edf1e8]'
+                                : 'border-[#b9873d]/30 bg-[#fffaf5]'}`}
                         >
-                            <span aria-hidden="true" className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#c48a1a] via-[#58a65c] to-[#34a6a0]" />
+                            <span aria-hidden="true" className="absolute inset-x-0 top-0 h-0.5 bg-[#b9873d]/75" />
                             {entering && (
                                 <motion.span
                                     aria-hidden="true"
-                                    className="absolute inset-y-0 left-0 w-12 bg-gradient-to-r from-transparent via-[#f8d66d]/55 to-transparent"
+                                    className="absolute inset-y-0 left-0 w-16 bg-gradient-to-r from-transparent via-[#f2d89d]/65 to-transparent"
                                     initial={{ x: '-120%', opacity: 0 }}
                                     animate={{ x: '340%', opacity: [0, 1, 0] }}
-                                    transition={{ duration: 0.7, ease: 'easeOut' }}
+                                    transition={{ duration: 0.85, ease: 'easeOut' }}
                                 />
                             )}
                             {completed && (
                                 <motion.div
                                     aria-hidden="true"
-                                    className="absolute inset-0 z-20 flex items-center justify-center bg-[#edf8ed]/70"
+                                    className="absolute inset-0 z-20 flex items-center justify-center bg-[#081a18]/85 backdrop-blur-sm"
                                     initial={{ opacity: 0 }}
                                     animate={{ opacity: 1 }}
                                     exit={{ opacity: 0 }}
@@ -987,31 +1038,31 @@ function ActiveMissionsPanel({
                                     <motion.div
                                         initial={{ scale: 0.75, rotate: -8 }}
                                         animate={{ scale: 1, rotate: -3 }}
-                                        className="rounded-md border-2 border-[#22c55e] bg-white/85 px-3 py-1 text-xs font-black uppercase tracking-normal text-[#16733a] shadow-sm"
+                                        className="rounded-md border border-[#d8ff73]/40 bg-[#d8ff73]/10 px-3 py-1 text-xs font-black text-[#d8ff73]"
                                     >
                                         CLEAR
                                     </motion.div>
                                 </motion.div>
                             )}
                             <div className="relative z-10 flex items-center gap-1.5 overflow-hidden pt-1">
-                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#483c2d] text-[10px] font-black text-white shadow-sm">
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#59483b] text-[10px] font-black text-white shadow-sm">
                                     {slotIndex + 1}
                                 </span>
                                 <span className="min-w-0 truncate text-[11px] font-black text-[#6b5a4a]">
                                     {getMissionKindLabel(mission.kind)} 퀘스트
                                 </span>
-                                <span className="ml-auto shrink-0 rounded-full border border-[#9fd49b]/60 bg-[#e9f8df] px-1.5 py-0.5 text-[10px] font-black text-[#16733a]">+{mission.rewardLp} LP</span>
+                                <span className="ml-auto shrink-0 rounded-md border border-[#71805f]/30 bg-[#dfe8d8] px-1.5 py-0.5 text-[10px] font-black text-[#41543a] shadow-sm">+{mission.rewardLp} LP</span>
                             </div>
-                            <p className="relative z-10 mt-1.5 line-clamp-2 break-words text-[13px] font-black leading-[1.22] text-[#35291e]" title={mission.target}>
+                            <p className="relative z-10 mt-1.5 line-clamp-2 break-words text-[14px] font-black leading-[1.2] text-[#2f261f]" title={mission.target}>
                                 {mission.target}
                             </p>
                             <div className="relative z-10 mt-1 grid gap-1">
-                                <p className="flex min-w-0 items-start gap-1 rounded bg-[#eef8ed]/80 px-2 py-1 text-[10px] font-bold leading-tight text-[#29452c]" title={support.usage}>
+                                <p className="flex min-w-0 items-start gap-1 rounded-md bg-[#edf1e8] px-2 py-1 text-[10px] font-bold leading-tight text-[#506047]" title={support.usage}>
                                     <Info className="mt-0.5 h-3 w-3 shrink-0" />
                                     <span className="line-clamp-2">활용: {support.usage}</span>
                                 </p>
                                 {support.example && (
-                                    <p className="flex min-w-0 items-center gap-1 rounded bg-white/75 px-2 py-0.5 text-[10px] font-bold leading-tight text-[#6b5a4a]" title={support.example}>
+                                    <p className="flex min-w-0 items-center gap-1 rounded-md bg-[#f1e9e1] px-2 py-0.5 text-[10px] font-bold leading-tight text-[#7a695b]" title={support.example}>
                                         <BookOpen className="h-3 w-3 shrink-0" />
                                         <span className="truncate">예: {support.example}</span>
                                     </p>
@@ -1168,9 +1219,9 @@ function TierBadge({ tier, size = 104 }: { tier: TierConfig; size?: number }) {
 
 function MiniTierBadge({ tier }: { tier: TierConfig }) {
     return (
-        <div className="flex min-w-0 flex-col items-center gap-0.5" title={tier.label}>
+        <div className="flex min-w-0 flex-col items-center justify-start gap-1" title={tier.label}>
             <TierBadge tier={tier} size={28} />
-            <span className="w-full whitespace-nowrap text-center text-[8px] font-bold leading-none text-[#6b5a4a] xl:text-[9px]">{tier.label}</span>
+            <span className="flex h-3 w-full items-center justify-center whitespace-nowrap text-center text-[8px] font-bold leading-[1.2] text-[#7a695b] xl:text-[9px]">{tier.label}</span>
         </div>
     );
 }
@@ -1303,16 +1354,132 @@ function TierPromotionCelebration({ presentation }: { presentation: TierPromotio
     );
 }
 
-function MetricBar({ label, value }: { label: string; value: number }) {
+export function TierProgressBar({
+    value,
+    highlight,
+    missionBonus,
+    latestDelta,
+    pulseKey,
+}: {
+    value: number;
+    highlight: boolean;
+    missionBonus: number;
+    latestDelta: number;
+    pulseKey?: string | number;
+}) {
+    const prefersReducedMotion = usePrefersReducedMotion();
+
     return (
-        <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs font-semibold text-[#483c2d]">
+        <div
+            role="progressbar"
+            aria-label="티어 LP 진행도"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(value)}
+            className="relative mt-2 h-3.5 overflow-visible rounded-full border border-[#483c2d]/15 bg-[#d8d0c5] shadow-inner"
+        >
+            {highlight && !prefersReducedMotion ? (
+                <motion.span
+                    key={`bar-pulse-${pulseKey ?? latestDelta}`}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 z-10 rounded-full"
+                    initial={{ boxShadow: '0 0 0 0 rgba(134,164,98,0)', scaleY: 1 }}
+                    animate={{
+                        boxShadow: [
+                            '0 0 0 0 rgba(134,164,98,0)',
+                            '0 0 0 5px rgba(134,164,98,0.18), 0 0 24px rgba(111,145,72,0.62)',
+                            '0 0 0 2px rgba(134,164,98,0.1), 0 0 10px rgba(111,145,72,0.24)',
+                        ],
+                        scaleY: [1, 1.35, 1],
+                    }}
+                    transition={{ duration: 1.25, ease: [0.22, 1, 0.36, 1] }}
+                />
+            ) : null}
+            {highlight && latestDelta > 0 && !prefersReducedMotion ? (
+                <motion.span
+                    key={`bar-delta-${pulseKey ?? latestDelta}`}
+                    aria-live="polite"
+                    className="absolute -right-1 -top-8 z-10 rounded-md border border-[#496348]/25 bg-[#f1f7eb] px-2 py-1 font-mono text-[10px] font-black tabular-nums text-[#31532d] shadow-[0_4px_14px_rgba(76,102,57,0.28)]"
+                    initial={{ opacity: 0, y: 5, scale: 0.92 }}
+                    animate={{ opacity: [0, 1, 1, 0], y: [5, 0, 0, -5], scale: [0.92, 1.04, 1, 0.98] }}
+                    transition={{ duration: 1.8, times: [0, 0.18, 0.72, 1], ease: 'easeOut' }}
+                >
+                    {missionBonus > 0 ? `미션 +${missionBonus} LP` : `+${latestDelta} LP`}
+                </motion.span>
+            ) : null}
+            <motion.div
+                data-testid="tier-progress-fill"
+                className="relative h-full overflow-hidden rounded-full bg-gradient-to-r from-[#3f6139] via-[#648451] to-[#8fae69] shadow-[0_1px_4px_rgba(54,86,48,0.42)] transition-[width] duration-700 ease-out"
+                initial={false}
+                animate={{
+                    filter: highlight
+                        ? ['brightness(1)', 'brightness(1.42) saturate(1.2)', 'brightness(1)']
+                        : 'brightness(1)',
+                }}
+                // Keep the real value in CSS even if motion is interrupted by a
+                // concurrent evaluation render. This is the visual source of truth.
+                style={{ width: `${value}%`, minWidth: value > 0 ? 10 : 0 }}
+                transition={{
+                    filter: { duration: prefersReducedMotion ? 0.01 : 1.15, ease: 'easeOut' },
+                }}
+            >
+                {highlight && !prefersReducedMotion ? (
+                    <motion.span
+                        key={`bar-sweep-${pulseKey ?? latestDelta}`}
+                        aria-hidden="true"
+                        className="absolute inset-y-0 w-20 bg-gradient-to-r from-transparent via-white/80 to-transparent"
+                        initial={{ left: '-35%' }}
+                        animate={{ left: '115%' }}
+                        transition={{ duration: 1.05, ease: 'easeInOut' }}
+                    />
+                ) : null}
+            </motion.div>
+        </div>
+    );
+}
+
+function MetricBar({ label, value, highlight = false }: { label: string; value: number; highlight?: boolean }) {
+    const prefersReducedMotion = usePrefersReducedMotion();
+
+    return (
+        <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-[#665448]">
                 <span>{label}</span>
-                <span>{value}</span>
+                <motion.span
+                    className="font-mono font-black tabular-nums text-[#3c3028]"
+                    animate={prefersReducedMotion ? undefined : {
+                        scale: highlight ? [1, 1.18, 1] : 1,
+                        color: highlight ? ['#3c3028', '#4f6a40', '#3c3028'] : '#3c3028',
+                    }}
+                    transition={{ duration: highlight ? 0.7 : 0.2, ease: 'easeOut' }}
+                >
+                    {value}
+                </motion.span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-[#483c2d]/10">
-                <div className="h-full rounded-full bg-[#6b5a4a] transition-all duration-500" style={{ width: `${clampScore(value)}%` }} />
-            </div>
+            <motion.div
+                className="h-2 overflow-hidden rounded-full bg-[#483c2d]/10"
+                animate={prefersReducedMotion ? undefined : {
+                    boxShadow: highlight
+                        ? ['0 0 0 rgba(113,128,95,0)', '0 0 14px rgba(113,128,95,0.35)', '0 0 0 rgba(113,128,95,0)']
+                        : '0 0 0 rgba(113,128,95,0)',
+                }}
+                transition={{ duration: highlight ? 0.9 : 0.2, ease: 'easeOut' }}
+            >
+                <motion.div
+                    className="h-full rounded-full bg-[#7b8b67]"
+                    initial={prefersReducedMotion ? false : { width: 0 }}
+                    animate={{
+                        width: `${clampScore(value)}%`,
+                        backgroundColor: highlight ? ['#7b8b67', '#a8c27f', '#7b8b67'] : '#7b8b67',
+                    }}
+                    transition={prefersReducedMotion
+                        ? { duration: 0.01 }
+                        : {
+                            width: { duration: 0.75, ease: [0.22, 1, 0.36, 1] },
+                            backgroundColor: { duration: 0.9, ease: 'easeOut' },
+                        }}
+                />
+            </motion.div>
         </div>
     );
 }
@@ -1363,6 +1530,8 @@ function StatusLine({
     evaluationBatchStatus: EvaluationBatchStatus | null;
     nowEpochMs: number;
 }) {
+    const prefersReducedMotion = usePrefersReducedMotion();
+
     if (pendingCount > 0) {
         const queuedCount = evaluationBatchStatus?.pendingCount ?? pendingCount;
         const turnsUntilEvaluation = evaluationBatchStatus
@@ -1372,16 +1541,16 @@ function StatusLine({
         const isEvaluatingNow = Boolean(evaluationBatchStatus && evaluationBatchStatus.pendingCount <= 0);
 
         return (
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md bg-[#fff7e8] px-3 py-2 text-xs font-medium text-[#6b5a4a]">
-                <Clock className="h-4 w-4" />
+            <div className="relative flex flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden rounded-lg border border-[#c59b55]/20 bg-[#fff6e5] px-3 py-2 text-xs font-medium text-[#6b5a4a]">
+                <Clock className="relative h-4 w-4 text-[#9d6f2a]" />
                 <span>{pendingCount}개 응답을 평가 대기 중입니다.</span>
-                <span className="font-bold text-[#8a5a22]">
+                <span className="relative font-bold text-[#8a5a22]">
                     {isEvaluatingNow
                         ? '평가 요청됨. 결과 수신 중'
                         : `${countdown ?? '30초'} 이내 또는 ${turnsUntilEvaluation ?? 4}개 발화 후 평가`}
                 </span>
                 {queuedCount !== pendingCount ? (
-                    <span className="text-[#8a5a22]/75">큐 {queuedCount}개</span>
+                    <span className="text-[#8a5a22]/65">큐 {queuedCount}개</span>
                 ) : null}
             </div>
         );
@@ -1390,7 +1559,7 @@ function StatusLine({
     if (unavailableMessages.length > 0) {
         const codes = Array.from(new Set(unavailableMessages.map((message) => message.evaluationErrorCode).filter(Boolean)));
         return (
-            <div className="flex items-center gap-2 rounded-md bg-[#f7ece8] px-3 py-2 text-xs font-medium text-[#7a4b3a]">
+            <div className="flex items-center gap-2 rounded-lg border border-[#b46f5a]/20 bg-[#f8ebe6] px-3 py-2 text-xs font-medium text-[#7a4b3a]">
                 <AlertCircle className="h-4 w-4" />
                 <span>
                     {unavailableMessages.length}개 응답은 평가하지 못했습니다.
@@ -1402,7 +1571,7 @@ function StatusLine({
 
     if (skippedCount > 0) {
         return (
-            <div className="flex items-center gap-2 rounded-md bg-[#f1f1ed] px-3 py-2 text-xs font-medium text-[#5d5d55]">
+            <div className="flex items-center gap-2 rounded-lg border border-[#483c2d]/10 bg-white/45 px-3 py-2 text-xs font-medium text-[#6b5a4a]">
                 <CheckCircle2 className="h-4 w-4" />
                 <span>{skippedCount}개 응답은 평가 대상에서 제외했습니다.</span>
             </div>
@@ -1410,8 +1579,11 @@ function StatusLine({
     }
 
     return (
-        <div className="flex items-center gap-2 rounded-md bg-[#edf5ed] px-3 py-2 text-xs font-medium text-[#496348]">
-            <CheckCircle2 className="h-4 w-4" />
+        <div className="flex items-center gap-2 rounded-lg border border-[#83926f]/20 bg-[#edf1e8] px-3 py-2 text-xs font-medium text-[#506047]">
+            <span className="relative flex h-2 w-2">
+                <span className={`absolute inline-flex h-full w-full rounded-full bg-[#71805f] opacity-40 ${prefersReducedMotion ? '' : 'animate-ping'}`} />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-[#71805f]" />
+            </span>
             <span>자동 평가 준비 완료</span>
         </div>
     );
@@ -1497,6 +1669,7 @@ function MissionSuccessCelebration({ presentation }: { presentation: MissionCele
 }
 
 function FeedbackCard({ turn, compact = false }: { turn: EvaluatedTurn; compact?: boolean }) {
+    const prefersReducedMotion = usePrefersReducedMotion();
     const evaluation = turn.evaluation;
     const score = getMetricScore(evaluation, 'overall');
     const correction = turn.message.correction?.suggested || evaluation.correction.suggested;
@@ -1504,28 +1677,34 @@ function FeedbackCard({ turn, compact = false }: { turn: EvaluatedTurn; compact?
     const reliabilityNotice = getEvaluationReliabilityNotice(evaluation.confidence);
 
     return (
-        <article className="min-w-0 rounded-md border-l-4 border-[#6b5a4a]/30 bg-[#fdf8f4]/85 p-3">
+        <motion.article
+            layout
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileHover={prefersReducedMotion ? undefined : { y: -1 }}
+            className="min-w-0 rounded-lg border border-[#483c2d]/10 bg-[#fffaf5] p-3 transition-colors hover:border-[#83926f]/30 hover:bg-white"
+        >
             <div className="flex items-start justify-between gap-3">
                 <p className="min-w-0 break-words text-xs font-bold leading-relaxed text-[#483c2d]">{turn.message.content}</p>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-black ${getScoreAccent(score)}`}>{score}점</span>
             </div>
-            <p className="mt-2 break-words text-xs leading-relaxed text-[#6b5a4a]">{evaluation.feedback.summary}</p>
+            <p className="mt-2 break-words text-xs leading-relaxed text-[#7a695b]">{evaluation.feedback.summary}</p>
             {reliabilityNotice && (
-                <p className="mt-2 rounded-md bg-[#fff7e8] px-2 py-1.5 text-xs font-semibold leading-relaxed text-[#7a5a23]">
+                <p className="mt-2 rounded-md border border-[#c59b55]/15 bg-[#fff6e5] px-2 py-1.5 text-xs font-semibold leading-relaxed text-[#7a5a23]">
                     {reliabilityNotice}
                 </p>
             )}
             {correction && (
-                <p className="mt-2 break-words rounded-md bg-[#edf5ed] px-2 py-1.5 text-xs leading-relaxed text-[#334d35]">
-                    <span className="font-bold">교정:</span> {correction}
+                <p className="mt-2 break-words rounded-md border border-[#83926f]/15 bg-[#edf1e8] px-2 py-1.5 text-xs leading-relaxed text-[#506047]">
+                    <span className="font-bold text-[#496348]">교정:</span> {correction}
                 </p>
             )}
             {!compact && reason && (
-                <p className="mt-2 break-words text-xs leading-relaxed text-[#265651]">
-                    <span className="font-bold">근거:</span> {reason}
+                <p className="mt-2 break-words text-xs leading-relaxed text-[#6b5a4a]">
+                    <span className="font-bold text-[#496348]">근거:</span> {reason}
                 </p>
             )}
-        </article>
+        </motion.article>
     );
 }
 
@@ -1572,14 +1751,34 @@ export function CorrectionCoachCard({
 
         cardAnimations.current = [
             animate(scope.current, {
-                backgroundColor: ['#edf5ed', '#e1f2e4', '#edf5ed'],
-                borderColor: ['rgba(61, 111, 74, 0.2)', 'rgba(61, 111, 74, 0.55)', 'rgba(61, 111, 74, 0.2)'],
-                boxShadow: ['0 1px 2px rgba(36, 63, 39, 0.04)', '0 0 18px rgba(78, 146, 91, 0.2)', '0 1px 2px rgba(36, 63, 39, 0.04)'],
-            }, { duration: 0.56, ease: [0.22, 1, 0.36, 1] }),
+                scale: [1, 1.025, 1],
+                y: [0, -3, 0],
+                backgroundColor: ['#e8efe3', '#cfe1c4', '#e8efe3'],
+                borderColor: ['rgba(113,128,95,0.34)', 'rgba(84,126,55,0.95)', 'rgba(113,128,95,0.34)'],
+                boxShadow: [
+                    '0 8px 24px rgba(72,60,45,0.1)',
+                    '0 0 0 6px rgba(130,166,98,0.2), 0 16px 38px rgba(73,105,48,0.28)',
+                    '0 8px 24px rgba(72,60,45,0.1)',
+                ],
+            }, { duration: 1.25, ease: [0.22, 1, 0.36, 1] }),
             animate('[data-correction-icon]', {
                 rotate: [0, -12, 10, 0],
-                scale: [1, 1.18, 1],
-            }, { duration: 0.42, ease: 'easeOut' }),
+                scale: [1, 1.28, 1],
+            }, { duration: 0.52, ease: 'easeOut' }),
+            animate('[data-correction-sentence]', {
+                opacity: [0.25, 1],
+                x: [-8, 0],
+                y: [6, 0],
+                color: ['#71915f', '#1f321b', '#2f3d2d'],
+            }, { duration: 0.82, ease: [0.22, 1, 0.36, 1] }),
+            animate('[data-correction-accent]', {
+                scaleY: [0.15, 1.18, 1],
+                opacity: [0.2, 1, 0.8],
+            }, { duration: 0.75, ease: 'easeOut' }),
+            animate('[data-correction-flash]', {
+                opacity: [0, 0.85, 0],
+                x: ['-110%', '115%'],
+            }, { duration: 1.05, ease: 'easeInOut' }),
         ];
     }, [animate, prefersReducedMotion, scope, sentence]);
 
@@ -1602,7 +1801,7 @@ export function CorrectionCoachCard({
 
         lpAnimations.current = [animate('[data-correction-lp]', {
             scale: [1, 1.12, 1],
-            color: ['#3d6f4a', '#17662b', '#3d6f4a'],
+            color: ['#5f7353', '#34482f', '#5f7353'],
         }, { duration: 0.34, ease: 'easeOut' })];
     }, [animate, lp, prefersReducedMotion, scope]);
 
@@ -1615,20 +1814,26 @@ export function CorrectionCoachCard({
     return (
         <section
             ref={scope}
-            className="order-1 min-h-0 overflow-hidden rounded-lg border border-[#3d6f4a]/20 bg-[#edf5ed] shadow-sm"
+            className="relative order-1 min-h-0 overflow-hidden rounded-xl border border-[#71805f]/35 bg-[#e8efe3] shadow-[0_8px_24px_rgba(72,60,45,0.1)]"
             aria-live="polite"
             aria-atomic="true"
         >
-            <div className="h-full overflow-hidden px-4 py-3">
+            <span data-correction-accent aria-hidden="true" className="absolute inset-y-0 left-0 w-1 origin-center bg-[#71805f]" />
+            <span
+                data-correction-flash
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 left-0 z-20 w-1/3 -skew-x-12 bg-gradient-to-r from-transparent via-white/75 to-transparent opacity-0"
+            />
+            <div className="h-full overflow-hidden py-3 pl-5 pr-4">
                 <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                        <p className="flex items-center gap-1 text-xs font-black uppercase tracking-normal text-[#29452c]">
+                        <p className="flex items-center gap-1.5 text-xs font-black text-[#496348]">
                             <span data-correction-icon className="inline-flex">
                                 <Sparkles className="h-3.5 w-3.5" />
                             </span>
                             다음엔 이렇게 말해보세요
                         </p>
-                        <p className="mt-1 line-clamp-2 break-words text-lg font-black leading-snug text-[#243f27]">
+                        <p data-correction-sentence className="mt-1 line-clamp-2 break-words text-lg font-black leading-snug text-[#2f3d2d]">
                             {sentence}
                         </p>
                     </div>
@@ -1640,14 +1845,14 @@ export function CorrectionCoachCard({
                     </span>
                 </div>
                 {reason && (
-                    <p className="mt-1 line-clamp-2 break-words text-xs font-semibold leading-snug text-[#3f6543]">
+                    <p className="mt-1 line-clamp-2 break-words text-xs font-semibold leading-snug text-[#5f7353]">
                         {reason}
                     </p>
                 )}
                 {context && (
-                    <p className="mt-1 break-words text-xs font-semibold leading-relaxed text-[#5e5549]">{context}</p>
+                    <p className="mt-1 break-words text-xs font-semibold leading-relaxed text-[#74675b]">{context}</p>
                 )}
-                <p data-correction-lp className="mt-1 origin-left text-xs font-black text-[#3d6f4a]">
+                <p data-correction-lp className="mt-1 origin-left text-xs font-black text-[#5f7353]">
                     {lpIsFinal ? '평가 LP' : '실시간 LP'} {lp > 0 ? '+' : ''}{lp} LP
                 </p>
             </div>
@@ -1981,11 +2186,7 @@ export function AssessmentPanel() {
             .filter((message): message is ChatMessage & { evaluation: TurnEvaluation } => Boolean(message.evaluation))
             .map((message) => ({ message, evaluation: message.evaluation }));
         const latestTurn = turns[turns.length - 1] ?? null;
-        const previousTurn = turns[turns.length - 2] ?? null;
         const sessionScore = calculateWeightedSessionScore(turns);
-        const trend = latestTurn && previousTurn
-            ? getMetricScore(latestTurn.evaluation, 'overall') - getMetricScore(previousTurn.evaluation, 'overall')
-            : 0;
         const metricAverages = METRICS.map(({ key, label }) => ({
             key,
             label,
@@ -1998,7 +2199,6 @@ export function AssessmentPanel() {
             latestTurn,
             latestAssistantPrompt: getLatestAssistantPrompt(messages),
             sessionScore,
-            trend,
             metricAverages,
             pendingCount: userMessages.filter((message) => message.evaluationStatus === 'pending').length,
             skippedCount: userMessages.filter((message) => message.evaluationStatus === 'skipped').length,
@@ -2006,9 +2206,10 @@ export function AssessmentPanel() {
         };
     }, [messages]);
 
-    const { userMessages, turns, latestTurn, sessionScore, trend, metricAverages, pendingCount, skippedCount, unavailableMessages } = assessment;
+    const { userMessages, turns, latestTurn, sessionScore, metricAverages, pendingCount, skippedCount, unavailableMessages } = assessment;
     const nowEpochMs = useCountdownClock(pendingCount > 0);
     const previousTurns = turns.slice(0, -1).reverse();
+    const previousEvaluatedTurn = turns[turns.length - 2] ?? null;
     const weakestMetric = metricAverages.length > 0 ? getWeakestMetric(metricAverages) : null;
     const latestCorrectionMessage = [...userMessages]
         .reverse()
@@ -2049,7 +2250,10 @@ export function AssessmentPanel() {
             || latestCorrectionMessage?.correction?.contextReason}`
         : undefined;
     const latestCoachLp = latestCoachMessage ? getCurrentMessageLp(latestCoachMessage) : 0;
-    const showCoachContent = shouldShowCoachContent(turns.length, Boolean(latestCorrectionMessage));
+    const hasMissionActivity = activeMissions.length > 0
+        || userMessages.some((message) => (message.completedMissions?.length ?? 0) > 0);
+    const showCoachContent = shouldShowCoachContent(turns.length, Boolean(latestCorrectionMessage))
+        || hasMissionActivity;
     const realtimeTurnLps = userMessages.map((message) => getCurrentMessageLp(message));
     const tier = calculateTierProgress({
         tiers: TIERS,
@@ -2127,24 +2331,27 @@ export function AssessmentPanel() {
     }, [showDeveloperLpControls]);
 
     return (
-        <aside className="relative flex h-full min-h-0 flex-col border-t border-[#483c2d]/10 bg-[#f4ece4]/75 backdrop-blur-xl print:border-0 print:bg-white lg:border-l lg:border-t-0">
+        <aside className="relative isolate flex h-full min-h-0 flex-col overflow-hidden border-t border-[#483c2d]/10 bg-[#eee5dc]/95 text-[#3b3028] shadow-[-16px_0_48px_rgba(72,60,45,0.12)] backdrop-blur-xl print:border-0 print:bg-white lg:border-l lg:border-t-0">
             <MissionSuccessCelebration presentation={missionCelebration.current} />
             {printRoot ? createPortal(
                 <PrintReport messages={messages} turns={turns} tier={tier} sessionScore={sessionScore} metricAverages={metricAverages} />,
                 printRoot,
             ) : null}
 
-            <div className="flex items-center justify-between border-b border-[#483c2d]/10 px-5 py-3 print:hidden">
-                <div className="flex items-center gap-2">
-                    <Activity className="h-5 w-5 text-[#6b5a4a]" />
-                    <h2 className="font-bold tracking-tight text-[#483c2d]">영어 코치</h2>
+            <div className="relative z-10 flex items-center justify-between border-b border-[#483c2d]/10 bg-white/15 px-5 py-3.5 print:hidden">
+                <div className="flex items-center gap-3">
+                    <div className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-[#483c2d]/10 bg-[#fffaf5] text-[#5f7353]">
+                        <Activity className="h-4 w-4" />
+                        <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border-2 border-[#eee5dc] bg-[#71805f]" />
+                    </div>
+                    <h2 className="text-[15px] font-black tracking-tight text-[#3b3028]">영어 코치</h2>
                 </div>
                 <div className="flex items-center gap-1">
                     {showDeveloperLpControls && (
                         <button
                             type="button"
                             onClick={() => setDeveloperControlsOpen((open) => !open)}
-                            className={`rounded-full p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-[#9a4b36]/25 ${developerControlsOpen ? 'bg-[#f8e5d7] text-[#7a3b28]' : 'text-[#6b5a4a] hover:bg-[#483c2d]/10'}`}
+                            className={`rounded-lg p-2 transition-colors focus:outline-none focus:ring-2 focus:ring-[#71805f]/25 ${developerControlsOpen ? 'bg-[#edf1e8] text-[#5f7353]' : 'text-[#7a695b] hover:bg-white/45 hover:text-[#3b3028]'}`}
                             title={`${developerControlsOpen ? '개발 LP 도구 숨기기' : '개발 LP 도구 열기'} (Ctrl+Shift+L)`}
                             aria-label={developerControlsOpen ? '개발 LP 도구 숨기기' : '개발 LP 도구 열기'}
                         >
@@ -2155,7 +2362,7 @@ export function AssessmentPanel() {
                         type="button"
                         onClick={() => window.print()}
                         disabled={turns.length === 0}
-                        className="rounded-full p-2 text-[#6b5a4a] transition-colors hover:bg-[#483c2d]/10 focus:outline-none focus:ring-2 focus:ring-[#6b5a4a]/30 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="rounded-lg p-2 text-[#7a695b] transition-colors hover:bg-white/45 hover:text-[#3b3028] focus:outline-none focus:ring-2 focus:ring-[#71805f]/25 disabled:cursor-not-allowed disabled:opacity-40"
                         title={turns.length === 0 ? '출력할 평가가 없습니다' : '평가 리포트 출력'}
                         aria-label="평가 리포트 출력"
                     >
@@ -2164,7 +2371,7 @@ export function AssessmentPanel() {
                 </div>
             </div>
 
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4 print:hidden xl:p-5">
+            <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-hidden p-4 print:hidden xl:p-5">
                 <StatusLine
                     pendingCount={pendingCount}
                     skippedCount={skippedCount}
@@ -2174,69 +2381,75 @@ export function AssessmentPanel() {
                 />
 
                 {!showCoachContent ? (
-                    <section className="mt-4 rounded-lg border border-dashed border-[#483c2d]/20 bg-white/45 p-4 text-sm leading-relaxed text-[#6b5a4a]">
-                        아바타와 영어로 대화하면 응답마다 자동으로 코칭이 붙습니다. 대화는 끊지 않고, 이 패널에서 점수와 교정 근거만 조용히 업데이트합니다.
-                    </section>
+                    <motion.section
+                        initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mt-4 flex flex-1 items-center justify-center rounded-xl border border-dashed border-[#483c2d]/15 bg-white/35 p-6 text-center"
+                    >
+                        <div className="max-w-sm">
+                            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl border border-[#71805f]/20 bg-[#edf1e8] text-[#5f7353]">
+                                <Activity className="h-6 w-6" />
+                            </div>
+                            <h3 className="mt-4 text-base font-black text-[#3b3028]">대화를 시작해보세요</h3>
+                            <p className="mt-2 text-sm leading-relaxed text-[#7a695b]">말하는 흐름은 그대로 유지하고, 점수·교정·다음 미션은 이곳에 실시간으로 쌓입니다.</p>
+                        </div>
+                    </motion.section>
                 ) : (
-                    <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-2 lg:grid-rows-[minmax(160px,2fr)_minmax(200px,2.4fr)_minmax(0,5.6fr)] lg:overflow-hidden">
+                    <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-2 lg:grid-rows-[minmax(176px,2.1fr)_minmax(200px,2.4fr)_minmax(0,5.5fr)] lg:overflow-hidden">
                         <div className="contents">
-                            <section className="relative order-2 flex min-h-0 flex-col overflow-hidden rounded-lg border border-white/50 bg-white/70 shadow-sm">
+                            <motion.section
+                                initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.35, ease: 'easeOut' }}
+                                className="relative order-2 flex min-h-0 flex-col overflow-hidden rounded-xl border border-[#483c2d]/10 bg-[#fffaf5]/90 shadow-[0_8px_24px_rgba(72,60,45,0.08)]"
+                            >
                                 <TierPromotionCelebration presentation={tierPromotion} />
                                 <div className="relative flex-1 p-2.5">
-                                    <div className="absolute right-0 top-0 h-20 w-20 rounded-bl-full bg-white/45" />
+                                    <div className="absolute right-0 top-0 h-20 w-20 border-b border-l border-[#483c2d]/[0.04]" />
                                     <div className="relative z-10 mb-1.5 flex min-w-0 items-center gap-2" aria-live="polite">
-                                        <p className="shrink-0 text-[11px] font-semibold uppercase text-[#6b5a4a]/70">
+                                        <p className="shrink-0 text-[11px] font-black text-[#5f7353]">
                                             자동 코칭 티어
                                         </p>
-                                        <p className="min-w-0 flex-1 truncate text-right text-[11px] font-bold text-[#6b5a4a]" title={getTierSummary(tier.tier.id)}>
+                                        <p className="min-w-0 flex-1 truncate text-right text-[11px] font-bold text-[#7a695b]" title={getTierSummary(tier.tier.id)}>
                                             {getTierSummary(tier.tier.id)}
                                         </p>
                                         <div
-                                            className={`inline-flex min-w-12 shrink-0 items-center justify-center rounded px-2 py-1 font-mono text-xs font-black tabular-nums ${trend > 0
+                                            className={`inline-flex min-w-14 shrink-0 items-center justify-center rounded px-2 py-1 font-mono text-xs font-black tabular-nums ${tier.latestDelta > 0
                                             ? 'bg-[#e5f7df] text-[#16733a]'
-                                            : trend < 0
+                                            : tier.latestDelta < 0
                                                 ? 'bg-[#f7e8e3] text-[#b33b28]'
-                                                : 'bg-[#f1eadf] text-[#6b5a4a]'}`}
-                                            aria-label={turns.length < 2
-                                                ? '첫 점수 반영'
-                                                : trend > 0
-                                                    ? `${Math.abs(trend)}점 상승`
-                                                    : trend < 0
-                                                        ? `${Math.abs(trend)}점 하락`
-                                                        : '점수 변동 없음'}
-                                            title={turns.length < 2
-                                                ? '첫 점수 반영'
-                                                : trend > 0
-                                                    ? `${Math.abs(trend)}점 상승`
-                                                    : trend < 0
-                                                        ? `${Math.abs(trend)}점 하락`
-                                                        : '점수 변동 없음'}
+                                                : 'bg-[#eee5dc] text-[#6b5a4a]'}`}
+                                            aria-label={tier.latestDelta > 0
+                                                ? `${tier.latestDelta} LP 획득`
+                                                : tier.latestDelta < 0
+                                                    ? `${Math.abs(tier.latestDelta)} LP 감소`
+                                                    : 'LP 변동 없음'}
+                                            title="최근 응답의 티어 LP 변동"
                                         >
-                                            {turns.length < 2
-                                                ? '—'
-                                                : trend > 0
-                                                    ? `▲ ${Math.abs(trend)}`
-                                                    : trend < 0
-                                                        ? `▼ ${Math.abs(trend)}`
-                                                        : '— 0'}
+                                            {tier.latestDelta > 0
+                                                ? `+${tier.latestDelta} LP`
+                                                : tier.latestDelta < 0
+                                                    ? `${tier.latestDelta} LP`
+                                                    : '— LP'}
                                         </div>
                                     </div>
                                     <div className="relative flex items-center gap-3">
                                         <TierBadge tier={tier.tier} size={58} />
                                         <div className="min-w-0 flex-1">
                                             <div className="flex min-w-0 items-end gap-2">
-                                                <span className="min-w-0 truncate text-2xl font-black leading-none" style={{ color: tier.tier.text }}>
+                                                <span className="min-w-0 truncate text-2xl font-black leading-none text-[#3b3028]">
                                                     {tier.tier.label}
                                                 </span>
-                                                <span className="text-xs font-bold text-[#6b5a4a]">{tier.lp} LP</span>
+                                                <span className="text-xs font-bold text-[#7a695b]">{tier.lp} LP</span>
                                             </div>
-                                            <div className="mt-2 h-2 overflow-hidden rounded-full border border-[#5b4939]/20 bg-[#cbb8a3] shadow-inner">
-                                                <div
-                                                    className="h-full rounded-full shadow-[0_0_10px_rgba(34,197,94,0.55)] transition-all duration-500"
-                                                    style={{ width: `${tier.progress}%`, background: 'linear-gradient(90deg, #f97316 0%, #facc15 48%, #22c55e 100%)' }}
-                                                />
-                                            </div>
-                                            <div className="mt-1.5 flex items-center justify-between gap-3 text-[11px] font-black text-[#483c2d]">
+                                            <TierProgressBar
+                                                value={tier.progress}
+                                                highlight={tier.latestDelta > 0}
+                                                missionBonus={missionCelebration.current?.totalLp ?? 0}
+                                                latestDelta={tier.latestDelta}
+                                                pulseKey={`${tier.totalLp}-${userMessages.length}`}
+                                            />
+                                            <div className="mt-1.5 flex items-center justify-between gap-3 text-[11px] font-black text-[#5b4939]">
                                                 <span>총 {tier.totalLp} LP</span>
                                                 <span>{tier.nextTier ? `${tier.nextTier.label}까지 ${tier.nextTierRemainingLp} LP` : '최고 티어'}</span>
                                             </div>
@@ -2244,14 +2457,14 @@ export function AssessmentPanel() {
                                     </div>
                                 </div>
 
-                                <div className="shrink-0 border-t border-[#483c2d]/10 bg-[#f8f1ea]/80 px-2 py-1">
+                                <div className="min-h-[52px] shrink-0 border-t border-[#483c2d]/10 bg-[#f8f1ea] px-2 pb-2 pt-1.5">
                                     <div className="grid grid-cols-7 gap-1">
                                         {TIERS.map((item) => (
                                             <MiniTierBadge key={item.id} tier={item} />
                                         ))}
                                     </div>
                                 </div>
-                            </section>
+                            </motion.section>
 
                             {showDeveloperLpControls && developerControlsOpen && (
                                 <section className="absolute inset-x-4 top-16 z-40 rounded-lg border border-dashed border-[#9a4b36]/45 bg-[#fff7ed] p-4 shadow-xl xl:inset-x-5">
@@ -2349,7 +2562,13 @@ export function AssessmentPanel() {
                                 <h3 className="mb-3 text-sm font-bold text-[#483c2d]">영역별 평균</h3>
                                 <div className="space-y-3">
                                     {metricAverages.map((metric) => (
-                                        <MetricBar key={metric.key} label={metric.label} value={metric.value} />
+                                        <MetricBar
+                                            key={`${metric.key}-${latestTurn?.evaluation.turnId ?? 'empty'}`}
+                                            label={metric.label}
+                                            value={metric.value}
+                                            highlight={Boolean(latestTurn && previousEvaluatedTurn
+                                                && getMetricScore(latestTurn.evaluation, metric.key) > getMetricScore(previousEvaluatedTurn.evaluation, metric.key))}
+                                        />
                                     ))}
                                 </div>
                             </section>
@@ -2361,6 +2580,7 @@ export function AssessmentPanel() {
                                     missions={activeMissions}
                                     completedMissionIds={missionCelebration.completedMissionIds}
                                     enteringMissionIds={missionCelebration.enteringMissionIds}
+                                    completion={missionCelebration.current}
                                 />
                             </div>
 
@@ -2447,9 +2667,18 @@ export function AssessmentPanel() {
                                 </>
                             )}
 
-                            <section className="order-4 flex min-h-0 flex-col rounded-lg border border-white/50 bg-white/70 p-3 shadow-sm lg:col-span-2">
+                            <motion.section
+                                initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.08, duration: 0.35, ease: 'easeOut' }}
+                                className="order-4 flex min-h-0 flex-col rounded-xl border border-[#483c2d]/10 bg-[#fffaf5]/90 p-3 shadow-[0_8px_24px_rgba(72,60,45,0.08)] lg:col-span-2"
+                            >
                                 <div className="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-3">
-                                    <div className="inline-flex rounded-md border border-[#483c2d]/10 bg-[#f8f1ea]/75 p-1">
+                                    <div
+                                        className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-lg border border-[#483c2d]/10 bg-[#eee5dc] p-1"
+                                        role="tablist"
+                                        aria-label="평가 상세 보기"
+                                    >
                                         {([
                                             ['feedback', '이전 피드백'],
                                             ['evaluation', '평가'],
@@ -2458,22 +2687,17 @@ export function AssessmentPanel() {
                                                 key={value}
                                                 type="button"
                                                 onClick={() => setDetailTab(value)}
-                                                className={`relative overflow-hidden rounded px-3 py-1.5 text-xs font-black transition-colors focus:outline-none focus:ring-2 focus:ring-[#6b5a4a]/25 ${detailTab === value
-                                                    ? 'text-[#483c2d]'
-                                                    : 'text-[#6b5a4a] hover:bg-white/55'}`}
+                                                role="tab"
+                                                aria-selected={detailTab === value}
+                                                className={`relative isolate flex min-h-8 items-center justify-center rounded-md px-3 text-xs font-black leading-none transition-[background-color,color,box-shadow,transform] duration-200 focus:outline-none focus:ring-2 focus:ring-[#71805f]/25 ${detailTab === value
+                                                    ? 'bg-[#6f7f5d] text-white shadow-[0_2px_7px_rgba(75,91,58,0.24),inset_0_1px_0_rgba(255,255,255,0.2)]'
+                                                    : 'text-[#7a695b] hover:bg-white/45 hover:text-[#3b3028]'}`}
                                             >
-                                                {detailTab === value && (
-                                                    <motion.span
-                                                        layoutId="assessment-detail-tab-active"
-                                                        className="absolute inset-0 rounded bg-white shadow-sm"
-                                                        transition={{ type: 'spring', stiffness: 480, damping: 36 }}
-                                                    />
-                                                )}
-                                                <span className="relative z-10">{label}</span>
+                                                {label}
                                             </button>
                                         ))}
                                     </div>
-                                    <span className="shrink-0 text-xs font-semibold text-[#6b5a4a]/70">
+                                    <span className="shrink-0 font-mono text-xs font-semibold text-[#8a796b]">
                                         {detailTab === 'feedback' ? `Total ${previousTurns.length}` : `Turns ${turns.length}`}
                                     </span>
                                 </div>
@@ -2490,7 +2714,9 @@ export function AssessmentPanel() {
                                                 transition={{ duration: 0.2, ease: 'easeOut' }}
                                             >
                                                 {previousTurns.length === 0 ? (
-                                                    <p className="text-xs leading-relaxed text-[#6b5a4a]">응답이 쌓이면 이곳에서 이전 피드백을 스크롤로 다시 볼 수 있습니다.</p>
+                                                    <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-[#483c2d]/12 text-center">
+                                                        <p className="max-w-xs text-xs leading-relaxed text-[#8a796b]">응답이 쌓이면 이곳에서 이전 피드백을 다시 볼 수 있습니다.</p>
+                                                    </div>
                                                 ) : (
                                                     <div className="h-full min-h-0 overflow-y-auto pr-1">
                                                         <div className="grid gap-2 2xl:grid-cols-2">
@@ -2512,35 +2738,43 @@ export function AssessmentPanel() {
                                             >
                                                 <div className="h-full min-h-0 overflow-y-auto pr-1">
                                                     <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.8fr)_minmax(320px,1.2fr)]">
-                                                        <div className="rounded-md bg-[#fdf8f4]/90 p-3">
+                                                        <div className="rounded-lg border border-[#483c2d]/10 bg-[#f8f1ea] p-3">
                                                             <div className="grid grid-cols-3 gap-2">
-                                                                <div className="rounded-md bg-white/65 px-3 py-2">
-                                                                    <p className="text-[11px] font-bold text-[#6b5a4a]/70">누적 응답</p>
-                                                                    <p className="mt-1 text-lg font-black leading-none text-[#483c2d]">{turns.length}</p>
+                                                                <div className="rounded-lg border border-[#483c2d]/10 bg-[#fffaf5] px-3 py-2">
+                                                                    <p className="text-[10px] font-bold text-[#8a796b]">누적 응답</p>
+                                                                    <p className="mt-1 font-mono text-xl font-black leading-none text-[#3b3028]">{turns.length}</p>
                                                                 </div>
-                                                                <div className="rounded-md bg-[#eef8f6] px-3 py-2">
-                                                                    <p className="text-[11px] font-bold text-[#265651]/70">최근 점수</p>
-                                                                    <p className="mt-1 text-lg font-black leading-none text-[#1f4f4a]">
+                                                                <div className="rounded-lg border border-[#71805f]/15 bg-[#edf1e8] px-3 py-2">
+                                                                    <p className="text-[10px] font-bold text-[#71805f]">최근 점수</p>
+                                                                    <p className="mt-1 font-mono text-xl font-black leading-none text-[#496348]">
                                                                         {latestTurn ? getMetricScore(latestTurn.evaluation, 'overall') : '--'}
                                                                     </p>
                                                                 </div>
-                                                                <div className="rounded-md bg-[#fff7e8] px-3 py-2">
-                                                                    <p className="text-[11px] font-bold text-[#7a5a23]/70">우선 연습</p>
+                                                                <div className="rounded-lg border border-[#c59b55]/15 bg-[#fff6e5] px-3 py-2">
+                                                                    <p className="text-[10px] font-bold text-[#9a7a44]">우선 연습</p>
                                                                     <p className="mt-1 truncate text-sm font-black text-[#6b4f20]" title={weakestMetric?.label}>
                                                                         {weakestMetric?.label ?? '--'}
                                                                     </p>
                                                                 </div>
                                                             </div>
-                                                            <p className="mt-3 text-xs leading-relaxed text-[#6b5a4a]">
+                                                            <p className="mt-3 text-xs leading-relaxed text-[#7a695b]">
                                                                 평가는 교정 문장이나 미션 상태와 분리되어 누적 점수 기준으로 표시됩니다.
                                                             </p>
                                                         </div>
 
-                                                        <div className="rounded-md bg-white/65 p-3">
-                                                            <h3 className="mb-3 text-sm font-bold text-[#483c2d]">영역별 평균</h3>
+                                                        <div className="rounded-lg border border-[#483c2d]/10 bg-[#fffaf5] p-3">
+                                                            <div className="mb-3 flex items-center justify-between">
+                                                                <h3 className="text-sm font-black text-[#3b3028]">영역별 평균</h3>
+                                                            </div>
                                                             <div className="space-y-3">
                                                                 {metricAverages.map((metric) => (
-                                                                    <MetricBar key={metric.key} label={metric.label} value={metric.value} />
+                                                                    <MetricBar
+                                                                        key={`${metric.key}-${latestTurn?.evaluation.turnId ?? 'empty'}`}
+                                                                        label={metric.label}
+                                                                        value={metric.value}
+                                                                        highlight={Boolean(latestTurn && previousEvaluatedTurn
+                                                                            && getMetricScore(latestTurn.evaluation, metric.key) > getMetricScore(previousEvaluatedTurn.evaluation, metric.key))}
+                                                                    />
                                                                 ))}
                                                             </div>
                                                         </div>
@@ -2550,7 +2784,7 @@ export function AssessmentPanel() {
                                         )}
                                     </AnimatePresence>
                                 </div>
-                            </section>
+                            </motion.section>
                         </div>
                     </div>
                 )}

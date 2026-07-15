@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 
+function getBatchStatusSyncPayload() {
+    const status = useStore.getState().evaluationBatchStatus;
+    if (!status) return null;
+    return {
+        ...status,
+        nextFlushAtEpochMs: status.sourceNextFlushAtEpochMs ?? status.nextFlushAtEpochMs ?? null,
+    };
+}
+
 type ChatSyncState = {
     hasMainWindow: boolean;
 };
@@ -16,7 +25,7 @@ export function useChatSync(isMainWindow: boolean) {
             const unsubscribe = useStore.subscribe((state, prevState) => {
                 // Broadcast messages if changed
                 if (state.messages !== prevState.messages) {
-                    channel.postMessage({ type: 'SYNC_MESSAGES', payload: state.messages });
+                    channel.postMessage({ type: 'SYNC_MESSAGES', payload: state.messages, reason: 'update' });
                 }
                 if (state.partialMessage !== prevState.partialMessage) {
                     channel.postMessage({ type: 'SYNC_PARTIAL_MESSAGE', payload: state.partialMessage });
@@ -26,6 +35,12 @@ export function useChatSync(isMainWindow: boolean) {
                 }
                 if (state.emotion !== prevState.emotion) {
                     channel.postMessage({ type: 'SYNC_EMOTION', payload: state.emotion });
+                }
+                if (state.evaluationBatchStatus !== prevState.evaluationBatchStatus) {
+                    channel.postMessage({
+                        type: 'SYNC_EVALUATION_BATCH_STATUS',
+                        payload: getBatchStatusSyncPayload(),
+                    });
                 }
             });
 
@@ -45,10 +60,14 @@ export function useChatSync(isMainWindow: boolean) {
                     }
                 } else if (event.data.type === 'REQUEST_INITIAL_STATE') {
                     // Send initial state to newly opened window
-                    channel.postMessage({ type: 'SYNC_MESSAGES', payload: useStore.getState().messages });
+                    channel.postMessage({ type: 'SYNC_MESSAGES', payload: useStore.getState().messages, reason: 'initial' });
                     channel.postMessage({ type: 'SYNC_PARTIAL_MESSAGE', payload: useStore.getState().partialMessage });
                     channel.postMessage({ type: 'SYNC_THINKING', payload: useStore.getState().isThinking });
                     channel.postMessage({ type: 'SYNC_EMOTION', payload: useStore.getState().emotion });
+                    channel.postMessage({
+                        type: 'SYNC_EVALUATION_BATCH_STATUS',
+                        payload: getBatchStatusSyncPayload(),
+                    });
                 }
             };
 
@@ -59,7 +78,7 @@ export function useChatSync(isMainWindow: boolean) {
         } else {
             // Popout window listens to channel and updates its store
             channel.onmessage = (event) => {
-                const { type, payload } = event.data;
+                const { type, payload, reason } = event.data;
                 if (type === 'MAIN_WINDOW_READY') {
                     setHasMainWindow(true);
                     return;
@@ -71,7 +90,25 @@ export function useChatSync(isMainWindow: boolean) {
                 setHasMainWindow(true);
 
                 if (type === 'SYNC_MESSAGES') {
+                    if (
+                        reason === 'initial'
+                        && Array.isArray(payload)
+                        && payload.length === 0
+                        && useStore.getState().messages.length > 0
+                    ) {
+                        return;
+                    }
                     useStore.getState().syncMessages(payload);
+                } else if (type === 'SYNC_EVALUATION_BATCH_STATUS') {
+                    if (payload) {
+                        useStore.getState().setEvaluationBatchStatus(payload);
+                    } else if (useStore.getState().getPendingEvaluationTurnIds().length === 0) {
+                        useStore.getState().clearEvaluationBatchStatus();
+                    }
+                } else if (useStore.getState().socket?.readyState === WebSocket.OPEN) {
+                    // The viewer socket owns ephemeral streaming state. Durable
+                    // message/evaluation state still merges monotonically above.
+                    return;
                 } else if (type === 'SYNC_PARTIAL_MESSAGE') {
                     useStore.setState({ partialMessage: payload });
                 } else if (type === 'SYNC_THINKING') {

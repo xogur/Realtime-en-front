@@ -7,6 +7,9 @@ import { getKioskIdFromLocation, withKioskSessionParams, type KioskRole } from '
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
 const EVALUATION_BATCH_MAX_TURNS = 4;
+const SUPPLEMENTARY_POLL_MAX_DURATION_MS = 5 * 60_000;
+const SUPPLEMENTARY_POLL_INITIAL_DELAY_MS = 2_000;
+const SUPPLEMENTARY_POLL_MAX_DELAY_MS = 12_000;
 const MAX_SEEN_EVENT_SEQS = 2000;
 const EVENT_SEQ_DEDUPE_EXEMPT_TYPES = new Set([
   'session_replay_start',
@@ -56,6 +59,7 @@ type SocketMessage = {
   delaySeconds?: number;
   nextFlushAtEpochMs?: number | null;
   serverEpochMs?: number | null;
+  sessionEpoch?: number;
   eventSeq?: number;
 };
 
@@ -69,11 +73,70 @@ type ConnectOptions = {
   role?: KioskRole;
 };
 
-export function buildClientTurnId(backendTurnId: string | null, eventSeq?: number): string | undefined {
+type SupplementaryPollState = {
+  attempt: number;
+  clientTurnId: string;
+  generationId: string;
+  startedAtEpochMs: number;
+  timeoutId: number | null;
+};
+
+type SupplementaryFetchOptions = {
+  expectedClientTurnId?: string;
+  replayedMessageKeys?: readonly string[];
+  replaySequence?: number;
+};
+
+export function buildClientTurnId(
+  backendTurnId: string | null,
+  eventSeq?: number,
+  serverTurnId?: string | null,
+): string | undefined {
+  if (serverTurnId?.trim()) {
+    return serverTurnId.trim();
+  }
   if (!backendTurnId) {
     return undefined;
   }
   return typeof eventSeq === 'number' ? `${backendTurnId}:event-${eventSeq}` : backendTurnId;
+}
+
+export function getSupplementaryPollDelayMs(attempt: number): number {
+  return Math.min(
+    SUPPLEMENTARY_POLL_MAX_DELAY_MS,
+    Math.round(SUPPLEMENTARY_POLL_INITIAL_DELAY_MS * (1.5 ** Math.max(0, attempt))),
+  );
+}
+
+export function isEvaluationBatchIdle(
+  status?: Pick<SocketMessage, 'pendingCount'> | null,
+): boolean {
+  return !status || Number(status.pendingCount ?? 0) === 0;
+}
+
+export function buildAudioPacket(
+  pcmData: Int16Array,
+  isPlaying: boolean,
+  sampleRate = 48_000,
+  nowEpochMs = Date.now(),
+): Uint8Array {
+  let peak = 0;
+  for (let index = 0; index < pcmData.length; index += 1) {
+    peak = Math.max(peak, Math.abs(pcmData[index]));
+  }
+
+  const header = new ArrayBuffer(16);
+  const view = new DataView(header);
+  view.setUint32(0, nowEpochMs >>> 0, false);
+  view.setUint32(4, isPlaying ? 1 : 0, false);
+  view.setUint32(8, sampleRate, false);
+  view.setUint32(12, Math.min(1_000_000, Math.round((peak / 32_768) * 1_000_000)), false);
+
+  const pcmBytes = new Uint8Array(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength);
+  const payload = new Uint8Array(header.byteLength + pcmBytes.length);
+  payload.set(new Uint8Array(header), 0);
+  payload.set(pcmBytes, header.byteLength);
+  return payload;
 }
 
 export function shouldProcessEventSeq(
@@ -194,7 +257,8 @@ export function useVoiceSocket() {
   const roleRef = useRef<KioskRole>('controller');
   const disconnectRef = useRef<() => void>(() => undefined);
   const isReplayingSessionRef = useRef(false);
-  const supplementaryPollTimeoutsRef = useRef<number[]>([]);
+  const sessionReplaySequenceRef = useRef(0);
+  const supplementaryPollsRef = useRef<Map<string, SupplementaryPollState>>(new Map());
   const processedSupplementaryKeysRef = useRef<Set<string>>(new Set());
 
   const setConnecting = useStore((state) => state.setConnecting);
@@ -228,6 +292,7 @@ export function useVoiceSocket() {
   const clearMessages = useStore((state) => state.clearMessages);
   const beginSessionReplay = useStore((state) => state.beginSessionReplay);
   const finishSessionReplay = useStore((state) => state.finishSessionReplay);
+  const reconcileSessionReplayPendingEvaluations = useStore((state) => state.reconcileSessionReplayPendingEvaluations);
 
   const notifyTtsPlaybackStopped = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -256,8 +321,10 @@ export function useVoiceSocket() {
   }, []);
 
   const clearSupplementaryPolling = useCallback(() => {
-    supplementaryPollTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
-    supplementaryPollTimeoutsRef.current = [];
+    supplementaryPollsRef.current.forEach(({ timeoutId }) => {
+      if (timeoutId !== null) window.clearTimeout(timeoutId);
+    });
+    supplementaryPollsRef.current.clear();
   }, []);
 
   const flushActiveTts = useCallback(
@@ -279,7 +346,10 @@ export function useVoiceSocket() {
 
   const getTurnId = useCallback(
     (data: SocketMessage): string | null => {
-      const backendTurnId = data.turnId ?? getGenerationId(data);
+      if (data.turnId?.trim()) {
+        return data.turnId.trim();
+      }
+      const backendTurnId = getGenerationId(data);
       if (!backendTurnId) {
         return null;
       }
@@ -315,7 +385,12 @@ export function useVoiceSocket() {
         activeGenerationIdRef.current = generationId;
       }
       if (generationId === activeGenerationIdRef.current) {
-        const clientTurnId = backendTurnIdToClientTurnIdRef.current.get(generationId) ?? generationId;
+        const clientTurnId = buildClientTurnId(
+          generationId,
+          data.eventSeq,
+          data.turnId,
+        ) ?? generationId;
+        backendTurnIdToClientTurnIdRef.current.set(generationId, clientTurnId);
         assignLatestPendingUserTurnId(clientTurnId);
       }
     },
@@ -477,16 +552,48 @@ export function useVoiceSocket() {
   );
 
   const getSupplementaryEventKey = useCallback((data: SocketMessage): string => {
-    const generationId = getGenerationId(data) ?? data.turnId ?? 'none';
+    const generationId = data.turnId ?? getGenerationId(data) ?? 'none';
     const payloadKey = data.code ?? data.reason ?? data.content ?? JSON.stringify(data.suggestions ?? data.evaluation ?? data.correction ?? '');
     return `${data.type}:${generationId}:${payloadKey}`;
   }, [getGenerationId]);
 
+  const wasSupplementaryResultApplied = useCallback((data: SocketMessage): boolean => {
+    const turnId = getTurnId(data);
+    if (!turnId) return false;
+    const messages = useStore.getState().messages;
+
+    if (data.type === 'assistant_translation') {
+      const korean = sanitizeModelText(data.content ?? '');
+      return Boolean(korean && messages.some((message) => (
+        message.role === 'assistant'
+        && message.id === turnId
+        && message.content.includes(korean)
+      )));
+    }
+    if (data.type === 'assistant_reply_suggestions') {
+      const suggestions = normalizeReplySuggestions(data);
+      return suggestions.length > 0 && messages.some((message) => (
+        message.role === 'assistant'
+        && message.id === turnId
+        && suggestions.every((suggestion) => message.suggestions?.includes(suggestion))
+      ));
+    }
+
+    const message = messages.find((candidate) => candidate.role === 'user' && candidate.id === turnId);
+    if (!message) return false;
+    if (data.type.startsWith('turn_correction')) {
+      return Boolean(message.correction) || Boolean(message.correctionStatus && message.correctionStatus !== 'pending');
+    }
+    if (data.type.startsWith('turn_evaluation')) {
+      return Boolean(message.evaluation) || Boolean(message.evaluationStatus && message.evaluationStatus !== 'pending');
+    }
+    return false;
+  }, [getTurnId]);
+
   const handleSupplementaryHttpMessage = useCallback(
-    (data: SocketMessage) => {
+    (data: SocketMessage): boolean => {
       const key = getSupplementaryEventKey(data);
-      if (processedSupplementaryKeysRef.current.has(key)) return;
-      processedSupplementaryKeysRef.current.add(key);
+      if (processedSupplementaryKeysRef.current.has(key)) return true;
 
       switch (data.type) {
         case 'assistant_translation':
@@ -514,8 +621,14 @@ export function useVoiceSocket() {
           handleTurnEvaluationError(data);
           break;
         default:
-          break;
+          return false;
       }
+
+      const applied = wasSupplementaryResultApplied(data);
+      if (applied) {
+        processedSupplementaryKeysRef.current.add(key);
+      }
+      return applied;
     },
     [
       getSupplementaryEventKey,
@@ -527,39 +640,110 @@ export function useVoiceSocket() {
       handleTurnEvaluation,
       handleTurnEvaluationError,
       handleTurnEvaluationSkipped,
+      wasSupplementaryResultApplied,
     ],
   );
 
   const fetchSupplementaryTurnResults = useCallback(
-    async (generationId?: string) => {
+    async (
+      generationId?: string,
+      options: SupplementaryFetchOptions = {},
+    ): Promise<boolean> => {
       const response = await fetch(getTurnResultsUrl(generationId), { cache: 'no-store' });
-      if (!response.ok) return;
+      if (!response.ok) return false;
 
       const payload = (await response.json()) as TurnResultsResponse;
-      payload.results?.forEach(handleSupplementaryHttpMessage);
+      const appliedResults = (payload.results ?? []).map((result) => ({
+        result,
+        applied: handleSupplementaryHttpMessage(result),
+      }));
       if (payload.evaluationBatchStatus) {
         handleEvaluationBatchStatus(payload.evaluationBatchStatus);
       }
+      if (
+        options.replayedMessageKeys
+        && isEvaluationBatchIdle(payload.evaluationBatchStatus)
+        && options.replaySequence === sessionReplaySequenceRef.current
+        && !isReplayingSessionRef.current
+      ) {
+        reconcileSessionReplayPendingEvaluations(options.replayedMessageKeys);
+      }
+
+      if (appliedResults.some(({ result, applied }) => (
+        applied && result.type.startsWith('turn_evaluation')
+      ))) {
+        return true;
+      }
+
+      if (!generationId) return false;
+      const clientTurnId = options.expectedClientTurnId
+        ?? backendTurnIdToClientTurnIdRef.current.get(generationId)
+        ?? generationId;
+      const message = useStore.getState().messages.find((candidate) => (
+        candidate.role === 'user' && candidate.id === clientTurnId
+      ));
+      return Boolean(message?.evaluationStatus && message.evaluationStatus !== 'pending');
     },
-    [handleEvaluationBatchStatus, handleSupplementaryHttpMessage],
+    [
+      handleEvaluationBatchStatus,
+      handleSupplementaryHttpMessage,
+      reconcileSessionReplayPendingEvaluations,
+    ],
   );
 
   const scheduleSupplementaryPolling = useCallback(
-    (generationId: string | null, attempts = 40) => {
+    (generationId: string | null, clientTurnId?: string | null) => {
       if (!generationId || typeof window === 'undefined') return;
       if (isReplayingSessionRef.current) return;
+      const pollKey = clientTurnId
+        ?? backendTurnIdToClientTurnIdRef.current.get(generationId)
+        ?? generationId;
+      if (supplementaryPollsRef.current.has(pollKey)) return;
 
-      const poll = (remainingAttempts: number) => {
-        fetchSupplementaryTurnResults(generationId).catch((error) => {
+      supplementaryPollsRef.current.forEach((state, key) => {
+        if (state.generationId !== generationId || key === pollKey) return;
+        if (state.timeoutId !== null) window.clearTimeout(state.timeoutId);
+        supplementaryPollsRef.current.delete(key);
+      });
+
+      const pollState: SupplementaryPollState = {
+        attempt: 0,
+        clientTurnId: pollKey,
+        generationId,
+        startedAtEpochMs: Date.now(),
+        timeoutId: null,
+      };
+      supplementaryPollsRef.current.set(pollKey, pollState);
+
+      const poll = async () => {
+        if (supplementaryPollsRef.current.get(pollKey) !== pollState) return;
+
+        let terminal = false;
+        try {
+          terminal = await fetchSupplementaryTurnResults(generationId, {
+            expectedClientTurnId: pollState.clientTurnId,
+          });
+        } catch (error) {
           console.warn('Could not fetch turn results:', error);
-        });
-        if (remainingAttempts <= 1) return;
+        }
 
-        const timeoutId = window.setTimeout(() => poll(remainingAttempts - 1), 2000);
-        supplementaryPollTimeoutsRef.current.push(timeoutId);
+        if (
+          terminal
+          || Date.now() - pollState.startedAtEpochMs >= SUPPLEMENTARY_POLL_MAX_DURATION_MS
+        ) {
+          supplementaryPollsRef.current.delete(pollKey);
+          return;
+        }
+
+        const delay = getSupplementaryPollDelayMs(pollState.attempt);
+        pollState.attempt += 1;
+        pollState.timeoutId = window.setTimeout(() => {
+          pollState.timeoutId = null;
+          void poll();
+        }, delay);
       };
 
-      poll(attempts);
+      void poll();
     },
     [fetchSupplementaryTurnResults],
   );
@@ -641,6 +825,7 @@ export function useVoiceSocket() {
         switch (data.type) {
           case 'session_replay_start':
             isReplayingSessionRef.current = true;
+            sessionReplaySequenceRef.current += 1;
             clearSupplementaryPolling();
             processedSupplementaryKeysRef.current.clear();
             beginSessionReplay();
@@ -651,13 +836,19 @@ export function useVoiceSocket() {
             useStore.getState().setPartialMessage('');
             useStore.getState().setThinking(false);
             break;
-          case 'session_replay_end':
+          case 'session_replay_end': {
             isReplayingSessionRef.current = false;
+            const replaySequence = sessionReplaySequenceRef.current;
+            const replayedMessageKeys = [...useStore.getState().sessionReplayMessageKeys];
             finishSessionReplay();
-            fetchSupplementaryTurnResults().catch((error) => {
+            fetchSupplementaryTurnResults(undefined, {
+              replayedMessageKeys,
+              replaySequence,
+            }).catch((error) => {
               console.warn('Could not restore replayed turn results:', error);
             });
             break;
+          }
           case 'kiosk_session_ready':
             break;
           case 'tts_segment_start':
@@ -683,7 +874,11 @@ export function useVoiceSocket() {
             break;
           case 'final_user_request':
             activeGenerationIdRef.current = getGenerationId(data);
-            const clientTurnId = buildClientTurnId(activeGenerationIdRef.current, data.eventSeq);
+            const clientTurnId = buildClientTurnId(
+              activeGenerationIdRef.current,
+              data.eventSeq,
+              data.turnId,
+            );
             if (activeGenerationIdRef.current && clientTurnId) {
               backendTurnIdToClientTurnIdRef.current.set(activeGenerationIdRef.current, clientTurnId);
             }
@@ -700,11 +895,11 @@ export function useVoiceSocket() {
             } else {
               queueLocalEvaluationBatchTurn(EVALUATION_BATCH_DELAY_SECONDS, EVALUATION_BATCH_MAX_TURNS);
             }
-            scheduleSupplementaryPolling(activeGenerationIdRef.current);
+            scheduleSupplementaryPolling(activeGenerationIdRef.current, clientTurnId);
             break;
           case 'final_assistant_answer':
             handleFinalAssistantAnswer(data);
-            scheduleSupplementaryPolling(getGenerationId(data));
+            scheduleSupplementaryPolling(getGenerationId(data), getTurnId(data));
             break;
           case 'assistant_translation':
             handleSupplementaryHttpMessage(data);
@@ -768,7 +963,9 @@ export function useVoiceSocket() {
       setSttReady(false);
       setSocket(null);
       activeGenerationIdRef.current = null;
-      discardPendingEvaluations();
+      if (roleRef.current === 'controller') {
+        discardPendingEvaluations();
+      }
       flushActiveTts();
       stopRecording();
     };
@@ -802,6 +999,7 @@ export function useVoiceSocket() {
     handleTtsChunk,
     handleSupplementaryHttpMessage,
     getGenerationId,
+    getTurnId,
     isCurrentGeneration,
     queueLocalEvaluationBatchTurn,
     scheduleSupplementaryPolling,
@@ -823,7 +1021,9 @@ export function useVoiceSocket() {
     cleanupSocket();
     activeGenerationIdRef.current = null;
     clearSupplementaryPolling();
-    discardPendingEvaluations();
+    if (roleRef.current === 'controller') {
+      discardPendingEvaluations();
+    }
     flushActiveTts();
     setConnected(false);
     setSttReady(false);
@@ -847,17 +1047,7 @@ export function useVoiceSocket() {
   useEffect(() => {
     setOnDataAvailable((pcmData) => {
       if (socketRef.current?.readyState !== WebSocket.OPEN) return;
-
-      const header = new ArrayBuffer(8);
-      const view = new DataView(header);
-      view.setUint32(0, Date.now(), false);
-      view.setUint32(4, useStore.getState().isPlaying ? 1 : 0, false);
-
-      const pcmBytes = new Uint8Array(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength);
-      const payload = new Uint8Array(header.byteLength + pcmBytes.length);
-      payload.set(new Uint8Array(header), 0);
-      payload.set(pcmBytes, 8);
-      socketRef.current.send(payload);
+      socketRef.current.send(buildAudioPacket(pcmData, useStore.getState().isPlaying));
     });
   }, [setOnDataAvailable]);
 

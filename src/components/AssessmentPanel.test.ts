@@ -23,6 +23,7 @@ vi.mock('framer-motion', async () => {
 
 import {
     CorrectionCoachCard,
+    TierProgressBar,
     getBatchCountdown,
     getEvaluationReliabilityNotice,
     getPracticeMissionCandidates,
@@ -141,6 +142,21 @@ describe('getPracticeMissionCandidates', () => {
     });
 });
 
+describe('TierProgressBar', () => {
+    it('keeps earned LP visibly filled and announces a positive delta', () => {
+        render(createElement(TierProgressBar, {
+            value: 39,
+            highlight: true,
+            missionBonus: 0,
+            latestDelta: 12,
+        }));
+
+        const progress = screen.getByRole('progressbar', { name: '티어 LP 진행도' });
+        expect(progress.getAttribute('aria-valuenow')).toBe('39');
+        expect(screen.getByText('+12 LP')).toBeTruthy();
+    });
+});
+
 describe('CorrectionCoachCard', () => {
     const baseProps = {
         sentence: 'I want more because it is useful for me.',
@@ -169,6 +185,7 @@ describe('CorrectionCoachCard', () => {
 
     it('shows only the latest sentence after rapid correction updates', () => {
         const view = render(createElement(CorrectionCoachCard, baseProps));
+        animateMock.mockClear();
 
         view.rerender(createElement(CorrectionCoachCard, {
             ...baseProps,
@@ -181,6 +198,16 @@ describe('CorrectionCoachCard', () => {
 
         expect(screen.getByText('I want something that is more useful for me.')).toBeTruthy();
         expect(screen.queryByText(baseProps.sentence)).toBeNull();
+        expect(animateMock).toHaveBeenCalledWith(
+            '[data-correction-sentence]',
+            expect.any(Object),
+            expect.any(Object),
+        );
+        expect(animateMock).toHaveBeenCalledWith(
+            '[data-correction-accent]',
+            expect.any(Object),
+            expect.any(Object),
+        );
         expect(stopMock).toHaveBeenCalled();
     });
 

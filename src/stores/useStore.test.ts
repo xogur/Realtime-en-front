@@ -65,6 +65,109 @@ describe('replayed assistant result state', () => {
         expect(first.suggestions).toEqual(['Yes, I do.']);
         expect(second.suggestions).toBeUndefined();
     });
+
+    it('upserts the same assistant turn received from socket and window sync', () => {
+        useStore.getState().addMessage('assistant', 'Streaming answer.', 'turn-1');
+        useStore.getState().setAssistantSuggestions('turn-1', ['Tell me more.']);
+        useStore.getState().addMessage('assistant', 'Final answer.', 'turn-1');
+
+        expect(useStore.getState().messages).toHaveLength(1);
+        expect(useStore.getState().messages[0]).toMatchObject({
+            id: 'turn-1',
+            content: 'Final answer.',
+            suggestions: ['Tell me more.'],
+        });
+    });
+
+    it('keeps richer viewer evaluation state when a stale window sync arrives', () => {
+        useStore.getState().addMessage('user', 'Yes, I can speak English.', 'turn-1');
+        useStore.getState().setTurnCorrection('turn-1', {
+            turnId: 'turn-1',
+            provider: 'test',
+            model: 'test',
+            createdAt: '2026-07-15T00:00:00.000Z',
+            original: 'Yes, I can speak English.',
+            suggested: 'Yes, I can speak English.',
+            reason: 'Natural.',
+            provisionalScore: 88,
+            provisionalLp: 7,
+        });
+        useStore.getState().setTurnEvaluation('turn-1', evaluation({ turnId: 'turn-1' }));
+
+        useStore.getState().syncMessages([{
+            id: 'turn-1',
+            role: 'user',
+            content: 'Yes, I can speak English.',
+            correctionStatus: 'pending',
+            evaluationStatus: 'pending',
+        }]);
+
+        expect(useStore.getState().messages[0]).toMatchObject({
+            correctionStatus: 'ready',
+            evaluationStatus: 'ready',
+            correction: { provisionalLp: 7 },
+            evaluation: { turnId: 'turn-1' },
+        });
+    });
+
+    it('never removes viewer socket history when a stale main-window update arrives', () => {
+        useStore.setState({
+            messages: [
+                { role: 'user', content: 'First local answer.' },
+                { role: 'assistant', content: 'First local reply.' },
+                { id: 'turn-2', role: 'user', content: 'Second local answer.', evaluationStatus: 'pending' },
+                { id: 'turn-2', role: 'assistant', content: 'Second local reply.' },
+            ],
+        });
+
+        useStore.getState().syncMessages([
+            { id: 'turn-2', role: 'user', content: 'Second local answer.', evaluationStatus: 'ready', evaluation: evaluation({ turnId: 'turn-2' }) },
+            { id: 'turn-2', role: 'assistant', content: 'Second local reply.' },
+        ]);
+
+        expect(useStore.getState().messages.map((message) => message.content)).toEqual([
+            'First local answer.',
+            'First local reply.',
+            'Second local answer.',
+            'Second local reply.',
+        ]);
+        expect(useStore.getState().messages[2].evaluationStatus).toBe('ready');
+    });
+
+    it('preserves mission completion and LP source data across a stale batch sync', () => {
+        const completion = {
+            missionId: 'mission-because',
+            title: 'Reason Builder',
+            target: 'Use because.',
+            rewardLp: 6,
+            reason: 'Completed',
+        };
+        useStore.setState({
+            messages: [{
+                id: 'turn-1',
+                role: 'user',
+                content: 'I stayed home because it rained.',
+                completedMissions: [completion],
+                correctionStatus: 'ready',
+                evaluationStatus: 'pending',
+            }],
+        });
+
+        useStore.getState().syncMessages([{
+            id: 'turn-1',
+            role: 'user',
+            content: 'I stayed home because it rained.',
+            correctionStatus: 'pending',
+            evaluationStatus: 'ready',
+            evaluation: evaluation({ turnId: 'turn-1' }),
+        }]);
+
+        expect(useStore.getState().messages[0]).toMatchObject({
+            completedMissions: [completion],
+            evaluationStatus: 'ready',
+            evaluation: { turnId: 'turn-1' },
+        });
+    });
 });
 
 describe('mission completion store rules', () => {
@@ -160,22 +263,41 @@ describe('mission completion store rules', () => {
     });
 
     it.each([
-        ['it depends', '상황에 따라 답이 달라진다고 말할 때 사용합니다.', 'It depends on the weather.'],
-        ['if', '조건을 붙여서 더 정확하게 말하고 싶을 때 사용합니다.', 'If I have time, I will practice more.'],
-        ['used to', '지금은 아니지만 예전에 자주 했던 일을 말할 때 사용합니다.', 'I used to play soccer after school.'],
-    ])('adds natural guidance for %s expression missions', (expression, usageContext, exampleSentence) => {
+        [['I think', 'in my opinion'], '자신의 생각이나 의견임을 분명히 밝힐 때 사용합니다.', 'In my opinion, this option is better.'],
+        [['I prefer', 'I would rather'], '두 선택지 중 더 좋아하거나 원하는 것을 말할 때 사용합니다.', 'I would rather stay home tonight.'],
+        [['usually', 'often', 'sometimes'], '어떤 행동을 얼마나 자주 하는지 말할 때 사용합니다.', 'I usually go for a walk after dinner.'],
+        [['first', 'then', 'finally'], '여러 행동이나 생각을 순서대로 설명할 때 사용합니다.', 'First, I stretch, then I start running.'],
+        [['also', 'in addition'], '앞에서 말한 내용에 관련 정보를 하나 더 덧붙일 때 사용합니다.', 'The class is useful, and it is also fun.'],
+        [['maybe', 'perhaps', 'probably'], '확실하지 않은 예상이나 가능성을 조심스럽게 말할 때 사용합니다.', 'Maybe I will visit my parents this weekend.'],
+        [['I agree', 'that is true'], '상대의 의견에 동의한다는 뜻을 분명히 전할 때 사용합니다.', 'I agree that exercise is important.'],
+        [['I do not agree', 'I see it differently'], '상대와 다른 의견을 정중하게 말할 때 사용합니다.', 'I see it differently because cost matters to me.'],
+        [['more than', 'less than'], '수량, 시간, 정도가 어떤 기준보다 많거나 적다고 비교할 때 사용합니다.', 'My commute takes more than thirty minutes.'],
+        [['such as'], '앞에서 말한 범주에 구체적인 예를 덧붙일 때 사용합니다.', 'I enjoy outdoor activities such as hiking and cycling.'],
+        [['however', 'on the other hand'], '앞 내용과 대조되는 생각이나 다른 관점을 이어 말할 때 사용합니다.', 'I like the price. However, the room is too small.'],
+        [['it depends'], '상황이나 조건에 따라 답이 달라진다고 말할 때 사용합니다.', 'It depends on the weather.'],
+        [['if'], '어떤 조건에서 일이 일어나는지 더 정확하게 말할 때 사용합니다.', 'If I have time, I will practice more.'],
+        [['used to'], '지금은 아니지만 예전에 반복했던 행동이나 상태를 말할 때 사용합니다.', 'I used to play soccer after school.'],
+        [['I mean', 'in other words'], '방금 한 말을 더 쉽게 풀거나 정확한 뜻으로 다시 설명할 때 사용합니다.', 'The trip was exhausting. I mean, we walked all day.'],
+        [['sounds good', 'that makes sense'], '상대의 제안에 긍정적으로 반응하거나 설명을 이해했다고 말할 때 사용합니다.', 'That makes sense. Thanks for explaining it.'],
+        [['actually', 'in fact'], '예상과 다른 사실을 바로잡거나 중요한 사실을 강조할 때 사용합니다.', 'Actually, I have already seen that movie.'],
+    ])('adds natural guidance for %s expression missions', (expressions, usageContext, exampleSentence) => {
+        const expression = expressions.join(', ');
         useStore.getState().addMissionCandidates([
             mission({
                 id: `mission-${expression}`,
                 kind: 'grammar',
                 title: 'Expression practice',
                 target: `Use ${expression}.`,
-                checks: [{ type: 'includesAny', value: [expression] }],
+                usageContext: '이 표현을 답변 안에 자연스럽게 넣을 때 사용합니다.',
+                exampleSentence: `I can use "${expressions[0]}" to make my answer clearer.`,
+                checks: [{ type: 'includesAny', value: expressions }],
             }),
         ]);
 
         const [activeMission] = useStore.getState().activeMissions;
-        expect(activeMission.target).toBe(`답변에 ${expression}를 자연스럽게 사용해보세요.`);
+        expect(activeMission.target).toBe(expressions.length === 1
+            ? `답변에 ${expression}를 자연스럽게 사용해보세요.`
+            : `답변에 ${expression} 중 하나를 자연스럽게 사용해보세요.`);
         expect(activeMission.usageContext).toBe(usageContext);
         expect(activeMission.exampleSentence).toBe(exampleSentence);
     });
@@ -262,6 +384,23 @@ describe('mission completion store rules', () => {
         expect(state.activeMissions.find((item) => item.id === 'mission-future')?.activatedAfterMessageKey).toBe('id:turn-1');
     });
 
+    it('does not show duplicate missions that use the same success rule', () => {
+        useStore.getState().addMissionCandidates([
+            mission({
+                id: 'connector-one',
+                target: 'Use because to explain your answer.',
+                checks: [{ type: 'connector' }],
+            }),
+            mission({
+                id: 'connector-two',
+                target: 'Add because, so, but, or for example.',
+                checks: [{ type: 'connector' }],
+            }),
+        ]);
+
+        expect(useStore.getState().activeMissions.map((item) => item.id)).toEqual(['connector-one']);
+    });
+
     it('preserves active, queued, and completed mission progress through a same-session replay', () => {
         useStore.getState().setActiveMissions([
             mission(),
@@ -306,7 +445,9 @@ describe('mission completion store rules', () => {
         expect(queuedIds).not.toEqual([]);
 
         useStore.getState().beginSessionReplay();
-        expect(useStore.getState().messages).toEqual([]);
+        expect(useStore.getState().messages.map((message) => message.content)).toEqual([
+            'I stayed home because it rained.',
+        ]);
         expect(useStore.getState().activeMissions.map((item) => item.id)).toEqual(activeIds);
         expect(useStore.getState().missionQueue.map((item) => item.id)).toEqual(queuedIds);
 
@@ -327,12 +468,77 @@ describe('mission completion store rules', () => {
 
     it('clears preserved mission progress when the replay represents an empty new session', () => {
         useStore.getState().setActiveMissions([mission()]);
+        useStore.getState().addMessage('user', 'Old conversation.', 'old-turn');
 
         useStore.getState().beginSessionReplay();
+        expect(useStore.getState().messages).toHaveLength(1);
         useStore.getState().finishSessionReplay();
 
+        expect(useStore.getState().messages).toEqual([]);
         expect(useStore.getState().activeMissions).toEqual([]);
         expect(useStore.getState().missionQueue).toEqual([]);
+    });
+
+    it('keeps conversation visible until a reconnect replay is complete', () => {
+        useStore.getState().addMessage('user', 'Visible throughout replay.', 'turn-1');
+        useStore.getState().addMessage('assistant', 'Still visible.', 'turn-1');
+
+        useStore.getState().beginSessionReplay();
+
+        expect(useStore.getState().messages.map((message) => message.content)).toEqual([
+            'Visible throughout replay.',
+            'Still visible.',
+        ]);
+
+        useStore.getState().addMessage('user', 'Visible throughout replay.', 'turn-1');
+        useStore.getState().addMessage('assistant', 'Still visible.', 'turn-1');
+        useStore.getState().finishSessionReplay();
+
+        expect(useStore.getState().messages.map((message) => message.content)).toEqual([
+            'Visible throughout replay.',
+            'Still visible.',
+        ]);
+    });
+
+    it('marks only replayed ghost evaluations unavailable after an authoritative empty batch', () => {
+        useStore.getState().addMessage('user', 'Current live answer.', 'live-turn');
+        useStore.getState().beginSessionReplay();
+        useStore.getState().addMessage('user', 'Old replayed answer.', '6:event-100');
+        useStore.getState().addMessage('user', 'Evaluated replayed answer.', '7:6');
+        useStore.getState().setTurnEvaluation('7:6', evaluation({ turnId: '7:6' }));
+
+        useStore.getState().reconcileSessionReplayPendingEvaluations();
+
+        const [live, stale, evaluated] = useStore.getState().messages;
+        expect(live.evaluationStatus).toBe('pending');
+        expect(stale).toMatchObject({
+            evaluationStatus: 'unavailable',
+            evaluationErrorCode: 'stale_replay',
+        });
+        expect(evaluated).toMatchObject({
+            evaluationStatus: 'ready',
+            evaluation: { turnId: '7:6' },
+        });
+    });
+
+    it('does not reconcile a live turn that arrives after replay ended', () => {
+        useStore.getState().beginSessionReplay();
+        useStore.getState().addMessage('user', 'Old replayed answer.', '6:event-100');
+        const replayedKeys = [...useStore.getState().sessionReplayMessageKeys];
+        useStore.getState().finishSessionReplay();
+        useStore.getState().addMessage('user', 'New live answer.', '8:1');
+
+        useStore.getState().reconcileSessionReplayPendingEvaluations(replayedKeys);
+
+        expect(useStore.getState().messages[0]).toMatchObject({
+            id: '6:event-100',
+            evaluationStatus: 'unavailable',
+            evaluationErrorCode: 'stale_replay',
+        });
+        expect(useStore.getState().messages[1]).toMatchObject({
+            id: '8:1',
+            evaluationStatus: 'pending',
+        });
     });
 });
 

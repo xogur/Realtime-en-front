@@ -165,6 +165,7 @@ interface AppState {
     activeMissions: PracticeMission[];
     missionQueue: PracticeMission[];
     missionReplaySnapshot: MissionReplaySnapshot | null;
+    sessionReplayMessageKeys: string[];
     isSessionReplay: boolean;
     partialMessage: string;
     setPartialMessage: (message: string) => void;
@@ -240,6 +241,7 @@ interface AppState {
 
     clearMessages: () => void;
     beginSessionReplay: () => void;
+    reconcileSessionReplayPendingEvaluations: (replayedMessageKeys?: readonly string[]) => void;
     finishSessionReplay: () => void;
 }
 
@@ -345,7 +347,16 @@ function mergeUniqueCompletions(...groups: Array<MissionCompletion[] | undefined
 }
 
 function getMissionKey(mission: PracticeMission): string {
-    return `${mission.kind}:${normalizeMissionText(mission.target)}`;
+    const checks = normalizeMissionChecks(mission).map((check) => ({
+        type: check.type,
+        min: check.min,
+        value: typeof check.value === 'string'
+            ? normalizeMissionText(check.value)
+            : check.value
+                ? [...check.value].map(normalizeMissionText).sort()
+                : undefined,
+    }));
+    return `${mission.kind}:${JSON.stringify(checks)}`;
 }
 
 function getUserMessageKey(message: Pick<ChatMessage, 'id' | 'content'>): string {
@@ -434,6 +445,76 @@ function applyImmediateMissionCompletions(
     };
 }
 
+function pickResultStatus(
+    local?: ChatMessage['correctionStatus'] | ChatMessage['evaluationStatus'],
+    incoming?: ChatMessage['correctionStatus'] | ChatMessage['evaluationStatus'],
+) {
+    const rank = { pending: 0, skipped: 1, unavailable: 1, ready: 2 } as const;
+    if (!local) return incoming;
+    if (!incoming) return local;
+    return rank[incoming] > rank[local] ? incoming : local;
+}
+
+function mergeMessageState(local: ChatMessage, incoming: ChatMessage): ChatMessage {
+    const correction = local.correction ?? incoming.correction;
+    const evaluation = local.evaluation ?? incoming.evaluation;
+    const completedMissions = mergeUniqueCompletions(local.completedMissions, incoming.completedMissions);
+    const pendingMissionCompletions = mergeUniqueCompletions(
+        local.pendingMissionCompletions,
+        incoming.pendingMissionCompletions,
+    );
+    const suggestions = Array.from(new Set([...(local.suggestions ?? []), ...(incoming.suggestions ?? [])]));
+
+    return {
+        ...incoming,
+        ...local,
+        id: local.id ?? incoming.id,
+        content: incoming.content.length > local.content.length ? incoming.content : local.content,
+        correction,
+        evaluation,
+        correctionStatus: correction ? 'ready' : pickResultStatus(local.correctionStatus, incoming.correctionStatus),
+        evaluationStatus: evaluation ? 'ready' : pickResultStatus(local.evaluationStatus, incoming.evaluationStatus),
+        completedMissions: completedMissions.length > 0 ? completedMissions : undefined,
+        pendingMissionCompletions: pendingMissionCompletions.length > 0 ? pendingMissionCompletions : undefined,
+        suggestions: suggestions.length > 0 ? suggestions : undefined,
+    };
+}
+
+function mergeSyncedMessages(localMessages: ChatMessage[], incomingMessages: ChatMessage[]): ChatMessage[] {
+    // The viewer WebSocket owns the complete timeline. BroadcastChannel updates from the
+    // main window may be late or partial, so they can enrich but never prune viewer state.
+    const merged = [...localMessages];
+    const fallbackMatches = new Set<number>();
+
+    incomingMessages.forEach((incoming) => {
+        let matchIndex = incoming.id
+            ? merged.findIndex((local) => local.role === incoming.role && local.id === incoming.id)
+            : -1;
+
+        if (matchIndex < 0) {
+            matchIndex = merged.findIndex((local, index) => (
+                !fallbackMatches.has(index)
+                && local.role === incoming.role
+                && local.content === incoming.content
+            ));
+        }
+
+        if (matchIndex >= 0) {
+            fallbackMatches.add(matchIndex);
+            merged[matchIndex] = mergeMessageState(merged[matchIndex], incoming);
+            return;
+        }
+
+        merged.push(incoming);
+    });
+
+    return merged;
+}
+
+function getSessionReplayMessageKey(role: ChatMessage['role'], id: string | undefined, content: string): string {
+    return id ? `${role}:id:${id}` : `${role}:content:${content}`;
+}
+
 function applyEvaluationToMessage(
     messages: ChatMessage[],
     messageIndex: number,
@@ -467,10 +548,11 @@ function sanitizeMission(mission: PracticeMission): PracticeMission | null {
     if (!mission.id || !mission.target || !mission.title || !Array.isArray(mission.checks)) return null;
     const localized = localizeMission(mission);
     const guidance = getMissionGuidance(localized);
+    const useRuleBasedGuidance = shouldUseRuleBasedGuidance(localized);
     return {
         ...localized,
-        usageContext: (localized.usageContext || guidance.usageContext)?.slice(0, 160),
-        exampleSentence: (localized.exampleSentence || guidance.exampleSentence)?.slice(0, 160),
+        usageContext: (useRuleBasedGuidance ? guidance.usageContext : localized.usageContext || guidance.usageContext)?.slice(0, 160),
+        exampleSentence: (useRuleBasedGuidance ? guidance.exampleSentence : localized.exampleSentence || guidance.exampleSentence)?.slice(0, 160),
         rewardLp: Math.max(3, Math.min(12, Math.round(mission.rewardLp || 5))),
         checks: normalizeMissionChecks(mission).slice(0, 3),
         matchMode: shouldForceConnectorCheck(mission) ? 'all' : mission.matchMode === 'any' ? 'any' : 'all',
@@ -504,29 +586,93 @@ function formatMissionValues(values: string[]): string {
     return values.join(', ');
 }
 
-function getIncludesAnyGuidance(values: string[]): Pick<PracticeMission, 'usageContext' | 'exampleSentence'> {
-    const normalizedValues = values.map((value) => value.toLowerCase());
+type MissionGuidance = Pick<PracticeMission, 'usageContext' | 'exampleSentence'>;
 
-    if (normalizedValues.includes('it depends')) {
-        return {
-            usageContext: '상황에 따라 답이 달라진다고 말할 때 사용합니다.',
-            exampleSentence: 'It depends on the weather.',
-        };
-    }
+const EXPRESSION_GUIDANCE: Record<string, Required<MissionGuidance>> = {
+    'i think|in my opinion': {
+        usageContext: '자신의 생각이나 의견임을 분명히 밝힐 때 사용합니다.',
+        exampleSentence: 'In my opinion, this option is better.',
+    },
+    'i prefer|i would rather': {
+        usageContext: '두 선택지 중 더 좋아하거나 원하는 것을 말할 때 사용합니다.',
+        exampleSentence: 'I would rather stay home tonight.',
+    },
+    'often|sometimes|usually': {
+        usageContext: '어떤 행동을 얼마나 자주 하는지 말할 때 사용합니다.',
+        exampleSentence: 'I usually go for a walk after dinner.',
+    },
+    'finally|first|then': {
+        usageContext: '여러 행동이나 생각을 순서대로 설명할 때 사용합니다.',
+        exampleSentence: 'First, I stretch, then I start running.',
+    },
+    'also|in addition': {
+        usageContext: '앞에서 말한 내용에 관련 정보를 하나 더 덧붙일 때 사용합니다.',
+        exampleSentence: 'The class is useful, and it is also fun.',
+    },
+    'maybe|perhaps|probably': {
+        usageContext: '확실하지 않은 예상이나 가능성을 조심스럽게 말할 때 사용합니다.',
+        exampleSentence: 'Maybe I will visit my parents this weekend.',
+    },
+    'i agree|that is true': {
+        usageContext: '상대의 의견에 동의한다는 뜻을 분명히 전할 때 사용합니다.',
+        exampleSentence: 'I agree that exercise is important.',
+    },
+    'i do not agree|i see it differently': {
+        usageContext: '상대와 다른 의견을 정중하게 말할 때 사용합니다.',
+        exampleSentence: 'I see it differently because cost matters to me.',
+    },
+    'less than|more than': {
+        usageContext: '수량, 시간, 정도가 어떤 기준보다 많거나 적다고 비교할 때 사용합니다.',
+        exampleSentence: 'My commute takes more than thirty minutes.',
+    },
+    'such as': {
+        usageContext: '앞에서 말한 범주에 구체적인 예를 덧붙일 때 사용합니다.',
+        exampleSentence: 'I enjoy outdoor activities such as hiking and cycling.',
+    },
+    'however|on the other hand': {
+        usageContext: '앞 내용과 대조되는 생각이나 다른 관점을 이어 말할 때 사용합니다.',
+        exampleSentence: 'I like the price. However, the room is too small.',
+    },
+    'it depends': {
+        usageContext: '상황이나 조건에 따라 답이 달라진다고 말할 때 사용합니다.',
+        exampleSentence: 'It depends on the weather.',
+    },
+    'if': {
+        usageContext: '어떤 조건에서 일이 일어나는지 더 정확하게 말할 때 사용합니다.',
+        exampleSentence: 'If I have time, I will practice more.',
+    },
+    'used to': {
+        usageContext: '지금은 아니지만 예전에 반복했던 행동이나 상태를 말할 때 사용합니다.',
+        exampleSentence: 'I used to play soccer after school.',
+    },
+    'i mean|in other words': {
+        usageContext: '방금 한 말을 더 쉽게 풀거나 정확한 뜻으로 다시 설명할 때 사용합니다.',
+        exampleSentence: 'The trip was exhausting. I mean, we walked all day.',
+    },
+    'sounds good|that makes sense': {
+        usageContext: '상대의 제안에 긍정적으로 반응하거나 설명을 이해했다고 말할 때 사용합니다.',
+        exampleSentence: 'That makes sense. Thanks for explaining it.',
+    },
+    'actually|in fact': {
+        usageContext: '예상과 다른 사실을 바로잡거나 중요한 사실을 강조할 때 사용합니다.',
+        exampleSentence: 'Actually, I have already seen that movie.',
+    },
+};
 
-    if (normalizedValues.includes('if')) {
-        return {
-            usageContext: '조건을 붙여서 더 정확하게 말하고 싶을 때 사용합니다.',
-            exampleSentence: 'If I have time, I will practice more.',
-        };
-    }
+function getExpressionGuidance(values: string[]): Required<MissionGuidance> | undefined {
+    const key = values.map((value) => value.trim().toLowerCase()).filter(Boolean).sort().join('|');
+    return EXPRESSION_GUIDANCE[key];
+}
 
-    if (normalizedValues.includes('used to')) {
-        return {
-            usageContext: '지금은 아니지만 예전에 자주 했던 일을 말할 때 사용합니다.',
-            exampleSentence: 'I used to play soccer after school.',
-        };
-    }
+function shouldUseRuleBasedGuidance(mission: PracticeMission): boolean {
+    const check = firstMissionCheck(mission);
+    if (check?.type !== 'includesAny') return true;
+    return Boolean(getExpressionGuidance(missionValues(check)));
+}
+
+function getIncludesAnyGuidance(values: string[]): MissionGuidance {
+    const expressionGuidance = getExpressionGuidance(values);
+    if (expressionGuidance) return expressionGuidance;
 
     const valueText = formatMissionValues(values);
 
@@ -693,6 +839,7 @@ export const useStore = create<AppState>((set, get) => ({
     activeMissions: [],
     missionQueue: [],
     missionReplaySnapshot: null,
+    sessionReplayMessageKeys: [],
     isSessionReplay: false,
     partialMessage: '',
     isChatOpen: false, // Default closed
@@ -715,11 +862,23 @@ export const useStore = create<AppState>((set, get) => ({
     setVolume: (volume) => set({ volume }),
     addMessage: (role, content, id) =>
         set((state) => {
-            if (role === 'user' && id) {
-                const existingIndex = state.messages.findIndex((message) => message.role === 'user' && message.id === id);
+            const replayMessageKey = getSessionReplayMessageKey(role, id, content);
+            const sessionReplayMessageKeys = state.isSessionReplay
+                ? Array.from(new Set([...state.sessionReplayMessageKeys, replayMessageKey]))
+                : state.sessionReplayMessageKeys;
+            if (id) {
+                const existingIndex = state.messages.findIndex((message) => message.role === role && message.id === id);
                 if (existingIndex >= 0) {
                     const messages = [...state.messages];
                     const existingMessage = messages[existingIndex];
+                    if (role === 'assistant') {
+                        messages[existingIndex] = {
+                            ...existingMessage,
+                            content,
+                        };
+                        return { messages, sessionReplayMessageKeys };
+                    }
+
                     const candidateMessages = [...messages];
                     candidateMessages[existingIndex] = {
                         ...existingMessage,
@@ -727,12 +886,15 @@ export const useStore = create<AppState>((set, get) => ({
                         correctionStatus: existingMessage.correctionStatus ?? 'pending',
                         evaluationStatus: existingMessage.evaluationStatus ?? 'pending',
                     };
-                    return applyImmediateMissionCompletions(
-                        candidateMessages,
-                        existingIndex,
-                        state.activeMissions,
-                        state.missionQueue,
-                    );
+                    return {
+                        ...applyImmediateMissionCompletions(
+                            candidateMessages,
+                            existingIndex,
+                            state.activeMissions,
+                            state.missionQueue,
+                        ),
+                        sessionReplayMessageKeys,
+                    };
                 }
             }
 
@@ -752,7 +914,7 @@ export const useStore = create<AppState>((set, get) => ({
                 },
             ];
             if (role !== 'user' || state.isSessionReplay) {
-                return { messages };
+                return { messages, sessionReplayMessageKeys };
             }
             return applyImmediateMissionCompletions(
                 messages,
@@ -763,10 +925,11 @@ export const useStore = create<AppState>((set, get) => ({
         }),
     syncMessages: (messages) =>
         set((state) => {
-            const latestUserIndex = messages.findLastIndex((message) => message.role === 'user');
-            if (latestUserIndex < 0) return { messages };
+            const mergedMessages = mergeSyncedMessages(state.messages, messages);
+            const latestUserIndex = mergedMessages.findLastIndex((message) => message.role === 'user');
+            if (latestUserIndex < 0) return { messages: mergedMessages };
             return applyImmediateMissionCompletions(
-                messages,
+                mergedMessages,
                 latestUserIndex,
                 state.activeMissions,
                 state.missionQueue,
@@ -1186,6 +1349,7 @@ export const useStore = create<AppState>((set, get) => ({
         activeMissions: [],
         missionQueue: [],
         missionReplaySnapshot: null,
+        sessionReplayMessageKeys: [],
         isSessionReplay: false,
     }),
     beginSessionReplay: () => set((state) => {
@@ -1199,16 +1363,48 @@ export const useStore = create<AppState>((set, get) => ({
             };
         });
         return {
-            messages: [],
             evaluationBatchStatus: null,
             missionReplaySnapshot,
+            sessionReplayMessageKeys: [],
             isSessionReplay: true,
         };
     }),
+    reconcileSessionReplayPendingEvaluations: (replayedMessageKeys) => set((state) => {
+        const keys = replayedMessageKeys ?? state.sessionReplayMessageKeys;
+        if (keys.length === 0) {
+            return state;
+        }
+
+        const replayedKeys = new Set(keys);
+        let changed = false;
+        const messages = state.messages.map((message) => {
+            if (
+                message.role !== 'user'
+                || message.evaluationStatus !== 'pending'
+                || !replayedKeys.has(getSessionReplayMessageKey(message.role, message.id, message.content))
+            ) {
+                return message;
+            }
+            changed = true;
+            return {
+                ...message,
+                evaluationStatus: 'unavailable' as const,
+                evaluationErrorCode: 'stale_replay',
+            };
+        });
+
+        return changed ? { messages } : state;
+    }),
     finishSessionReplay: () => set((state) => {
-        const hasReplayedUserMessage = state.messages.some((message) => message.role === 'user');
+        const replayedKeys = new Set(state.sessionReplayMessageKeys);
+        const messages = state.messages.filter((message) => (
+            replayedKeys.has(getSessionReplayMessageKey(message.role, message.id, message.content))
+        ));
+        const hasReplayedUserMessage = messages.some((message) => message.role === 'user');
         return {
+            messages,
             missionReplaySnapshot: null,
+            sessionReplayMessageKeys: [],
             isSessionReplay: false,
             activeMissions: hasReplayedUserMessage ? state.activeMissions : [],
             missionQueue: hasReplayedUserMessage ? state.missionQueue : [],

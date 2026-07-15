@@ -56,13 +56,13 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="relative h-screen w-full overflow-hidden text-zinc-900 flex flex-col" style={{
-      backgroundImage: 'url("/background/cozy_background_back.png")',
-      backgroundSize: 'cover',
-      backgroundPosition: 'center'
-    }}>
-
-      {/* Background Ambience Removed to show cozy_background */}
+    <main className="relative h-screen w-full overflow-hidden text-zinc-900 flex flex-col">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute -inset-3 bg-cover bg-center blur-[7px] saturate-[0.9]"
+        style={{ backgroundImage: 'url("/background/cozy_background_back.png")' }}
+      />
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-[#f3ebe3]/20" />
 
 
       {/* Header Section (Overlay) */}
@@ -71,7 +71,7 @@ export default function Home() {
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8 }}
-          className="max-w-5xl mx-auto flex flex-col items-center sm:items-start text-center sm:text-left space-y-1"
+          className="w-full flex flex-col items-center sm:items-start text-center sm:text-left space-y-1"
         >
           <h1 className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-zinc-900 to-zinc-600">
             ULJU AI Consultant

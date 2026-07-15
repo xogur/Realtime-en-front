@@ -110,7 +110,7 @@ describe('mission LP anti-gaming rules', () => {
         expect(getCurrentMessageLp(message)).toBe(getTurnLp({ message, evaluation: batchEvaluation }));
     });
 
-    it('does not apply low-confidence evaluation scores or mission rewards to tier LP', () => {
+    it('keeps deterministic mission rewards when a low-confidence batch evaluation replaces realtime LP', () => {
         const message = userMessage({
             evaluation: {
                 ...evaluation({ overall: 90, relevance: 90, interaction: 90 }),
@@ -129,7 +129,7 @@ describe('mission LP anti-gaming rules', () => {
             },
         });
 
-        expect(getCurrentMessageLp(message)).toBe(3);
+        expect(getCurrentMessageLp(message)).toBe(9);
     });
 
     it('gives steady positive LP for a solid expanded answer', () => {

@@ -95,13 +95,14 @@ export function getCurrentMessageLp(message: ChatMessage): number {
     const correctionLp = Number.isFinite(message.correction?.provisionalLp)
         ? Math.round(message.correction?.provisionalLp ?? 0)
         : 0;
+    const missionBonus = getMissionBonusFromMessage(message);
 
     if (message.evaluation) {
         if (message.evaluation.confidence.trim().toLowerCase() === 'low') {
-            return correctionLp;
+            return correctionLp + missionBonus;
         }
         return getTurnLp({ message, evaluation: message.evaluation });
     }
 
-    return correctionLp + getMissionBonusFromMessage(message);
+    return correctionLp + missionBonus;
 }

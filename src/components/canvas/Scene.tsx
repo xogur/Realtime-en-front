@@ -1,9 +1,10 @@
 'use client';
 
 import { Canvas, useThree } from '@react-three/fiber';
-import { Environment, OrbitControls } from '@react-three/drei';
+import { OrbitControls } from '@react-three/drei';
 import { Suspense, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
+import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { Character } from './Character';
 import { OptimizedLights } from './OptimizedLights';
 import { useStore } from '@/stores/useStore';
@@ -18,36 +19,38 @@ function CameraController() {
         if (aspect < 0.6) {
             // 초세로 모드 (iPhone SE 등)
             return {
-                fov: 60,
-                position: new THREE.Vector3(0, 2, 3.2),
-                target: new THREE.Vector3(0, 2.3, 0)
+                fov: 50,
+                position: new THREE.Vector3(0, 2.2, 2.45),
+                target: new THREE.Vector3(0, 2.2, 0)
             };
         } else if (aspect < 1) {
             // 일반 세로 모드
             return {
-                fov: 52,
-                position: new THREE.Vector3(0, 2, 2.6),
+                fov: 46,
+                position: new THREE.Vector3(0, 2.2, 1.95),
                 target: new THREE.Vector3(0, 2.2, 0)
             };
         } else {
             // 가로 모드 (데스크탑)
             return {
-                fov: 40,
-                position: new THREE.Vector3(0, 2.3, 2.0),
-                target: new THREE.Vector3(0, 2.1, 0)
+                fov: 35,
+                position: new THREE.Vector3(0, 2.3, 1.35),
+                target: new THREE.Vector3(0, 2.3, 0)
             };
         }
     }, [size.width, size.height]);
 
     useEffect(() => {
         if (camera instanceof THREE.PerspectiveCamera) {
+            // React Three Fiber owns the camera instance; this controller updates its viewport framing.
+            // eslint-disable-next-line react-hooks/immutability
             camera.fov = config.fov;
             camera.position.copy(config.position);
             camera.updateProjectionMatrix();
         }
 
         if (controls) {
-            const orbitControls = controls as any;
+            const orbitControls = controls as OrbitControlsImpl;
             orbitControls.target.copy(config.target);
             orbitControls.update();
         }
@@ -95,7 +98,7 @@ export function Scene() {
             <Canvas
                 key="avatar-canvas-recovery-v2"
                 shadows
-                camera={{ position: [0, 2, 2.0], fov: 40 }}
+                camera={{ position: [0, 2.3, 1.35], fov: 35 }}
                 className="w-full h-full"
                 gl={{ preserveDrawingBuffer: true, 
                     antialias: true, 
@@ -120,7 +123,7 @@ export function Scene() {
                     enablePan={false}
                     minPolarAngle={Math.PI / 2.5}
                     maxPolarAngle={Math.PI / 1.8}
-                    target={[0, 2.1, 0]}
+                    target={[0, 2.3, 0]}
                 />
             </Canvas>
         </div>
