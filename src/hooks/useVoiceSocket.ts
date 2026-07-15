@@ -8,6 +8,7 @@ import { getKioskIdFromLocation, withKioskSessionParams, type KioskRole } from '
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
 const EVALUATION_BATCH_MAX_TURNS = 4;
 const SUPPLEMENTARY_POLL_MAX_DURATION_MS = 5 * 60_000;
+const SUPPLEMENTARY_FETCH_TIMEOUT_MS = 15_000;
 const SUPPLEMENTARY_POLL_INITIAL_DELAY_MS = 2_000;
 const SUPPLEMENTARY_POLL_MAX_DELAY_MS = 12_000;
 const MAX_SEEN_EVENT_SEQS = 2000;
@@ -55,6 +56,9 @@ type SocketMessage = {
   evaluation_policy?: 'evaluate' | 'skip';
   evaluation_reason?: string;
   pendingCount?: number;
+  inFlightCount?: number;
+  phase?: 'queued' | 'evaluating' | 'idle';
+  revision?: number;
   maxTurns?: number;
   delaySeconds?: number;
   nextFlushAtEpochMs?: number | null;
@@ -74,6 +78,7 @@ type ConnectOptions = {
 };
 
 type SupplementaryPollState = {
+  abortController: AbortController | null;
   attempt: number;
   clientTurnId: string;
   generationId: string;
@@ -85,7 +90,46 @@ type SupplementaryFetchOptions = {
   expectedClientTurnId?: string;
   replayedMessageKeys?: readonly string[];
   replaySequence?: number;
+  shouldApply?: () => boolean;
+  signal?: AbortSignal;
 };
+
+export function isCurrentSupplementaryPoll<T>(
+  polls: Map<string, T>,
+  pollKey: string,
+  pollState: T,
+): boolean {
+  return polls.get(pollKey) === pollState;
+}
+
+export function shouldIgnorePartialAssistantAnswer(
+  generationId: string | null,
+  finalizedGenerationIds: ReadonlySet<string>,
+): boolean {
+  return generationId !== null && finalizedGenerationIds.has(generationId);
+}
+
+export async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = SUPPLEMENTARY_FETCH_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  if (init.signal?.aborted) {
+    controller.abort();
+  } else {
+    init.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  }
+  const timeoutId = setTimeout(() => controller.abort(), Math.max(0, timeoutMs));
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+    init.signal?.removeEventListener('abort', abortFromCaller);
+  }
+}
 
 export function buildClientTurnId(
   backendTurnId: string | null,
@@ -109,9 +153,14 @@ export function getSupplementaryPollDelayMs(attempt: number): number {
 }
 
 export function isEvaluationBatchIdle(
-  status?: Pick<SocketMessage, 'pendingCount'> | null,
+  status?: Pick<SocketMessage, 'pendingCount' | 'inFlightCount' | 'phase'> | null,
 ): boolean {
-  return !status || Number(status.pendingCount ?? 0) === 0;
+  return Boolean(
+    status
+    && status.phase === 'idle'
+    && Number(status.pendingCount ?? 0) === 0
+    && Number(status.inFlightCount ?? 0) === 0,
+  );
 }
 
 export function buildAudioPacket(
@@ -185,7 +234,7 @@ function getConfiguredWsUrl(role: KioskRole): string {
   return withKioskSessionParams(wsUrl, role);
 }
 
-function getTurnResultsUrl(generationId?: string): string {
+export function getTurnResultsUrl(generationId?: string, turnId?: string): string {
   const configuredUrl = process.env.NEXT_PUBLIC_WS_URL;
   const wsUrl = configuredUrl && configuredUrl.trim().length > 0 ? configuredUrl : getDefaultWsUrl();
   const url = new URL(wsUrl, typeof window === 'undefined' ? 'ws://localhost' : window.location.href);
@@ -199,6 +248,9 @@ function getTurnResultsUrl(generationId?: string): string {
   url.search = '';
   if (generationId) {
     url.searchParams.set('generationId', generationId);
+  }
+  if (turnId) {
+    url.searchParams.set('turnId', turnId);
   }
   return url.toString();
 }
@@ -260,6 +312,7 @@ export function useVoiceSocket() {
   const sessionReplaySequenceRef = useRef(0);
   const supplementaryPollsRef = useRef<Map<string, SupplementaryPollState>>(new Map());
   const processedSupplementaryKeysRef = useRef<Set<string>>(new Set());
+  const finalizedAssistantGenerationIdsRef = useRef<Set<string>>(new Set());
 
   const setConnecting = useStore((state) => state.setConnecting);
   const setConnected = useStore((state) => state.setConnected);
@@ -321,7 +374,8 @@ export function useVoiceSocket() {
   }, []);
 
   const clearSupplementaryPolling = useCallback(() => {
-    supplementaryPollsRef.current.forEach(({ timeoutId }) => {
+    supplementaryPollsRef.current.forEach(({ abortController, timeoutId }) => {
+      abortController?.abort();
       if (timeoutId !== null) window.clearTimeout(timeoutId);
     });
     supplementaryPollsRef.current.clear();
@@ -426,6 +480,10 @@ export function useVoiceSocket() {
     (data: SocketMessage) => {
       bindActiveGenerationToPendingUser(data);
       if (!isCurrentGeneration(data)) return;
+      if (shouldIgnorePartialAssistantAnswer(
+        getGenerationId(data),
+        finalizedAssistantGenerationIdsRef.current,
+      )) return;
 
       const rawText = data.content ?? '';
       const { emotion, displayMessage } = parseTaggedEmotion(rawText);
@@ -433,7 +491,7 @@ export function useVoiceSocket() {
       useStore.getState().setEmotion(emotion);
       useStore.getState().setPartialMessage(displayMessage);
     },
-    [bindActiveGenerationToPendingUser, isCurrentGeneration],
+    [bindActiveGenerationToPendingUser, getGenerationId, isCurrentGeneration],
   );
 
   const handleFinalAssistantAnswer = useCallback(
@@ -442,13 +500,15 @@ export function useVoiceSocket() {
       if (!isCurrentGeneration(data)) return;
 
       const rawText = data.content ?? '';
+      const generationId = getGenerationId(data);
+      if (generationId) finalizedAssistantGenerationIdsRef.current.add(generationId);
       const { emotion, displayMessage } = parseTaggedEmotion(rawText);
       const turnId = getTurnId(data) ?? undefined;
       addMessage('assistant', formatAssistantDisplayMessage(displayMessage, data.korean_content), turnId);
       useStore.getState().setPartialMessage('');
       useStore.getState().setEmotion(emotion);
     },
-    [addMessage, bindActiveGenerationToPendingUser, getTurnId, isCurrentGeneration],
+    [addMessage, bindActiveGenerationToPendingUser, getGenerationId, getTurnId, isCurrentGeneration],
   );
 
   const handleAssistantTranslation = useCallback(
@@ -542,6 +602,10 @@ export function useVoiceSocket() {
     (data: SocketMessage) => {
       setEvaluationBatchStatus({
         pendingCount: Number(data.pendingCount ?? 0),
+        inFlightCount: Number(data.inFlightCount ?? 0),
+        phase: data.phase,
+        revision: data.revision,
+        sessionEpoch: data.sessionEpoch,
         maxTurns: Number(data.maxTurns ?? 1),
         delaySeconds: Number(data.delaySeconds ?? 0),
         nextFlushAtEpochMs: data.nextFlushAtEpochMs ?? null,
@@ -649,14 +713,15 @@ export function useVoiceSocket() {
       generationId?: string,
       options: SupplementaryFetchOptions = {},
     ): Promise<boolean> => {
-      const response = await fetch(getTurnResultsUrl(generationId), { cache: 'no-store' });
+      const response = await fetchWithTimeout(
+        getTurnResultsUrl(generationId, options.expectedClientTurnId),
+        { cache: 'no-store', signal: options.signal },
+      );
       if (!response.ok) return false;
 
       const payload = (await response.json()) as TurnResultsResponse;
-      const appliedResults = (payload.results ?? []).map((result) => ({
-        result,
-        applied: handleSupplementaryHttpMessage(result),
-      }));
+      if (options.shouldApply && !options.shouldApply()) return false;
+      (payload.results ?? []).forEach(handleSupplementaryHttpMessage);
       if (payload.evaluationBatchStatus) {
         handleEvaluationBatchStatus(payload.evaluationBatchStatus);
       }
@@ -667,12 +732,6 @@ export function useVoiceSocket() {
         && !isReplayingSessionRef.current
       ) {
         reconcileSessionReplayPendingEvaluations(options.replayedMessageKeys);
-      }
-
-      if (appliedResults.some(({ result, applied }) => (
-        applied && result.type.startsWith('turn_evaluation')
-      ))) {
-        return true;
       }
 
       if (!generationId) return false;
@@ -702,11 +761,13 @@ export function useVoiceSocket() {
 
       supplementaryPollsRef.current.forEach((state, key) => {
         if (state.generationId !== generationId || key === pollKey) return;
+        state.abortController?.abort();
         if (state.timeoutId !== null) window.clearTimeout(state.timeoutId);
         supplementaryPollsRef.current.delete(key);
       });
 
       const pollState: SupplementaryPollState = {
+        abortController: null,
         attempt: 0,
         clientTurnId: pollKey,
         generationId,
@@ -716,22 +777,49 @@ export function useVoiceSocket() {
       supplementaryPollsRef.current.set(pollKey, pollState);
 
       const poll = async () => {
-        if (supplementaryPollsRef.current.get(pollKey) !== pollState) return;
+        if (!isCurrentSupplementaryPoll(supplementaryPollsRef.current, pollKey, pollState)) return;
 
         let terminal = false;
+        const requestController = new AbortController();
+        pollState.abortController = requestController;
         try {
           terminal = await fetchSupplementaryTurnResults(generationId, {
             expectedClientTurnId: pollState.clientTurnId,
+            shouldApply: () => isCurrentSupplementaryPoll(
+              supplementaryPollsRef.current,
+              pollKey,
+              pollState,
+            ),
+            signal: requestController.signal,
           });
         } catch (error) {
-          console.warn('Could not fetch turn results:', error);
+          if (!requestController.signal.aborted) {
+            console.warn('Could not fetch turn results:', error);
+          }
+        } finally {
+          if (pollState.abortController === requestController) {
+            pollState.abortController = null;
+          }
         }
 
-        if (
-          terminal
-          || Date.now() - pollState.startedAtEpochMs >= SUPPLEMENTARY_POLL_MAX_DURATION_MS
-        ) {
-          supplementaryPollsRef.current.delete(pollKey);
+        if (!isCurrentSupplementaryPoll(supplementaryPollsRef.current, pollKey, pollState)) return;
+
+        const timedOut = Date.now() - pollState.startedAtEpochMs >= SUPPLEMENTARY_POLL_MAX_DURATION_MS;
+        if (terminal || timedOut) {
+          if (timedOut) {
+            const message = useStore.getState().messages.find((candidate) => (
+              candidate.role === 'user' && candidate.id === pollState.clientTurnId
+            ));
+            if (message?.evaluationStatus === 'pending') {
+              useStore.getState().setTurnEvaluationUnavailable(
+                pollState.clientTurnId,
+                'supplementary_poll_timeout',
+              );
+            }
+          }
+          if (isCurrentSupplementaryPoll(supplementaryPollsRef.current, pollKey, pollState)) {
+            supplementaryPollsRef.current.delete(pollKey);
+          }
           return;
         }
 
@@ -828,6 +916,7 @@ export function useVoiceSocket() {
             sessionReplaySequenceRef.current += 1;
             clearSupplementaryPolling();
             processedSupplementaryKeysRef.current.clear();
+            finalizedAssistantGenerationIdsRef.current.clear();
             beginSessionReplay();
             activeGenerationIdRef.current = null;
             backendTurnIdToClientTurnIdRef.current.clear();
@@ -893,7 +982,11 @@ export function useVoiceSocket() {
                 data.evaluation_reason ?? 'policy_skip',
               );
             } else {
-              queueLocalEvaluationBatchTurn(EVALUATION_BATCH_DELAY_SECONDS, EVALUATION_BATCH_MAX_TURNS);
+              queueLocalEvaluationBatchTurn(
+                EVALUATION_BATCH_DELAY_SECONDS,
+                EVALUATION_BATCH_MAX_TURNS,
+                data.sessionEpoch,
+              );
             }
             scheduleSupplementaryPolling(activeGenerationIdRef.current, clientTurnId);
             break;
@@ -1095,6 +1188,7 @@ export function useVoiceSocket() {
     clearMessages();
     clearSupplementaryPolling();
     processedSupplementaryKeysRef.current.clear();
+    finalizedAssistantGenerationIdsRef.current.clear();
     abandonedEvaluationTurnIdsRef.current.clear();
     activeGenerationIdRef.current = null;
     useStore.getState().setPartialMessage('');

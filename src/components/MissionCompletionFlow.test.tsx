@@ -82,7 +82,7 @@ describe('mission completion UI flow', () => {
 
         expect(screen.getByText('That is a clear reason. Where do you want to travel?')).toBeTruthy();
         expect(useStore.getState().messages[0].completedMissions?.map((item) => item.missionId)).toEqual(['mission-because']);
-        expect((await screen.findByTestId('mission-panel-completion')).textContent).toContain('MISSION CLEAR');
+        expect((await screen.findByTestId('mission-success-celebration')).textContent).toContain('QUEST CLEAR');
         expect(screen.getByText('미션 1개 완료')).toBeTruthy();
 
         const progress = screen.getByRole('progressbar', { name: '티어 LP 진행도' });
@@ -98,7 +98,8 @@ describe('mission completion UI flow', () => {
         expect(screen.getByTestId('tier-progress-fill').getAttribute('style')).toContain('width: 24%');
     });
 
-    it('mounts a queued replacement as a new animated mission card', async () => {
+    it('shows completed cards before mounting queued replacements with a visible entrance phase', async () => {
+        vi.useFakeTimers();
         const completed = replacementMission('mission-alpha', 'alpha');
         const second = replacementMission('mission-beta', 'beta');
         const third = replacementMission('mission-gamma', 'gamma');
@@ -108,18 +109,72 @@ describe('mission completion UI flow', () => {
             missionQueue: [queued],
         });
 
-        render(<AssessmentPanel />);
+        try {
+            render(<AssessmentPanel />);
 
-        expect(document.querySelector('[data-mission-id="mission-alpha"]')).toBeTruthy();
+            expect(document.querySelector('[data-mission-id="mission-alpha"]')).toBeTruthy();
 
-        act(() => {
-            useStore.getState().addMessage('user', 'I used alpha naturally.', 'turn-animation');
-        });
+            act(() => {
+                useStore.getState().addMessage('user', 'I used alpha naturally.', 'turn-animation');
+            });
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(0);
+            });
 
-        await waitFor(() => {
+            const completedCard = document.querySelector('[data-mission-id="mission-alpha"]');
+            expect(completedCard).toBeTruthy();
+            expect(completedCard?.textContent).toContain('CLEAR');
+            expect(document.querySelector('[data-mission-id="mission-delta"]')).toBeNull();
+            expect(screen.getByText('QUEST CLEAR')).toBeTruthy();
+
+            act(() => {
+                useStore.getState().addMessage('user', 'I used delta too early.', 'turn-too-early');
+            });
+            expect(useStore.getState().messages.find((item) => item.id === 'turn-too-early')?.completedMissions).toBeUndefined();
+            expect(useStore.getState().activeMissions.find((item) => item.id === 'mission-delta')?.presentationPending).toBe(true);
+
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(2600);
+            });
+            await act(async () => {
+                await vi.advanceTimersByTimeAsync(0);
+            });
+
             const replacement = document.querySelector('[data-mission-id="mission-delta"]');
             expect(replacement).toBeTruthy();
             expect(replacement?.getAttribute('data-mission-entering')).toBe('true');
+            expect(useStore.getState().activeMissions.find((item) => item.id === 'mission-delta')?.presentationPending).toBeUndefined();
+
+            act(() => {
+                useStore.getState().addMessage('user', 'Now I can use delta.', 'turn-after-presentation');
+            });
+            expect(useStore.getState().messages.find((item) => item.id === 'turn-after-presentation')?.completedMissions).toMatchObject([{
+                missionId: 'mission-delta',
+            }]);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('publishes mission candidates from a completed batch evaluation', async () => {
+        const evaluatedMission = replacementMission('mission-from-evaluation', 'because');
+        useStore.getState().setActiveMissions([]);
+        useStore.getState().addMessage('user', 'I prefer tea.', '1:1');
+
+        render(<AssessmentPanel />);
+        act(() => {
+            useStore.getState().setTurnEvaluation('1:1', {
+                ...batchEvaluation,
+                turnId: '1',
+                missionCandidates: [{
+                    ...evaluatedMission,
+                    sourceTurnId: '1',
+                }],
+            });
+        });
+
+        await waitFor(() => {
+            expect(document.querySelector('[data-mission-id="mission-from-evaluation"]')).toBeTruthy();
         });
     });
 });

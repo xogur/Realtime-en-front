@@ -63,6 +63,7 @@ describe('useChatSync', () => {
         renderHook(() => useChatSync(false));
         const channel = MockBroadcastChannel.instances[0];
 
+        expect(channel.name).toBe('uxroom_chat_sync:A01');
         expect(channel.posted).toContainEqual({ type: 'REQUEST_INITIAL_STATE' });
 
         act(() => {

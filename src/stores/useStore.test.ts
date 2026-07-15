@@ -110,6 +110,32 @@ describe('replayed assistant result state', () => {
         });
     });
 
+    it('clears stale error metadata when window sync supplies a ready evaluation', () => {
+        useStore.setState({
+            messages: [{
+                id: 'turn-1',
+                role: 'user',
+                content: 'Recovered answer.',
+                evaluationStatus: 'unavailable',
+                evaluationErrorCode: 'stale_replay',
+            }],
+        });
+
+        useStore.getState().syncMessages([{
+            id: 'turn-1',
+            role: 'user',
+            content: 'Recovered answer.',
+            evaluationStatus: 'ready',
+            evaluation: evaluation({ turnId: 'turn-1' }),
+        }]);
+
+        expect(useStore.getState().messages[0]).toMatchObject({
+            evaluationStatus: 'ready',
+            evaluation: { turnId: 'turn-1' },
+        });
+        expect(useStore.getState().messages[0].evaluationErrorCode).toBeUndefined();
+    });
+
     it('never removes viewer socket history when a stale main-window update arrives', () => {
         useStore.setState({
             messages: [
@@ -196,6 +222,38 @@ describe('mission completion store rules', () => {
         expect(state.messages[0].pendingMissionCompletions).toBeUndefined();
         expect(state.messages[0].completedMissions?.[0].missionId).toBe('mission-because');
         expect(state.activeMissions).toHaveLength(0);
+    });
+
+    it('rebuilds mission completions from later replayed messages when evaluation candidates arrive late', () => {
+        useStore.getState().setActiveMissions([]);
+        useStore.getState().beginSessionReplay();
+        useStore.getState().addMessage('user', 'I prefer tea.', '4:1');
+        useStore.getState().addMessage('assistant', 'Why?', '4:1');
+        useStore.getState().addMessage('user', 'I agree because tea helps me relax.', '4:2');
+
+        useStore.getState().addMissionCandidates([mission({
+            id: 'mission-replayed-because',
+            sourceTurnId: '1',
+        })]);
+
+        expect(useStore.getState().messages[2].completedMissions).toMatchObject([{
+            missionId: 'mission-replayed-because',
+        }]);
+        expect(useStore.getState().activeMissions).toEqual([]);
+        useStore.getState().finishSessionReplay();
+    });
+
+    it('does not retroactively complete a live mission candidate before it is shown', () => {
+        useStore.getState().addMessage('user', 'I prefer tea.', '5:1');
+        useStore.getState().addMessage('user', 'I agree because tea helps me relax.', '5:2');
+
+        useStore.getState().addMissionCandidates([mission({
+            id: 'mission-live-because',
+            sourceTurnId: '5:1',
+        })]);
+
+        expect(useStore.getState().messages[1].completedMissions).toBeUndefined();
+        expect(useStore.getState().activeMissions.map((item) => item.id)).toContain('mission-live-because');
     });
 
     it('does not make immediate mission success depend on batch relevance scoring', () => {
@@ -609,6 +667,18 @@ describe('turn evaluation policy state', () => {
         expect(message.evaluation).toBeUndefined();
     });
 
+    it('lets an authoritative late evaluation recover a stale replay placeholder', () => {
+        useStore.getState().addMessage('user', 'Recovered answer.', '9:1');
+        useStore.getState().setTurnEvaluationUnavailable('9:1', 'stale_replay');
+
+        useStore.getState().setTurnEvaluation('9:1', evaluation({ turnId: '9:1' }));
+
+        const message = useStore.getState().messages[0];
+        expect(message.evaluationStatus).toBe('ready');
+        expect(message.evaluation).toMatchObject({ turnId: '9:1' });
+        expect(message.evaluationErrorCode).toBeUndefined();
+    });
+
     it('stores normalized evaluation batch status for the UI countdown', () => {
         const receivedAtEpochMs = Date.now();
         useStore.getState().setEvaluationBatchStatus({
@@ -642,6 +712,133 @@ describe('turn evaluation policy state', () => {
         useStore.getState().setEvaluationBatchStatus(serverStatus);
 
         expect(useStore.getState().evaluationBatchStatus?.nextFlushAtEpochMs).toBe(firstDeadline);
+    });
+
+    it('rejects older batch snapshots by session epoch and revision', () => {
+        const base = {
+            pendingCount: 1,
+            inFlightCount: 0,
+            phase: 'queued' as const,
+            maxTurns: 4,
+            delaySeconds: 30,
+            nextFlushAtEpochMs: 1800000000000,
+            serverEpochMs: 1799999970000,
+            sessionEpoch: 3,
+            revision: 4,
+        };
+        useStore.getState().setEvaluationBatchStatus(base);
+
+        useStore.getState().setEvaluationBatchStatus({
+            ...base,
+            pendingCount: 0,
+            phase: 'idle',
+            revision: 3,
+        });
+        useStore.getState().setEvaluationBatchStatus({
+            ...base,
+            pendingCount: 0,
+            phase: 'idle',
+            sessionEpoch: 2,
+            revision: 99,
+        });
+
+        expect(useStore.getState().evaluationBatchStatus).toMatchObject({
+            pendingCount: 1,
+            phase: 'queued',
+            sessionEpoch: 3,
+            revision: 4,
+        });
+
+        useStore.getState().setEvaluationBatchStatus({
+            ...base,
+            pendingCount: 0,
+            phase: 'idle',
+            revision: 5,
+        });
+        expect(useStore.getState().evaluationBatchStatus).toMatchObject({
+            pendingCount: 0,
+            phase: 'idle',
+            revision: 5,
+        });
+    });
+
+    it('protects an optimistic queued turn from an older idle REST snapshot', () => {
+        useStore.getState().setEvaluationBatchStatus({
+            pendingCount: 0,
+            inFlightCount: 0,
+            phase: 'idle',
+            maxTurns: 4,
+            delaySeconds: 30,
+            nextFlushAtEpochMs: null,
+            sessionEpoch: 7,
+            revision: 2,
+        });
+
+        useStore.getState().queueLocalEvaluationBatchTurn(30, 4, 7);
+        useStore.getState().setEvaluationBatchStatus({
+            pendingCount: 0,
+            inFlightCount: 0,
+            phase: 'idle',
+            maxTurns: 4,
+            delaySeconds: 30,
+            nextFlushAtEpochMs: null,
+            sessionEpoch: 7,
+            revision: 2,
+        });
+
+        expect(useStore.getState().evaluationBatchStatus).toMatchObject({
+            pendingCount: 1,
+            phase: 'queued',
+            sessionEpoch: 7,
+            revision: 2,
+            optimistic: true,
+        });
+
+        useStore.getState().setEvaluationBatchStatus({
+            pendingCount: 1,
+            inFlightCount: 0,
+            phase: 'queued',
+            maxTurns: 4,
+            delaySeconds: 30,
+            nextFlushAtEpochMs: 1800000000000,
+            sessionEpoch: 7,
+            revision: 3,
+        });
+        expect(useStore.getState().evaluationBatchStatus).toMatchObject({
+            pendingCount: 1,
+            phase: 'queued',
+            revision: 3,
+            optimistic: false,
+        });
+    });
+
+    it('does not let an unversioned legacy snapshot replace versioned batch state', () => {
+        useStore.getState().setEvaluationBatchStatus({
+            pendingCount: 1,
+            inFlightCount: 1,
+            phase: 'evaluating',
+            maxTurns: 4,
+            delaySeconds: 30,
+            nextFlushAtEpochMs: null,
+            sessionEpoch: 9,
+            revision: 6,
+        });
+
+        useStore.getState().setEvaluationBatchStatus({
+            pendingCount: 0,
+            phase: 'idle',
+            maxTurns: 4,
+            delaySeconds: 30,
+            nextFlushAtEpochMs: null,
+        });
+
+        expect(useStore.getState().evaluationBatchStatus).toMatchObject({
+            pendingCount: 1,
+            inFlightCount: 1,
+            phase: 'evaluating',
+            sessionEpoch: 9,
+            revision: 6,
+        });
     });
 
     it('clears evaluation batch status with messages', () => {

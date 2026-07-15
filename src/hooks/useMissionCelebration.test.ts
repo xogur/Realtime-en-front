@@ -132,11 +132,40 @@ describe('useMissionCelebration', () => {
         act(() => {
             vi.advanceTimersByTime(1000);
         });
+
+        expect(result.current.current?.cards[0].missionId).toBe('mission-b');
+        expect([...result.current.completedMissionIds]).toEqual(['mission-b']);
+        expect(onPresent).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not drop the first completion when another arrives before presentation starts', () => {
+        const onPresent = vi.fn();
+        const { result, rerender } = renderHook((props: { messages: ChatMessage[] }) => useMissionCelebration({
+            messages: props.messages,
+            activeMissions: [],
+            visibleMs: 1000,
+            onPresent,
+        }), { initialProps: { messages: [] as ChatMessage[] } });
+
+        rerender({ messages: [message('turn-1', ['mission-a'])] });
+        rerender({ messages: [
+            message('turn-1', ['mission-a']),
+            message('turn-2', ['mission-b']),
+        ] });
+
         act(() => {
             vi.advanceTimersByTime(0);
         });
 
+        expect(result.current.current?.cards[0].missionId).toBe('mission-a');
+        expect(onPresent).toHaveBeenCalledTimes(1);
+
+        act(() => {
+            vi.advanceTimersByTime(1000);
+        });
+
         expect(result.current.current?.cards[0].missionId).toBe('mission-b');
+        expect([...result.current.completedMissionIds]).toEqual(['mission-b']);
         expect(onPresent).toHaveBeenCalledTimes(2);
     });
 

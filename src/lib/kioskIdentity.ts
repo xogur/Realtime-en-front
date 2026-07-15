@@ -19,6 +19,10 @@ export function buildKioskUrl(pathname: string, kioskId = getKioskIdFromLocation
   return `${pathname}?${params.toString()}`;
 }
 
+export function getChatSyncChannelName(kioskId = getKioskIdFromLocation()): string {
+  return `uxroom_chat_sync:${kioskId}`;
+}
+
 export function withKioskSessionParams(wsUrl: string, role: KioskRole): string {
   const kioskId = getKioskIdFromLocation();
   const url = new URL(wsUrl, typeof window === 'undefined' ? 'ws://localhost' : window.location.href);

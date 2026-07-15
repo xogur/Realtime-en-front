@@ -53,42 +53,30 @@ export function getMissionCompletionEvents(messages: ChatMessage[]): MissionComp
 
 export function useMissionCelebration({
     messages,
-    activeMissions,
     visibleMs = 1800,
     onPresent,
 }: UseMissionCelebrationOptions) {
     const events = useMemo(() => getMissionCompletionEvents(messages), [messages]);
     const seenIds = useRef<Set<string>>(new Set());
     const pendingQueue = useRef<MissionCelebrationPresentation[]>([]);
+    const onPresentRef = useRef(onPresent);
     const timeoutRef = useRef<number | null>(null);
-    const enteringTimeoutRef = useRef<number | null>(null);
     const startTimeoutRef = useRef<number | null>(null);
-    const previousActiveMissionIds = useRef<Set<string> | null>(null);
     const [current, setCurrent] = useState<MissionCelebrationPresentation | null>(null);
     const [completedMissionIds, setCompletedMissionIds] = useState<Set<string>>(() => new Set());
-    const [enteringMissionIds, setEnteringMissionIds] = useState<Set<string>>(() => new Set());
-    const activeMissionIds = useMemo(() => new Set(activeMissions.map((mission) => mission.id)), [activeMissions]);
+    const [presentedEventIds, setPresentedEventIds] = useState<Set<string>>(() => new Set());
+    const hasUnpresentedEvents = events.some((event) => !presentedEventIds.has(event.id));
 
     useEffect(() => {
-        const previous = previousActiveMissionIds.current;
-        previousActiveMissionIds.current = activeMissionIds;
-        if (!previous) return;
+        onPresentRef.current = onPresent;
+    }, [onPresent]);
 
-        const nextEntering = new Set<string>();
-        activeMissionIds.forEach((id) => {
-            if (!previous.has(id)) nextEntering.add(id);
-        });
-        if (nextEntering.size === 0) return;
-
-        if (enteringTimeoutRef.current !== null) window.clearTimeout(enteringTimeoutRef.current);
-        enteringTimeoutRef.current = window.setTimeout(() => {
-            setEnteringMissionIds(nextEntering);
-            enteringTimeoutRef.current = window.setTimeout(() => {
-                setEnteringMissionIds(new Set());
-                enteringTimeoutRef.current = null;
-            }, 900);
-        }, 0);
-    }, [activeMissionIds]);
+    const present = (next: MissionCelebrationPresentation) => {
+        setPresentedEventIds((previous) => new Set(previous).add(next.id));
+        setCurrent(next);
+        setCompletedMissionIds(new Set(next.cards.map((card) => card.missionId)));
+        onPresentRef.current?.(next);
+    };
 
     useEffect(() => {
         events.forEach((event) => {
@@ -101,23 +89,26 @@ export function useMissionCelebration({
             });
         });
 
-        if (!current && pendingQueue.current.length > 0) {
-            const next = pendingQueue.current.shift() ?? null;
-            if (next) {
-                if (startTimeoutRef.current !== null) window.clearTimeout(startTimeoutRef.current);
-                startTimeoutRef.current = window.setTimeout(() => {
-                    startTimeoutRef.current = null;
-                    setCurrent(next);
-                    setCompletedMissionIds(new Set(next.cards.map((card) => card.missionId)));
-                    onPresent?.(next);
-                }, 0);
-            }
+        if (!current && pendingQueue.current.length > 0 && startTimeoutRef.current === null) {
+            startTimeoutRef.current = window.setTimeout(() => {
+                startTimeoutRef.current = null;
+                const next = pendingQueue.current.shift() ?? null;
+                if (next) {
+                    present(next);
+                }
+            }, 0);
         }
     }, [current, events, onPresent]);
 
     useEffect(() => {
         if (!current) return;
         timeoutRef.current = window.setTimeout(() => {
+            timeoutRef.current = null;
+            const next = pendingQueue.current.shift() ?? null;
+            if (next) {
+                present(next);
+                return;
+            }
             setCurrent(null);
             setCompletedMissionIds(new Set());
         }, visibleMs);
@@ -132,7 +123,6 @@ export function useMissionCelebration({
 
     useEffect(() => () => {
         if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
-        if (enteringTimeoutRef.current !== null) window.clearTimeout(enteringTimeoutRef.current);
         if (startTimeoutRef.current !== null) window.clearTimeout(startTimeoutRef.current);
         pendingQueue.current = [];
     }, []);
@@ -140,6 +130,6 @@ export function useMissionCelebration({
     return {
         current,
         completedMissionIds,
-        enteringMissionIds,
+        isTransitionPending: Boolean(current || hasUnpresentedEvents),
     };
 }

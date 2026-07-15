@@ -1,12 +1,21 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   buildAudioPacket,
   buildClientTurnId,
+  fetchWithTimeout,
+  getTurnResultsUrl,
   getSupplementaryPollDelayMs,
   isEvaluationBatchIdle,
+  isCurrentSupplementaryPoll,
+  shouldIgnorePartialAssistantAnswer,
   shouldProcessEventSeq,
 } from './useVoiceSocket';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 
 describe('buildAudioPacket', () => {
   it('includes the browser sample rate and normalized peak for STT diagnostics', () => {
@@ -79,9 +88,56 @@ describe('supplementary polling backoff', () => {
     expect(getSupplementaryPollDelayMs(20)).toBe(12_000);
   });
 
-  it('treats a missing or zero-count full REST batch status as idle, but not a live batch', () => {
-    expect(isEvaluationBatchIdle(null)).toBe(true);
-    expect(isEvaluationBatchIdle({ pendingCount: 0 })).toBe(true);
-    expect(isEvaluationBatchIdle({ pendingCount: 2 })).toBe(false);
+  it('requires an explicit idle phase with no queued or in-flight evaluations', () => {
+    expect(isEvaluationBatchIdle(null)).toBe(false);
+    expect(isEvaluationBatchIdle({ pendingCount: 0 })).toBe(false);
+    expect(isEvaluationBatchIdle({ pendingCount: 0, inFlightCount: 1, phase: 'evaluating' })).toBe(false);
+    expect(isEvaluationBatchIdle({ pendingCount: 2, inFlightCount: 0, phase: 'queued' })).toBe(false);
+    expect(isEvaluationBatchIdle({ pendingCount: 0, inFlightCount: 0, phase: 'idle' })).toBe(true);
+  });
+
+  it('queries supplementary results by the stable client turn id as well as legacy generation id', () => {
+    const url = new URL(getTurnResultsUrl('1', '9:1'));
+
+    expect(url.searchParams.get('generationId')).toBe('1');
+    expect(url.searchParams.get('turnId')).toBe('9:1');
+  });
+
+  it('aborts a supplementary HTTP request that never resolves', async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_, init) => new Promise((_, reject) => {
+      requestSignal = init?.signal ?? null;
+      requestSignal?.addEventListener('abort', () => {
+        reject(new DOMException('Aborted', 'AbortError'));
+      }, { once: true });
+    }));
+
+    const request = fetchWithTimeout('/api/kiosks/TEST/turn-results', {}, 50);
+    const rejection = expect(request).rejects.toMatchObject({ name: 'AbortError' });
+    await vi.advanceTimersByTimeAsync(50);
+
+    await rejection;
+    expect(requestSignal).not.toBeNull();
+    expect((requestSignal as AbortSignal).aborted).toBe(true);
+  });
+
+  it('rejects an old poll identity after a reconnect starts a replacement poll', () => {
+    const oldPoll = { attempt: 0 };
+    const replacementPoll = { attempt: 0 };
+    const polls = new Map([['turn-1', oldPoll]]);
+
+    expect(isCurrentSupplementaryPoll(polls, 'turn-1', oldPoll)).toBe(true);
+    polls.set('turn-1', replacementPoll);
+    expect(isCurrentSupplementaryPoll(polls, 'turn-1', oldPoll)).toBe(false);
+    expect(isCurrentSupplementaryPoll(polls, 'turn-1', replacementPoll)).toBe(true);
+  });
+
+  it('ignores late partial assistant text after the same generation was finalized', () => {
+    const finalized = new Set(['generation-7']);
+
+    expect(shouldIgnorePartialAssistantAnswer('generation-7', finalized)).toBe(true);
+    expect(shouldIgnorePartialAssistantAnswer('generation-8', finalized)).toBe(false);
+    expect(shouldIgnorePartialAssistantAnswer(null, finalized)).toBe(false);
   });
 });

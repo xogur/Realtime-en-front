@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@/stores/useStore';
+import { getChatSyncChannelName } from '@/lib/kioskIdentity';
 
 function getBatchStatusSyncPayload() {
     const status = useStore.getState().evaluationBatchStatus;
@@ -18,7 +19,7 @@ export function useChatSync(isMainWindow: boolean) {
     const [hasMainWindow, setHasMainWindow] = useState(isMainWindow);
 
     useEffect(() => {
-        const channel = new BroadcastChannel('uxroom_chat_sync');
+        const channel = new BroadcastChannel(getChatSyncChannelName());
 
         if (isMainWindow) {
             // Main window listens to useStore and broadcasts changes

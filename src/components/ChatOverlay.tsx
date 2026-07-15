@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, MessageSquare, Send, ExternalLink, Languages } from 'lucide-react';
-import { buildKioskUrl, createClientCommandId } from '@/lib/kioskIdentity';
+import { buildKioskUrl, createClientCommandId, getChatSyncChannelName } from '@/lib/kioskIdentity';
 
 interface ChatOverlayProps {
     standalone?: boolean;
@@ -66,7 +66,7 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
         }
 
         if (standalone) {
-            const channel = new BroadcastChannel('uxroom_chat_sync');
+            const channel = new BroadcastChannel(getChatSyncChannelName());
             channel.postMessage({
                 type: 'SEND_MESSAGE',
                 payload: text,

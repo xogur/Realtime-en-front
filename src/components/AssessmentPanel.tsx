@@ -18,7 +18,7 @@ import {
     X,
 } from 'lucide-react';
 import { AnimatePresence, motion, useAnimate } from 'framer-motion';
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore, type ChatMessage, type EvaluationBatchStatus, type PracticeMission, type TurnCorrection, type TurnEvaluation } from '@/stores/useStore';
 import { useMissionCelebration, type MissionCelebrationPresentation } from '@/hooks/useMissionCelebration';
@@ -902,66 +902,70 @@ function getMissionSupportLines(mission: PracticeMission) {
     };
 }
 
+function usePresentedMissions(
+    missions: PracticeMission[],
+    holdReplacements: boolean,
+    markMissionsPresented: (missionIds: readonly string[]) => void,
+) {
+    const [displayedMissions, setDisplayedMissions] = useState(missions);
+    const [enteringMissionIds, setEnteringMissionIds] = useState<Set<string>>(() => new Set());
+    const displayedIdsRef = useRef(new Set(missions.map((mission) => mission.id)));
+    const enteringTimerRef = useRef<number | null>(null);
+
+    /* eslint-disable react-hooks/set-state-in-effect -- held mission cards must swap before paint to avoid a CLEAR flicker */
+    useLayoutEffect(() => {
+        if (holdReplacements) return;
+
+        const nextIds = new Set(missions.map((mission) => mission.id));
+        const enteringIds = new Set(
+            missions
+                .map((mission) => mission.id)
+                .filter((missionId) => !displayedIdsRef.current.has(missionId)),
+        );
+
+        displayedIdsRef.current = nextIds;
+        setDisplayedMissions(missions);
+        markMissionsPresented([...nextIds]);
+
+        if (enteringIds.size > 0) {
+            setEnteringMissionIds(enteringIds);
+            if (enteringTimerRef.current !== null) window.clearTimeout(enteringTimerRef.current);
+            enteringTimerRef.current = window.setTimeout(() => {
+                setEnteringMissionIds(new Set());
+                enteringTimerRef.current = null;
+            }, 900);
+        } else if (enteringTimerRef.current === null) {
+            setEnteringMissionIds(new Set());
+        }
+    }, [holdReplacements, markMissionsPresented, missions]);
+    /* eslint-enable react-hooks/set-state-in-effect */
+
+    useEffect(() => () => {
+        if (enteringTimerRef.current !== null) window.clearTimeout(enteringTimerRef.current);
+    }, []);
+
+    return { displayedMissions, enteringMissionIds };
+}
+
 function ActiveMissionsPanel({
     missions,
     completedMissionIds,
-    enteringMissionIds,
-    completion,
+    holdReplacements,
 }: {
     missions: PracticeMission[];
     completedMissionIds: Set<string>;
-    enteringMissionIds: Set<string>;
-    completion: MissionCelebrationPresentation | null;
+    holdReplacements: boolean;
 }) {
     const missionSlots = [0, 1, 2];
+    const markMissionsPresented = useStore((state) => state.markMissionsPresented);
+    const { displayedMissions, enteringMissionIds } = usePresentedMissions(
+        missions,
+        holdReplacements,
+        markMissionsPresented,
+    );
 
     return (
         <section className="group relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-[#483c2d]/10 bg-[#f8f1ea]/90 p-2.5 shadow-[0_8px_24px_rgba(72,60,45,0.08)]">
-            <AnimatePresence initial={false}>
-                {completion && (
-                    <motion.div
-                        key={completion.id}
-                        data-testid="mission-panel-completion"
-                        role="status"
-                        aria-live="polite"
-                        className="pointer-events-none absolute inset-2 z-30 flex items-center overflow-hidden rounded-lg border border-[#9fbd75]/55 bg-[#263522]/95 px-4 py-3 text-white shadow-[0_16px_38px_rgba(38,53,34,0.34)]"
-                        initial={{ opacity: 0, scale: 0.96, y: 8 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.98, y: -6 }}
-                        transition={{ type: 'spring', stiffness: 430, damping: 28 }}
-                    >
-                        <motion.span
-                            aria-hidden="true"
-                            className="absolute inset-y-0 w-28 bg-gradient-to-r from-transparent via-white/20 to-transparent"
-                            initial={{ left: '-30%' }}
-                            animate={{ left: '115%' }}
-                            transition={{ duration: 1.1, ease: 'easeInOut' }}
-                        />
-                        <div className="relative flex min-w-0 flex-1 items-center gap-3">
-                            <motion.span
-                                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#d8ff73] text-[#263522] shadow-[0_0_22px_rgba(216,255,115,0.5)]"
-                                initial={{ scale: 0.7, rotate: -18 }}
-                                animate={{ scale: [0.7, 1.12, 1], rotate: [-18, 5, 0] }}
-                                transition={{ duration: 0.55, ease: 'easeOut' }}
-                            >
-                                <CheckCircle2 className="h-6 w-6" />
-                            </motion.span>
-                            <div className="min-w-0 flex-1">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[11px] font-black tracking-[0.14em] text-[#d8ff73]">MISSION CLEAR</span>
-                                    <span className="rounded-full bg-[#d8ff73]/15 px-2 py-0.5 font-mono text-xs font-black text-[#d8ff73]">+{completion.totalLp} LP</span>
-                                </div>
-                                <p className="mt-1 truncate text-sm font-black text-white">
-                                    {completion.cards.map((card) => card.title).join(' · ')}
-                                </p>
-                                <p className="mt-0.5 truncate text-[11px] font-semibold text-white/70">
-                                    새 미션이 이어서 배치됩니다.
-                                </p>
-                            </div>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
             <div className="flex shrink-0 items-center justify-between gap-3">
                 <div className="min-w-0">
                     <p className="flex items-center gap-1.5 text-xs font-black text-[#5b4939]">
@@ -970,12 +974,11 @@ function ActiveMissionsPanel({
                     </p>
                     <p className="mt-0.5 text-xs font-medium text-[#7a695b]">표현을 쓰면 완료되고 새 목표가 들어옵니다.</p>
                 </div>
-                <span className="shrink-0 rounded-md border border-[#c59b55]/25 bg-[#fff4d9] px-2.5 py-0.5 font-mono text-xs font-black text-[#7a540f]">{missions.length}/3</span>
+                <span className="shrink-0 rounded-md border border-[#c59b55]/25 bg-[#fff4d9] px-2.5 py-0.5 font-mono text-xs font-black text-[#7a540f]">{displayedMissions.length}/3</span>
             </div>
             <div className="mt-1.5 grid min-h-0 flex-1 auto-rows-fr grid-cols-1 gap-2 overflow-hidden sm:grid-cols-3">
-                <AnimatePresence initial={false} mode="popLayout">
                 {missionSlots.map((slotIndex) => {
-                    const mission = missions[slotIndex];
+                    const mission = displayedMissions[slotIndex];
 
                     if (!mission) {
                         return (
@@ -1001,19 +1004,11 @@ function ActiveMissionsPanel({
                     const support = getMissionSupportLines(mission);
 
                     return (
-                        <motion.div
+                        <div
                             key={mission.id}
                             data-mission-id={mission.id}
                             data-mission-entering={entering ? 'true' : undefined}
-                            layout
-                            initial={{ opacity: 0, y: 12, scale: 0.98 }}
-                            animate={entering
-                                ? { opacity: 1, y: 0, scale: [0.98, 1.018, 1] }
-                                : { opacity: 1, y: 0, scale: 1 }}
-                            exit={{ opacity: 0, y: -10, scale: 0.97 }}
-                            transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.75 }}
-                            whileHover={{ y: -2, boxShadow: '0 8px 18px rgba(72,60,45,0.13)', transition: { duration: 0.18 } }}
-                            className={`relative min-h-0 overflow-hidden rounded-lg border px-2.5 py-1.5 shadow-[0_3px_10px_rgba(72,60,45,0.07)] ${completed
+                            className={`relative min-h-0 overflow-hidden rounded-lg border px-2.5 py-1.5 shadow-[0_3px_10px_rgba(72,60,45,0.07)] transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_18px_rgba(72,60,45,0.13)] ${entering ? 'mission-card-enter' : ''} ${completed
                                 ? 'border-[#83926f]/40 bg-[#edf1e8]'
                                 : 'border-[#b9873d]/30 bg-[#fffaf5]'}`}
                         >
@@ -1028,21 +1023,16 @@ function ActiveMissionsPanel({
                                 />
                             )}
                             {completed && (
-                                <motion.div
+                                <div
                                     aria-hidden="true"
                                     className="absolute inset-0 z-20 flex items-center justify-center bg-[#081a18]/85 backdrop-blur-sm"
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    exit={{ opacity: 0 }}
                                 >
-                                    <motion.div
-                                        initial={{ scale: 0.75, rotate: -8 }}
-                                        animate={{ scale: 1, rotate: -3 }}
-                                        className="rounded-md border border-[#d8ff73]/40 bg-[#d8ff73]/10 px-3 py-1 text-xs font-black text-[#d8ff73]"
+                                    <div
+                                        className="mission-success-enter rounded-md border border-[#d8ff73]/40 bg-[#d8ff73]/10 px-3 py-1 text-xs font-black text-[#d8ff73]"
                                     >
                                         CLEAR
-                                    </motion.div>
-                                </motion.div>
+                                    </div>
+                                </div>
                             )}
                             <div className="relative z-10 flex items-center gap-1.5 overflow-hidden pt-1">
                                 <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[#59483b] text-[10px] font-black text-white shadow-sm">
@@ -1068,10 +1058,9 @@ function ActiveMissionsPanel({
                                     </p>
                                 )}
                             </div>
-                        </motion.div>
+                        </div>
                     );
                 })}
-                </AnimatePresence>
             </div>
         </section>
     );
@@ -1538,7 +1527,8 @@ function StatusLine({
             ? Math.max(0, evaluationBatchStatus.maxTurns - evaluationBatchStatus.pendingCount)
             : null;
         const countdown = getBatchCountdown(evaluationBatchStatus, nowEpochMs);
-        const isEvaluatingNow = Boolean(evaluationBatchStatus && evaluationBatchStatus.pendingCount <= 0);
+        const isEvaluatingNow = evaluationBatchStatus?.phase === 'evaluating'
+            || (evaluationBatchStatus?.inFlightCount ?? 0) > 0;
 
         return (
             <div className="relative flex flex-wrap items-center gap-x-2 gap-y-1 overflow-hidden rounded-lg border border-[#c59b55]/20 bg-[#fff6e5] px-3 py-2 text-xs font-medium text-[#6b5a4a]">
@@ -1599,9 +1589,11 @@ function MissionSuccessCelebration({ presentation }: { presentation: MissionCele
             role="status"
             aria-live="polite"
         >
-            <AnimatePresence initial={false}>
-                {presentation && (
-                    <>
+            {presentation && (
+                    <div
+                        data-testid="mission-success-celebration"
+                        className="absolute inset-0 flex items-center justify-center"
+                    >
                         {!prefersReducedMotion && (
                             <motion.div
                                 aria-hidden="true"
@@ -1613,12 +1605,7 @@ function MissionSuccessCelebration({ presentation }: { presentation: MissionCele
                             />
                         )}
                 <motion.div
-                    key={presentation.id}
-                    initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 18, scale: prefersReducedMotion ? 1 : 0.92 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: prefersReducedMotion ? 0 : -12, scale: prefersReducedMotion ? 1 : 0.96 }}
-                    transition={prefersReducedMotion ? { duration: 0.16 } : { type: 'spring', stiffness: 420, damping: 26 }}
-                    className="w-[min(92%,430px)]"
+                    className="mission-success-enter w-[min(92%,430px)]"
                 >
                     <div className="relative overflow-hidden rounded-lg border border-[#f8d66d]/70 bg-[#1f241b]/95 px-5 py-4 text-white shadow-[0_22px_52px_rgba(31,36,27,0.34)]">
                         {particles.map((particle) => (
@@ -1661,9 +1648,8 @@ function MissionSuccessCelebration({ presentation }: { presentation: MissionCele
                         </div>
                     </div>
                 </motion.div>
-                    </>
+                    </div>
                 )}
-            </AnimatePresence>
         </div>
     );
 }
@@ -2579,8 +2565,7 @@ export function AssessmentPanel() {
                                 <ActiveMissionsPanel
                                     missions={activeMissions}
                                     completedMissionIds={missionCelebration.completedMissionIds}
-                                    enteringMissionIds={missionCelebration.enteringMissionIds}
-                                    completion={missionCelebration.current}
+                                    holdReplacements={missionCelebration.isTransitionPending}
                                 />
                             </div>
 
