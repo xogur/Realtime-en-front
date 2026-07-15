@@ -120,6 +120,17 @@ describe('mission completion store rules', () => {
         expect(state.activeMissions).toHaveLength(1);
     });
 
+    it('does not confirm a mission from an unknown confidence value', () => {
+        useStore.getState().setActiveMissions([mission()]);
+        useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-ready');
+
+        useStore.getState().setTurnEvaluation('turn-ready', evaluation({ confidence: 'uncertain' }));
+
+        const state = useStore.getState();
+        expect(state.messages[0].completedMissions).toBeUndefined();
+        expect(state.activeMissions).toHaveLength(1);
+    });
+
     it('does not duplicate completion when the same user message id updates', () => {
         useStore.getState().setActiveMissions([mission()]);
 
@@ -251,6 +262,79 @@ describe('mission completion store rules', () => {
         expect(state.messages[0].completedMissions?.map((item) => item.missionId)).toEqual(['mission-because']);
         expect(state.activeMissions.map((item) => item.id)).toContain('mission-future');
         expect(state.activeMissions.find((item) => item.id === 'mission-future')?.activatedAfterMessageKey).toBe('id:turn-1');
+    });
+
+    it('preserves active, queued, and completed mission progress through a same-session replay', () => {
+        useStore.getState().setActiveMissions([
+            mission(),
+            mission({
+                id: 'mission-long',
+                kind: 'length',
+                title: 'Longer Turn',
+                target: 'Answer with at least ten English words.',
+                checks: [{ type: 'minWords', min: 10 }],
+            }),
+            mission({
+                id: 'mission-question',
+                kind: 'question',
+                title: 'Keep Talking',
+                target: 'Ask one question.',
+                checks: [{ type: 'question' }],
+            }),
+        ]);
+        useStore.getState().addMissionCandidates([
+            mission({
+                id: 'mission-future',
+                kind: 'tense',
+                title: 'Future Plan',
+                target: 'Use will in your next answer.',
+                checks: [{ type: 'futureTense' }],
+            }),
+            mission({
+                id: 'mission-polite',
+                kind: 'interaction',
+                title: 'Polite Request',
+                target: 'Use could you in your next answer.',
+                checks: [{ type: 'politeRequest' }],
+            }),
+        ]);
+        useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-replay');
+        useStore.getState().setTurnEvaluation('turn-replay', evaluation({ turnId: 'turn-replay' }));
+
+        const beforeReplay = useStore.getState();
+        const activeIds = beforeReplay.activeMissions.map((item) => item.id);
+        const queuedIds = beforeReplay.missionQueue.map((item) => item.id);
+        const completed = beforeReplay.messages[0].completedMissions;
+        expect(queuedIds).not.toEqual([]);
+
+        useStore.getState().beginSessionReplay();
+        expect(useStore.getState().messages).toEqual([]);
+        expect(useStore.getState().activeMissions.map((item) => item.id)).toEqual(activeIds);
+        expect(useStore.getState().missionQueue.map((item) => item.id)).toEqual(queuedIds);
+
+        useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-replay');
+        useStore.getState().finishSessionReplay();
+
+        const restored = useStore.getState();
+        expect(restored.messages[0].completedMissions).toEqual(completed);
+        expect(restored.activeMissions.map((item) => item.id)).toEqual(activeIds);
+        expect(restored.missionQueue.map((item) => item.id)).toEqual(queuedIds);
+
+        useStore.getState().addMissionCandidates([mission()]);
+        expect([
+            ...useStore.getState().activeMissions,
+            ...useStore.getState().missionQueue,
+        ].some((item) => item.id === 'mission-because')).toBe(false);
+    });
+
+    it('clears preserved mission progress when the replay represents an empty new session', () => {
+        useStore.getState().setActiveMissions([mission()]);
+
+        useStore.getState().beginSessionReplay();
+        useStore.getState().finishSessionReplay();
+
+        expect(useStore.getState().activeMissions).toEqual([]);
+        expect(useStore.getState().missionQueue).toEqual([]);
     });
 });
 

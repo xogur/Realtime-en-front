@@ -759,8 +759,11 @@ function createFallbackPracticeMissions(turn: EvaluatedTurn, assistantPrompt: st
     return [...pool.slice(start), ...pool.slice(0, start)].slice(0, 3);
 }
 
-function getPracticeMissionCandidates(turn: EvaluatedTurn, assistantPrompt: string): PracticeMission[] {
+export function getPracticeMissionCandidates(turn: EvaluatedTurn, assistantPrompt: string): PracticeMission[] {
     const fallbackMissions = createFallbackPracticeMissions(turn, assistantPrompt);
+    if (turn.evaluation.confidence.trim().toLowerCase() === 'low') {
+        return fallbackMissions;
+    }
     if (turn.evaluation.missionCandidates?.length) {
         const seen = new Set<string>();
         return [

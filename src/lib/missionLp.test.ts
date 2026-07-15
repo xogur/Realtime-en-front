@@ -110,6 +110,28 @@ describe('mission LP anti-gaming rules', () => {
         expect(getCurrentMessageLp(message)).toBe(getTurnLp({ message, evaluation: batchEvaluation }));
     });
 
+    it('does not apply low-confidence evaluation scores or mission rewards to tier LP', () => {
+        const message = userMessage({
+            evaluation: {
+                ...evaluation({ overall: 90, relevance: 90, interaction: 90 }),
+                confidence: 'low',
+            },
+            correction: {
+                turnId: 'turn-1',
+                provider: 'test',
+                model: 'test',
+                createdAt: '2026-06-12T00:00:00.000Z',
+                original: 'I stayed home because it rained.',
+                suggested: '',
+                reason: 'Natural answer.',
+                provisionalScore: 70,
+                provisionalLp: 3,
+            },
+        });
+
+        expect(getCurrentMessageLp(message)).toBe(3);
+    });
+
     it('gives steady positive LP for a solid expanded answer', () => {
         const turn = {
             message: userMessage({

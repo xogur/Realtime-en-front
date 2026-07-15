@@ -92,12 +92,16 @@ export function getTurnLp(turn: EvaluatedMissionTurn): number {
 }
 
 export function getCurrentMessageLp(message: ChatMessage): number {
-    if (message.evaluation) {
-        return getTurnLp({ message, evaluation: message.evaluation });
-    }
-
     const correctionLp = Number.isFinite(message.correction?.provisionalLp)
         ? Math.round(message.correction?.provisionalLp ?? 0)
         : 0;
+
+    if (message.evaluation) {
+        if (message.evaluation.confidence.trim().toLowerCase() === 'low') {
+            return correctionLp;
+        }
+        return getTurnLp({ message, evaluation: message.evaluation });
+    }
+
     return correctionLp + getMissionBonusFromMessage(message);
 }

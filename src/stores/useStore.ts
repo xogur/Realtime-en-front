@@ -122,6 +122,9 @@ export type MissionCompletion = {
     reason: string;
 };
 
+type MissionReplayTurnState = Pick<ChatMessage, 'pendingMissionCompletions' | 'completedMissions'>;
+type MissionReplaySnapshot = Record<string, MissionReplayTurnState>;
+
 export type ChatMessage = {
     id?: string;
     role: 'user' | 'assistant';
@@ -158,6 +161,8 @@ interface AppState {
     evaluationBatchStatus: EvaluationBatchStatus | null;
     activeMissions: PracticeMission[];
     missionQueue: PracticeMission[];
+    missionReplaySnapshot: MissionReplaySnapshot | null;
+    isSessionReplay: boolean;
     partialMessage: string;
     setPartialMessage: (message: string) => void;
     isChatOpen: boolean;
@@ -230,6 +235,8 @@ interface AppState {
     setSocket: (socket: WebSocket | null) => void;
 
     clearMessages: () => void;
+    beginSessionReplay: () => void;
+    finishSessionReplay: () => void;
 }
 
 // Avatar-to-Voice Mapping Table
@@ -480,7 +487,8 @@ function missionValues(check?: MissionCheck): string[] {
 }
 
 function evaluationConfirmsMission(evaluation: TurnEvaluation): boolean {
-    return evaluation.confidence.toLowerCase() !== 'low'
+    const confidence = evaluation.confidence.trim().toLowerCase();
+    return (confidence === 'high' || confidence === 'medium')
         && evaluation.scores.overall >= 50
         && evaluation.scores.relevance >= 55
         && evaluation.scores.interaction >= 40;
@@ -679,6 +687,8 @@ export const useStore = create<AppState>((set, get) => ({
     evaluationBatchStatus: null,
     activeMissions: [],
     missionQueue: [],
+    missionReplaySnapshot: null,
+    isSessionReplay: false,
     partialMessage: '',
     isChatOpen: false, // Default closed
     voice: DEFAULT_VOICE_ID,
@@ -740,12 +750,19 @@ export const useStore = create<AppState>((set, get) => ({
                     content,
                 },
             ];
-            const pendingMissionCompletions = role === 'user'
+            const replayedMissionState = role === 'user' && state.isSessionReplay
+                ? state.missionReplaySnapshot?.[getUserMessageKey({ id, content })]
+                : undefined;
+            const matchedMissionCompletions = role === 'user' && !state.isSessionReplay
                 ? completeMissions(
                     content,
                     getApplicableMissionsForMessage(candidateMessages, candidateMessages.length - 1, state.activeMissions),
                 )
                 : [];
+            const pendingMissionCompletions = mergeUniqueCompletions(
+                replayedMissionState?.pendingMissionCompletions,
+                matchedMissionCompletions,
+            );
             return {
                 messages: [
                     ...state.messages,
@@ -758,6 +775,7 @@ export const useStore = create<AppState>((set, get) => ({
                         pendingMissionCompletions: pendingMissionCompletions.length > 0
                             ? pendingMissionCompletions
                             : undefined,
+                        completedMissions: replayedMissionState?.completedMissions,
                     },
                 ],
             };
@@ -842,9 +860,15 @@ export const useStore = create<AppState>((set, get) => ({
                 ...state.activeMissions.map(getMissionKey),
                 ...state.missionQueue.map(getMissionKey),
             ]);
+            const completedMissionIds = new Set(
+                state.messages.flatMap((message) => (
+                    message.completedMissions?.map((completion) => completion.missionId) ?? []
+                )),
+            );
             const next = missions
                 .map(sanitizeMission)
                 .filter((mission): mission is PracticeMission => Boolean(mission))
+                .filter((mission) => !completedMissionIds.has(mission.id))
                 .filter((mission) => {
                     if (!mission.sourceTurnId) return true;
                     const sourceMessage = state.messages.find((message) => message.role === 'user' && message.id === mission.sourceTurnId);
@@ -1143,7 +1167,40 @@ export const useStore = create<AppState>((set, get) => ({
             return state;
         }),
     setPartialMessage: (message) => set({ partialMessage: message }),
-    clearMessages: () => set({ messages: [], evaluationBatchStatus: null, activeMissions: [], missionQueue: [] }),
+    clearMessages: () => set({
+        messages: [],
+        evaluationBatchStatus: null,
+        activeMissions: [],
+        missionQueue: [],
+        missionReplaySnapshot: null,
+        isSessionReplay: false,
+    }),
+    beginSessionReplay: () => set((state) => {
+        const missionReplaySnapshot: MissionReplaySnapshot = {};
+        state.messages.forEach((message) => {
+            if (message.role !== 'user') return;
+            if (!message.pendingMissionCompletions?.length && !message.completedMissions?.length) return;
+            missionReplaySnapshot[getUserMessageKey(message)] = {
+                pendingMissionCompletions: message.pendingMissionCompletions,
+                completedMissions: message.completedMissions,
+            };
+        });
+        return {
+            messages: [],
+            evaluationBatchStatus: null,
+            missionReplaySnapshot,
+            isSessionReplay: true,
+        };
+    }),
+    finishSessionReplay: () => set((state) => {
+        const hasReplayedUserMessage = state.messages.some((message) => message.role === 'user');
+        return {
+            missionReplaySnapshot: null,
+            isSessionReplay: false,
+            activeMissions: hasReplayedUserMessage ? state.activeMissions : [],
+            missionQueue: hasReplayedUserMessage ? state.missionQueue : [],
+        };
+    }),
     setVoice: (voice) => set({ voice }),
     setSpeed: (speed) => set({ speed }),
     setTextScale: (textScale) => set({ textScale }),

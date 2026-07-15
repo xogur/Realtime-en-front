@@ -21,7 +21,13 @@ vi.mock('framer-motion', async () => {
     };
 });
 
-import { CorrectionCoachCard, getEvaluationReliabilityNotice, shouldShowCoachContent } from './AssessmentPanel';
+import {
+    CorrectionCoachCard,
+    getEvaluationReliabilityNotice,
+    getPracticeMissionCandidates,
+    shouldShowCoachContent,
+} from './AssessmentPanel';
+import type { ChatMessage, TurnEvaluation } from '@/stores/useStore';
 
 beforeEach(() => {
     animateMock.mockClear();
@@ -61,6 +67,47 @@ describe('getEvaluationReliabilityNotice', () => {
 
     it('does not warn for normal confidence', () => {
         expect(getEvaluationReliabilityNotice('high')).toBeNull();
+    });
+});
+
+describe('getPracticeMissionCandidates', () => {
+    it('ignores model-generated missions when evaluation confidence is low', () => {
+        const message: ChatMessage = {
+            id: 'turn-low',
+            role: 'user',
+            content: 'I like pizza because it tastes good.',
+        };
+        const evaluation: TurnEvaluation = {
+            rubricVersion: 'speaking-v2',
+            turnId: 'turn-low',
+            provider: 'test',
+            model: 'test',
+            createdAt: '2026-07-15T00:00:00.000Z',
+            scores: { overall: 70, grammar: 70, vocabulary: 70, relevance: 70, fluency: 70, interaction: 70 },
+            evidence: { overall: '', grammar: '', vocabulary: '', relevance: '', fluency: '', interaction: '' },
+            feedback: { summary: '', strength: '', improvement: '', nextPractice: '' },
+            cefrEstimate: { level: 'A2', reason: '' },
+            correction: { original: message.content, suggested: '', reason: '' },
+            capabilities: { pronunciation: 'not_available' },
+            confidence: 'low',
+            confidenceReasons: ['fallback'],
+            missionCandidates: [{
+                id: 'untrusted-model-mission',
+                sourceTurnId: 'turn-low',
+                kind: 'connector',
+                title: '모델 미션',
+                target: 'because를 사용하세요.',
+                successHint: '완료',
+                rewardLp: 12,
+                checks: [{ type: 'connector' }],
+                createdAt: '2026-07-15T00:00:00.000Z',
+            }],
+        };
+
+        const candidates = getPracticeMissionCandidates({ message, evaluation }, 'What food do you like?');
+
+        expect(candidates.length).toBeGreaterThan(0);
+        expect(candidates.some((mission) => mission.id === 'untrusted-model-mission')).toBe(false);
     });
 });
 

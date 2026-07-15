@@ -223,6 +223,8 @@ export function useVoiceSocket() {
   const clearTtsSegments = useStore((state) => state.clearTtsSegments);
   const setLipSyncMode = useStore((state) => state.setLipSyncMode);
   const clearMessages = useStore((state) => state.clearMessages);
+  const beginSessionReplay = useStore((state) => state.beginSessionReplay);
+  const finishSessionReplay = useStore((state) => state.finishSessionReplay);
 
   const notifyTtsPlaybackStopped = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -637,7 +639,7 @@ export function useVoiceSocket() {
             isReplayingSessionRef.current = true;
             clearSupplementaryPolling();
             processedSupplementaryKeysRef.current.clear();
-            clearMessages();
+            beginSessionReplay();
             activeGenerationIdRef.current = null;
             backendTurnIdToClientTurnIdRef.current.clear();
             seenEventSeqsRef.current.clear();
@@ -647,6 +649,7 @@ export function useVoiceSocket() {
             break;
           case 'session_replay_end':
             isReplayingSessionRef.current = false;
+            finishSessionReplay();
             fetchSupplementaryTurnResults().catch((error) => {
               console.warn('Could not restore replayed turn results:', error);
             });
@@ -795,7 +798,8 @@ export function useVoiceSocket() {
     setSocket,
     setThinking,
     setTurnEvaluationSkipped,
-    clearMessages,
+    beginSessionReplay,
+    finishSessionReplay,
     startRecording,
     stopRecording,
   ]);
