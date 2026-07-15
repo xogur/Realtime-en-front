@@ -121,7 +121,7 @@ function getConfiguredWsUrl(role: KioskRole): string {
   return withKioskSessionParams(wsUrl, role);
 }
 
-function getTurnResultsUrl(generationId: string): string {
+function getTurnResultsUrl(generationId?: string): string {
   const configuredUrl = process.env.NEXT_PUBLIC_WS_URL;
   const wsUrl = configuredUrl && configuredUrl.trim().length > 0 ? configuredUrl : getDefaultWsUrl();
   const url = new URL(wsUrl, typeof window === 'undefined' ? 'ws://localhost' : window.location.href);
@@ -133,7 +133,9 @@ function getTurnResultsUrl(generationId: string): string {
   }
   url.pathname = `/api/kiosks/${encodeURIComponent(getKioskIdFromLocation())}/turn-results`;
   url.search = '';
-  url.searchParams.set('generationId', generationId);
+  if (generationId) {
+    url.searchParams.set('generationId', generationId);
+  }
   return url.toString();
 }
 
@@ -199,7 +201,9 @@ export function useVoiceSocket() {
   const isConnected = useStore((state) => state.isConnected);
   const addMessage = useStore((state) => state.addMessage);
   const appendToLastAssistantMessage = useStore((state) => state.appendToLastAssistantMessage);
+  const appendToAssistantMessage = useStore((state) => state.appendToAssistantMessage);
   const setLastAssistantSuggestions = useStore((state) => state.setLastAssistantSuggestions);
+  const setAssistantSuggestions = useStore((state) => state.setAssistantSuggestions);
   const assignLatestPendingUserTurnId = useStore((state) => state.assignLatestPendingUserTurnId);
   const setTurnCorrection = useStore((state) => state.setTurnCorrection);
   const setTurnCorrectionSkipped = useStore((state) => state.setTurnCorrectionSkipped);
@@ -229,7 +233,7 @@ export function useVoiceSocket() {
   const { playPcmChunk, clearQueue } = useAudioPlayer({
     onPlaybackIdle: notifyTtsPlaybackStopped,
   });
-  const { startRecording, stopRecording, setOnDataAvailable } = useAudioRecorder();
+  const { startRecording, stopRecording, setOnDataAvailable, isRecording } = useAudioRecorder();
 
   const cleanupSocket = useCallback(() => {
     if (!socketRef.current) return;
@@ -359,33 +363,41 @@ export function useVoiceSocket() {
 
       const rawText = data.content ?? '';
       const { emotion, displayMessage } = parseTaggedEmotion(rawText);
-      addMessage('assistant', formatAssistantDisplayMessage(displayMessage, data.korean_content));
+      const turnId = getTurnId(data) ?? undefined;
+      addMessage('assistant', formatAssistantDisplayMessage(displayMessage, data.korean_content), turnId);
       useStore.getState().setPartialMessage('');
       useStore.getState().setEmotion(emotion);
     },
-    [addMessage, bindActiveGenerationToPendingUser, isCurrentGeneration],
+    [addMessage, bindActiveGenerationToPendingUser, getTurnId, isCurrentGeneration],
   );
 
   const handleAssistantTranslation = useCallback(
     (data: SocketMessage) => {
-      if (!isCurrentGeneration(data)) return;
-
       const korean = sanitizeModelText(data.content ?? '');
       if (!korean) return;
-      appendToLastAssistantMessage(`${KOREAN_INTERPRETATION_LABEL} ${korean}`);
+      const content = `${KOREAN_INTERPRETATION_LABEL} ${korean}`;
+      const turnId = getTurnId(data);
+      if (turnId) {
+        appendToAssistantMessage(turnId, content);
+      } else if (isCurrentGeneration(data)) {
+        appendToLastAssistantMessage(content);
+      }
     },
-    [appendToLastAssistantMessage, isCurrentGeneration],
+    [appendToAssistantMessage, appendToLastAssistantMessage, getTurnId, isCurrentGeneration],
   );
 
   const handleAssistantReplySuggestions = useCallback(
     (data: SocketMessage) => {
-      if (!isCurrentGeneration(data)) return;
-
       const suggestions = normalizeReplySuggestions(data);
       if (suggestions.length === 0) return;
-      setLastAssistantSuggestions(suggestions);
+      const turnId = getTurnId(data);
+      if (turnId) {
+        setAssistantSuggestions(turnId, suggestions);
+      } else if (isCurrentGeneration(data)) {
+        setLastAssistantSuggestions(suggestions);
+      }
     },
-    [isCurrentGeneration, setLastAssistantSuggestions],
+    [getTurnId, isCurrentGeneration, setAssistantSuggestions, setLastAssistantSuggestions],
   );
 
   const handleTurnEvaluation = useCallback(
@@ -513,7 +525,7 @@ export function useVoiceSocket() {
   );
 
   const fetchSupplementaryTurnResults = useCallback(
-    async (generationId: string) => {
+    async (generationId?: string) => {
       const response = await fetch(getTurnResultsUrl(generationId), { cache: 'no-store' });
       if (!response.ok) return;
 
@@ -635,6 +647,9 @@ export function useVoiceSocket() {
             break;
           case 'session_replay_end':
             isReplayingSessionRef.current = false;
+            fetchSupplementaryTurnResults().catch((error) => {
+              console.warn('Could not restore replayed turn results:', error);
+            });
             break;
           case 'kiosk_session_ready':
             break;
@@ -762,6 +777,7 @@ export function useVoiceSocket() {
     clearSupplementaryPolling,
     discardPendingEvaluations,
     flushActiveTts,
+    fetchSupplementaryTurnResults,
     handleEvaluationBatchStatus,
     handleFinalAssistantAnswer,
     handlePartialAssistantAnswer,
@@ -797,6 +813,18 @@ export function useVoiceSocket() {
     stopRecording();
     isDisconnecting.current = false;
   }, [cleanupSocket, clearSupplementaryPolling, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, stopRecording]);
+
+  const startListening = useCallback(() => {
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      void startRecording();
+      return;
+    }
+    connect();
+  }, [connect, startRecording]);
+
+  const stopListening = useCallback(() => {
+    void stopRecording();
+  }, [stopRecording]);
 
   useEffect(() => {
     setOnDataAvailable((pcmData) => {
@@ -865,5 +893,5 @@ export function useVoiceSocket() {
     addMessage('assistant', '(시스템) 대화 내용이 초기화되었습니다.');
   }, [addMessage, clearMessages, clearSupplementaryPolling]);
 
-  return { connect, disconnect, isConnected, clearHistory };
+  return { connect, disconnect, startListening, stopListening, isConnected, isRecording, clearHistory };
 }

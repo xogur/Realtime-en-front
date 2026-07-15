@@ -83,7 +83,7 @@ const METRICS: Array<{ key: MetricKey; label: string }> = [
     { key: 'grammar', label: '문법' },
     { key: 'vocabulary', label: '어휘' },
     { key: 'relevance', label: '응답 적합도' },
-    { key: 'fluency', label: '유창성' },
+    { key: 'fluency', label: '문장 완성도' },
     { key: 'interaction', label: '상호작용' },
 ];
 
@@ -180,6 +180,12 @@ function average(values: number[]): number {
 
 export function shouldShowCoachContent(evaluatedTurnCount: number, hasRealtimeCorrection: boolean): boolean {
     return evaluatedTurnCount > 0 || hasRealtimeCorrection;
+}
+
+export function getEvaluationReliabilityNotice(confidence: string): string | null {
+    return confidence.toLowerCase() === 'low'
+        ? 'AI 응답이 불안정해 임시 기준으로 평가했습니다.'
+        : null;
 }
 
 function calculateWeightedSessionScore(turns: EvaluatedTurn[]): number | null {
@@ -1475,6 +1481,7 @@ function FeedbackCard({ turn, compact = false }: { turn: EvaluatedTurn; compact?
     const score = getMetricScore(evaluation, 'overall');
     const correction = turn.message.correction?.suggested || evaluation.correction.suggested;
     const reason = evaluation.evidence.overall || turn.message.correction?.reason || evaluation.correction.reason;
+    const reliabilityNotice = getEvaluationReliabilityNotice(evaluation.confidence);
 
     return (
         <article className="min-w-0 rounded-md border-l-4 border-[#6b5a4a]/30 bg-[#fdf8f4]/85 p-3">
@@ -1483,6 +1490,11 @@ function FeedbackCard({ turn, compact = false }: { turn: EvaluatedTurn; compact?
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-black ${getScoreAccent(score)}`}>{score}점</span>
             </div>
             <p className="mt-2 break-words text-xs leading-relaxed text-[#6b5a4a]">{evaluation.feedback.summary}</p>
+            {reliabilityNotice && (
+                <p className="mt-2 rounded-md bg-[#fff7e8] px-2 py-1.5 text-xs font-semibold leading-relaxed text-[#7a5a23]">
+                    {reliabilityNotice}
+                </p>
+            )}
             {correction && (
                 <p className="mt-2 break-words rounded-md bg-[#edf5ed] px-2 py-1.5 text-xs leading-relaxed text-[#334d35]">
                     <span className="font-bold">교정:</span> {correction}
@@ -2152,7 +2164,7 @@ export function AssessmentPanel() {
                         아바타와 영어로 대화하면 응답마다 자동으로 코칭이 붙습니다. 대화는 끊지 않고, 이 패널에서 점수와 교정 근거만 조용히 업데이트합니다.
                     </section>
                 ) : (
-                    <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-2 lg:grid-rows-[minmax(160px,2fr)_minmax(178px,2.15fr)_minmax(0,5.85fr)] lg:overflow-hidden">
+                    <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-2 lg:grid-rows-[minmax(160px,2fr)_minmax(200px,2.4fr)_minmax(0,5.6fr)] lg:overflow-hidden">
                         <div className="contents">
                             <section className="relative order-2 flex min-h-0 flex-col overflow-hidden rounded-lg border border-white/50 bg-white/70 shadow-sm">
                                 <TierPromotionCelebration presentation={tierPromotion} />

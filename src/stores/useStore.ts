@@ -135,6 +135,7 @@ export type ChatMessage = {
     evaluationStatus?: 'pending' | 'ready' | 'skipped' | 'unavailable';
     evaluationErrorCode?: string;
     evaluationSkipReason?: string;
+    pendingMissionCompletions?: MissionCompletion[];
     completedMissions?: MissionCompletion[];
     attemptedMission?: PracticeMission;
 };
@@ -202,7 +203,9 @@ interface AppState {
     addMessage: (role: 'user' | 'assistant', content: string, id?: string) => void;
     syncMessages: (messages: ChatMessage[]) => void;
     appendToLastAssistantMessage: (content: string) => void;
+    appendToAssistantMessage: (turnId: string, content: string) => void;
     setLastAssistantSuggestions: (suggestions: string[]) => void;
+    setAssistantSuggestions: (turnId: string, suggestions: string[]) => void;
     setActiveMissions: (missions: PracticeMission[]) => void;
     addMissionCandidates: (missions: PracticeMission[]) => void;
     assignLatestPendingUserTurnId: (turnId: string) => void;
@@ -380,30 +383,65 @@ function getApplicableMissionsForMessage(messages: ChatMessage[], messageIndex: 
 }
 
 function applyMissionCompletionsToMessages(messages: ChatMessage[], missions: PracticeMission[]) {
-    let activeMissions = missions;
     let changed = false;
-    let completedMessageKey: string | undefined;
     const nextMessages = [...messages];
     const messageIndex = messages.findLastIndex((message) => message.role === 'user');
     const message = messageIndex >= 0 ? messages[messageIndex] : null;
 
-    if (message && activeMissions.length > 0) {
-        const applicableMissions = getApplicableMissionsForMessage(messages, messageIndex, activeMissions);
+    if (message && missions.length > 0) {
+        const applicableMissions = getApplicableMissionsForMessage(messages, messageIndex, missions);
         const completions = completeMissions(message.content, applicableMissions);
         if (completions.length > 0) {
-            const completedMissions = mergeUniqueCompletions(message.completedMissions, completions);
-            const completedIds = new Set(completedMissions.map((mission) => mission.missionId));
-            activeMissions = activeMissions.filter((mission) => !completedIds.has(mission.id));
             nextMessages[messageIndex] = {
                 ...message,
-                completedMissions,
+                pendingMissionCompletions: mergeUniqueCompletions(message.pendingMissionCompletions, completions),
             };
             changed = true;
-            completedMessageKey = getUserMessageKey(message);
         }
     }
 
-    return { messages: changed ? nextMessages : messages, activeMissions, completedMessageKey };
+    return { messages: changed ? nextMessages : messages };
+}
+
+function applyEvaluationToMessage(
+    messages: ChatMessage[],
+    messageIndex: number,
+    activeMissions: PracticeMission[],
+    missionQueue: PracticeMission[],
+    evaluation: TurnEvaluation,
+    turnId?: string,
+) {
+    const message = messages[messageIndex];
+    const activeMissionIds = new Set(activeMissions.map((mission) => mission.id));
+    const previouslyCompletedIds = new Set(
+        messages.flatMap((candidate) => candidate.completedMissions ?? []).map((mission) => mission.missionId),
+    );
+    const confirmed = evaluationConfirmsMission(evaluation)
+        ? (message.pendingMissionCompletions ?? []).filter((mission) => (
+            activeMissionIds.has(mission.missionId) && !previouslyCompletedIds.has(mission.missionId)
+        ))
+        : [];
+    const completedMissions = mergeUniqueCompletions(message.completedMissions, confirmed);
+    const completedIds = new Set(confirmed.map((mission) => mission.missionId));
+    const missions = refillActiveMissions(
+        activeMissions.filter((mission) => !completedIds.has(mission.id)),
+        missionQueue,
+        confirmed.length > 0 ? getUserMessageKey(message) : undefined,
+    );
+    const nextMessages = [...messages];
+    nextMessages[messageIndex] = {
+        ...message,
+        id: turnId ?? message.id,
+        evaluation,
+        evaluationStatus: 'ready',
+        pendingMissionCompletions: undefined,
+        completedMissions: completedMissions.length > 0 ? completedMissions : undefined,
+    };
+    return {
+        messages: nextMessages,
+        activeMissions: missions.activeMissions,
+        missionQueue: missions.missionQueue,
+    };
 }
 
 function sanitizeMission(mission: PracticeMission): PracticeMission | null {
@@ -439,6 +477,13 @@ function firstMissionCheck(mission: PracticeMission): MissionCheck | undefined {
 function missionValues(check?: MissionCheck): string[] {
     if (!check?.value) return [];
     return typeof check.value === 'string' ? [check.value] : [...check.value];
+}
+
+function evaluationConfirmsMission(evaluation: TurnEvaluation): boolean {
+    return evaluation.confidence.toLowerCase() !== 'low'
+        && evaluation.scores.overall >= 50
+        && evaluation.scores.relevance >= 55
+        && evaluation.scores.interaction >= 40;
 }
 
 function formatMissionValues(values: string[]): string {
@@ -668,12 +713,9 @@ export const useStore = create<AppState>((set, get) => ({
                         content,
                         getApplicableMissionsForMessage(candidateMessages, existingIndex, state.activeMissions),
                     );
-                    const completedMissions = mergeUniqueCompletions(existingMessage.completedMissions, completions);
-                    const completedIds = new Set(completedMissions.map((mission) => mission.missionId));
-                    const missions = refillActiveMissions(
-                        state.activeMissions.filter((mission) => !completedIds.has(mission.id)),
-                        state.missionQueue,
-                        getUserMessageKey({ id, content }),
+                    const pendingMissionCompletions = mergeUniqueCompletions(
+                        existingMessage.pendingMissionCompletions,
+                        completions,
                     );
 
                     messages[existingIndex] = {
@@ -681,14 +723,12 @@ export const useStore = create<AppState>((set, get) => ({
                         content,
                         correctionStatus: existingMessage.correctionStatus ?? 'pending',
                         evaluationStatus: existingMessage.evaluationStatus ?? 'pending',
-                        completedMissions: completedMissions.length > 0 ? completedMissions : undefined,
+                        pendingMissionCompletions: pendingMissionCompletions.length > 0
+                            ? pendingMissionCompletions
+                            : undefined,
                     };
 
-                    return {
-                        activeMissions: missions.activeMissions,
-                        missionQueue: missions.missionQueue,
-                        messages,
-                    };
+                    return { messages };
                 }
             }
 
@@ -700,27 +740,13 @@ export const useStore = create<AppState>((set, get) => ({
                     content,
                 },
             ];
-            const completedMissions = role === 'user'
+            const pendingMissionCompletions = role === 'user'
                 ? completeMissions(
                     content,
                     getApplicableMissionsForMessage(candidateMessages, candidateMessages.length - 1, state.activeMissions),
                 )
                 : [];
-            const completedIds = new Set(completedMissions.map((mission) => mission.missionId));
-            const missions = role === 'user'
-                ? refillActiveMissions(
-                    state.activeMissions.filter((mission) => !completedIds.has(mission.id)),
-                    state.missionQueue,
-                    getUserMessageKey({ id, content }),
-                )
-                : {
-                    activeMissions: state.activeMissions,
-                    missionQueue: state.missionQueue,
-                };
-
             return {
-                activeMissions: missions.activeMissions,
-                missionQueue: missions.missionQueue,
                 messages: [
                     ...state.messages,
                     {
@@ -729,7 +755,9 @@ export const useStore = create<AppState>((set, get) => ({
                         content,
                         correctionStatus: role === 'user' ? 'pending' : undefined,
                         evaluationStatus: role === 'user' ? 'pending' : undefined,
-                        completedMissions: completedMissions.length > 0 ? completedMissions : undefined,
+                        pendingMissionCompletions: pendingMissionCompletions.length > 0
+                            ? pendingMissionCompletions
+                            : undefined,
                     },
                 ],
             };
@@ -737,12 +765,7 @@ export const useStore = create<AppState>((set, get) => ({
     syncMessages: (messages) =>
         set((state) => {
             const synced = applyMissionCompletionsToMessages(messages, state.activeMissions);
-            const missions = refillActiveMissions(synced.activeMissions, state.missionQueue, synced.completedMessageKey);
-            return {
-                messages: synced.messages,
-                activeMissions: missions.activeMissions,
-                missionQueue: missions.missionQueue,
-            };
+            return { messages: synced.messages };
         }),
     appendToLastAssistantMessage: (content) =>
         set((state) => {
@@ -758,6 +781,21 @@ export const useStore = create<AppState>((set, get) => ({
             }
             return state;
         }),
+    appendToAssistantMessage: (turnId, content) =>
+        set((state) => {
+            const messages = [...state.messages];
+            const index = messages.findLastIndex(
+                (message) => message.role === 'assistant' && message.id === turnId,
+            );
+            if (index < 0 || messages[index].content.includes(content)) {
+                return state;
+            }
+            messages[index] = {
+                ...messages[index],
+                content: `${messages[index].content}\n\n${content}`,
+            };
+            return { messages };
+        }),
     setLastAssistantSuggestions: (suggestions) =>
         set((state) => {
             const messages = [...state.messages];
@@ -771,6 +809,21 @@ export const useStore = create<AppState>((set, get) => ({
                 }
             }
             return state;
+        }),
+    setAssistantSuggestions: (turnId, suggestions) =>
+        set((state) => {
+            const messages = [...state.messages];
+            const index = messages.findLastIndex(
+                (message) => message.role === 'assistant' && message.id === turnId,
+            );
+            if (index < 0) {
+                return state;
+            }
+            messages[index] = {
+                ...messages[index],
+                suggestions,
+            };
+            return { messages };
         }),
     setActiveMissions: (missions) =>
         set({
@@ -843,12 +896,13 @@ export const useStore = create<AppState>((set, get) => ({
                 if (messages[fallbackMatchIndex].evaluationStatus !== 'pending') {
                     return state;
                 }
-                messages[fallbackMatchIndex] = {
-                    ...messages[fallbackMatchIndex],
+                return applyEvaluationToMessage(
+                    messages,
+                    fallbackMatchIndex,
+                    state.activeMissions,
+                    state.missionQueue,
                     evaluation,
-                    evaluationStatus: 'ready',
-                };
-                return { messages };
+                );
             }
 
             const originalText = evaluation.correction.original.trim();
@@ -860,13 +914,14 @@ export const useStore = create<AppState>((set, get) => ({
                         messages[index].evaluationStatus === 'pending' &&
                         messages[index].content.trim() === originalText
                     ) {
-                        messages[index] = {
-                            ...messages[index],
-                            id: turnId,
+                        return applyEvaluationToMessage(
+                            messages,
+                            index,
+                            state.activeMissions,
+                            state.missionQueue,
                             evaluation,
-                            evaluationStatus: 'ready',
-                        };
-                        return { messages };
+                            turnId,
+                        );
                     }
                 }
             }

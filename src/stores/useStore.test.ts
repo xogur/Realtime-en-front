@@ -38,20 +38,86 @@ function evaluation(overrides: Partial<TurnEvaluation> = {}): TurnEvaluation {
     };
 }
 
+describe('replayed assistant result state', () => {
+    beforeEach(() => {
+        resetStore();
+    });
+
+    it('restores translation on the matching assistant turn without duplication', () => {
+        useStore.getState().addMessage('assistant', 'First answer.', 'turn-1');
+        useStore.getState().addMessage('assistant', 'Second answer.', 'turn-2');
+
+        useStore.getState().appendToAssistantMessage('turn-1', '한국어 해석: 첫 답변입니다.');
+        useStore.getState().appendToAssistantMessage('turn-1', '한국어 해석: 첫 답변입니다.');
+
+        const [first, second] = useStore.getState().messages;
+        expect(first.content).toBe('First answer.\n\n한국어 해석: 첫 답변입니다.');
+        expect(second.content).toBe('Second answer.');
+    });
+
+    it('restores suggestions on the matching assistant turn', () => {
+        useStore.getState().addMessage('assistant', 'First answer.', 'turn-1');
+        useStore.getState().addMessage('assistant', 'Second answer.', 'turn-2');
+
+        useStore.getState().setAssistantSuggestions('turn-1', ['Yes, I do.']);
+
+        const [first, second] = useStore.getState().messages;
+        expect(first.suggestions).toEqual(['Yes, I do.']);
+        expect(second.suggestions).toBeUndefined();
+    });
+});
+
 describe('mission completion store rules', () => {
     beforeEach(() => {
         resetStore();
     });
 
-    it('records a completed active mission once and removes it from active missions', () => {
+    it('keeps a text-matched mission pending until evaluation confirms it', () => {
         useStore.getState().setActiveMissions([mission()]);
 
         useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-1');
 
         const state = useStore.getState();
-        expect(state.messages[0].completedMissions).toHaveLength(1);
+        expect(state.messages[0].pendingMissionCompletions?.[0].missionId).toBe('mission-because');
+        expect(state.messages[0].completedMissions).toBeUndefined();
+        expect(state.activeMissions).toHaveLength(1);
+    });
+
+    it('confirms and rewards a pending mission after a relevant evaluation', () => {
+        useStore.getState().setActiveMissions([mission()]);
+        useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-ready');
+
+        useStore.getState().setTurnEvaluation('turn-ready', evaluation());
+
+        const state = useStore.getState();
+        expect(state.messages[0].pendingMissionCompletions).toBeUndefined();
         expect(state.messages[0].completedMissions?.[0].missionId).toBe('mission-because');
         expect(state.activeMissions).toHaveLength(0);
+    });
+
+    it('rejects a text-matched mission when the evaluated answer is off-topic', () => {
+        useStore.getState().setActiveMissions([mission()]);
+        useStore.getState().addMessage('user', 'because', 'turn-ready');
+
+        useStore.getState().setTurnEvaluation('turn-ready', evaluation({
+            scores: { overall: 35, grammar: 60, vocabulary: 50, relevance: 20, fluency: 45, interaction: 25 },
+        }));
+
+        const state = useStore.getState();
+        expect(state.messages[0].pendingMissionCompletions).toBeUndefined();
+        expect(state.messages[0].completedMissions).toBeUndefined();
+        expect(state.activeMissions).toHaveLength(1);
+    });
+
+    it('does not confirm a mission from a low-confidence fallback evaluation', () => {
+        useStore.getState().setActiveMissions([mission()]);
+        useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-ready');
+
+        useStore.getState().setTurnEvaluation('turn-ready', evaluation({ confidence: 'low' }));
+
+        const state = useStore.getState();
+        expect(state.messages[0].completedMissions).toBeUndefined();
+        expect(state.activeMissions).toHaveLength(1);
     });
 
     it('does not duplicate completion when the same user message id updates', () => {
@@ -60,9 +126,9 @@ describe('mission completion store rules', () => {
         useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-1');
         useStore.getState().addMessage('user', 'I stayed home because it rained a lot.', 'turn-1');
 
-        const completed = useStore.getState().messages[0].completedMissions ?? [];
-        expect(completed).toHaveLength(1);
-        expect(completed.map((item) => item.missionId)).toEqual(['mission-because']);
+        const pending = useStore.getState().messages[0].pendingMissionCompletions ?? [];
+        expect(pending).toHaveLength(1);
+        expect(pending.map((item) => item.missionId)).toEqual(['mission-because']);
     });
 
     it('keeps reconnect turns separate when backend generation ids repeat with new event sequences', () => {
@@ -138,6 +204,8 @@ describe('mission completion store rules', () => {
         expect(useStore.getState().activeMissions).toHaveLength(1);
 
         useStore.getState().addMessage('user', matchingText, `match-${_name}`);
+        expect(useStore.getState().messages[1].pendingMissionCompletions?.map((item) => item.missionId)).toEqual([candidate.id]);
+        useStore.getState().setTurnEvaluation(`match-${_name}`, evaluation({ turnId: `match-${_name}` }));
         expect(useStore.getState().messages[1].completedMissions?.map((item) => item.missionId)).toEqual([candidate.id]);
         expect(useStore.getState().activeMissions).toHaveLength(0);
     });
@@ -177,6 +245,7 @@ describe('mission completion store rules', () => {
         ]);
 
         useStore.getState().addMessage('user', 'I will go because it is important today.', 'turn-1');
+        useStore.getState().setTurnEvaluation('turn-1', evaluation({ turnId: 'turn-1' }));
 
         const state = useStore.getState();
         expect(state.messages[0].completedMissions?.map((item) => item.missionId)).toEqual(['mission-because']);

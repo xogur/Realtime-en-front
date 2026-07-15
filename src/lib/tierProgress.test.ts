@@ -31,7 +31,7 @@ describe('calculateTierProgress', () => {
         expect(result.nextTierRemainingLp).toBe(100);
     });
 
-    it('keeps the highest earned tier after negative LP', () => {
+    it('protects a newly earned tier from one small negative turn', () => {
         const result = calculateTierProgress({ tiers, turnLps: [60, 45, -12] });
 
         expect(result.tier.id).toBe('bronze');
@@ -42,15 +42,25 @@ describe('calculateTierProgress', () => {
         expect(result.nextTierRemainingLp).toBe(107);
     });
 
-    it('supports developer promotion and demotion checks with synthetic LP events', () => {
-        const result = calculateTierProgress({ tiers, turnLps: [20, 100, -100] });
+    it('demotes after two consecutive negative turns cross the protection band', () => {
+        const result = calculateTierProgress({ tiers, turnLps: [60, 45, -12, -15] });
 
-        expect(result.tier.id).toBe('bronze');
+        expect(result.tier.id).toBe('unranked');
+        expect(result.totalLp).toBe(78);
+        expect(result.latestDelta).toBe(-15);
+        expect(result.nextTier?.id).toBe('bronze');
+        expect(result.nextTierRemainingLp).toBe(22);
+    });
+
+    it('supports protected developer demotion checks with synthetic LP events', () => {
+        const result = calculateTierProgress({ tiers, turnLps: [20, 100, -99, -1] });
+
+        expect(result.tier.id).toBe('unranked');
         expect(result.highestTotalLp).toBe(120);
         expect(result.totalLp).toBe(20);
-        expect(result.lp).toBe(0);
-        expect(result.latestDelta).toBe(-100);
-        expect(result.nextTierRemainingLp).toBe(180);
+        expect(result.lp).toBe(20);
+        expect(result.latestDelta).toBe(-1);
+        expect(result.nextTierRemainingLp).toBe(80);
     });
 
     it('does not lock a tier from a pending mission bonus', () => {
@@ -69,14 +79,15 @@ describe('calculateTierProgress', () => {
         expect(result.nextTierRemainingLp).toBe(0);
     });
 
-    it('keeps the max tier stable even if the current total drops below its start', () => {
-        const result = calculateTierProgress({ tiers, turnLps: [320, -50] });
+    it('protects the max tier once, then demotes it on sustained decline', () => {
+        const protectedResult = calculateTierProgress({ tiers, turnLps: [320, -50] });
+        const demotedResult = calculateTierProgress({ tiers, turnLps: [320, -50, -1] });
 
-        expect(result.tier.id).toBe('gold');
-        expect(result.totalLp).toBe(270);
-        expect(result.lp).toBe(0);
-        expect(result.progress).toBe(100);
-        expect(result.nextTier).toBeNull();
-        expect(result.nextTierRemainingLp).toBe(0);
+        expect(protectedResult.tier.id).toBe('gold');
+        expect(demotedResult.tier.id).toBe('silver');
+        expect(demotedResult.totalLp).toBe(269);
+        expect(demotedResult.lp).toBe(69);
+        expect(demotedResult.nextTier?.id).toBe('gold');
+        expect(demotedResult.nextTierRemainingLp).toBe(31);
     });
 });

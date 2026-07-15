@@ -1,4 +1,6 @@
 const TIER_LP_SIZE = 100;
+const DEMOTION_PROTECTION_LP = 20;
+const DEMOTION_NEGATIVE_STREAK = 2;
 
 type TierWithLabel = {
     label: string;
@@ -39,15 +41,37 @@ export function calculateTierProgress<TTier extends TierWithLabel>({
 
     let evaluatedTotal = 0;
     let highestEvaluatedTotal = 0;
+    let tierIndex = 0;
+    let negativeStreak = 0;
 
     turnLps.forEach((delta) => {
-        evaluatedTotal += Number.isFinite(delta) ? Math.round(delta) : 0;
+        const normalizedDelta = Number.isFinite(delta) ? Math.round(delta) : 0;
+        evaluatedTotal += normalizedDelta;
         highestEvaluatedTotal = Math.max(highestEvaluatedTotal, Math.max(0, evaluatedTotal));
+        negativeStreak = normalizedDelta < 0 ? negativeStreak + 1 : 0;
+
+        const earnedTierIndex = Math.min(
+            tiers.length - 1,
+            Math.floor(Math.max(0, evaluatedTotal) / TIER_LP_SIZE),
+        );
+        if (earnedTierIndex > tierIndex) {
+            tierIndex = earnedTierIndex;
+            negativeStreak = 0;
+            return;
+        }
+
+        const demotionBoundary = tierIndex * TIER_LP_SIZE - DEMOTION_PROTECTION_LP;
+        if (
+            tierIndex > 0
+            && negativeStreak >= DEMOTION_NEGATIVE_STREAK
+            && evaluatedTotal < demotionBoundary
+        ) {
+            tierIndex -= 1;
+        }
     });
 
     const totalLp = clampLp(evaluatedTotal + pendingMissionBonus);
     const highestTotalLp = clampLp(highestEvaluatedTotal);
-    const tierIndex = Math.min(tiers.length - 1, Math.floor(highestTotalLp / TIER_LP_SIZE));
     const nextTier = tiers[tierIndex + 1] ?? null;
     const currentTierStart = tierIndex * TIER_LP_SIZE;
     const nextTierStart = (tierIndex + 1) * TIER_LP_SIZE;

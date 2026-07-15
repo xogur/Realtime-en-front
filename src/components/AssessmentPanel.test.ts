@@ -21,7 +21,7 @@ vi.mock('framer-motion', async () => {
     };
 });
 
-import { CorrectionCoachCard, shouldShowCoachContent } from './AssessmentPanel';
+import { CorrectionCoachCard, getEvaluationReliabilityNotice, shouldShowCoachContent } from './AssessmentPanel';
 
 beforeEach(() => {
     animateMock.mockClear();
@@ -51,6 +51,16 @@ describe('shouldShowCoachContent', () => {
 
     it('shows evaluated content without a realtime correction', () => {
         expect(shouldShowCoachContent(1, false)).toBe(true);
+    });
+});
+
+describe('getEvaluationReliabilityNotice', () => {
+    it('marks low-confidence model fallback as a provisional evaluation', () => {
+        expect(getEvaluationReliabilityNotice('low')).toBe('AI 응답이 불안정해 임시 기준으로 평가했습니다.');
+    });
+
+    it('does not warn for normal confidence', () => {
+        expect(getEvaluationReliabilityNotice('high')).toBeNull();
     });
 });
 
