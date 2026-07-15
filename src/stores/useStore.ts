@@ -148,12 +148,15 @@ export type EvaluationBatchStatus = {
     maxTurns: number;
     delaySeconds: number;
     nextFlushAtEpochMs?: number | null;
+    sourceNextFlushAtEpochMs?: number | null;
+    serverEpochMs?: number | null;
     receivedAtEpochMs: number;
 };
 
 interface AppState {
     isConnecting: boolean;
     isConnected: boolean;
+    isSttReady: boolean;
     isRecording: boolean;
     isPlaying: boolean;
     volume: number; // 0 to 1, for visualizer
@@ -202,6 +205,7 @@ interface AppState {
 
     setConnecting: (status: boolean) => void;
     setConnected: (status: boolean) => void;
+    setSttReady: (status: boolean) => void;
     setRecording: (status: boolean) => void;
     setPlaying: (status: boolean) => void;
     setVolume: (volume: number) => void;
@@ -222,7 +226,7 @@ interface AppState {
     setTurnEvaluationUnavailable: (turnId: string, code?: string) => void;
     getPendingEvaluationTurnIds: () => string[];
     skipPendingTurnEvaluations: (reason?: string) => void;
-    setEvaluationBatchStatus: (status: Omit<EvaluationBatchStatus, 'receivedAtEpochMs'>) => void;
+    setEvaluationBatchStatus: (status: Omit<EvaluationBatchStatus, 'receivedAtEpochMs' | 'sourceNextFlushAtEpochMs'>) => void;
     queueLocalEvaluationBatchTurn: (delaySeconds: number, maxTurns: number) => void;
     clearEvaluationBatchStatus: () => void;
     setVoice: (voice: string) => void;
@@ -389,25 +393,45 @@ function getApplicableMissionsForMessage(messages: ChatMessage[], messageIndex: 
     });
 }
 
-function applyMissionCompletionsToMessages(messages: ChatMessage[], missions: PracticeMission[]) {
-    let changed = false;
-    const nextMessages = [...messages];
-    const messageIndex = messages.findLastIndex((message) => message.role === 'user');
-    const message = messageIndex >= 0 ? messages[messageIndex] : null;
-
-    if (message && missions.length > 0) {
-        const applicableMissions = getApplicableMissionsForMessage(messages, messageIndex, missions);
-        const completions = completeMissions(message.content, applicableMissions);
-        if (completions.length > 0) {
-            nextMessages[messageIndex] = {
-                ...message,
-                pendingMissionCompletions: mergeUniqueCompletions(message.pendingMissionCompletions, completions),
-            };
-            changed = true;
-        }
+function applyImmediateMissionCompletions(
+    messages: ChatMessage[],
+    messageIndex: number,
+    activeMissions: PracticeMission[],
+    missionQueue: PracticeMission[],
+) {
+    const message = messages[messageIndex];
+    if (!message || message.role !== 'user' || activeMissions.length === 0) {
+        return { messages, activeMissions, missionQueue };
     }
 
-    return { messages: changed ? nextMessages : messages };
+    const previouslyCompletedIds = new Set(
+        messages.flatMap((candidate) => candidate.completedMissions ?? []).map((mission) => mission.missionId),
+    );
+    const completions = completeMissions(
+        message.content,
+        getApplicableMissionsForMessage(messages, messageIndex, activeMissions),
+    ).filter((completion) => !previouslyCompletedIds.has(completion.missionId));
+    if (completions.length === 0) {
+        return { messages, activeMissions, missionQueue };
+    }
+
+    const completedIds = new Set(completions.map((completion) => completion.missionId));
+    const missions = refillActiveMissions(
+        activeMissions.filter((mission) => !completedIds.has(mission.id)),
+        missionQueue,
+        getUserMessageKey(message),
+    );
+    const nextMessages = [...messages];
+    nextMessages[messageIndex] = {
+        ...message,
+        pendingMissionCompletions: undefined,
+        completedMissions: mergeUniqueCompletions(message.completedMissions, completions),
+    };
+    return {
+        messages: nextMessages,
+        activeMissions: missions.activeMissions,
+        missionQueue: missions.missionQueue,
+    };
 }
 
 function applyEvaluationToMessage(
@@ -418,36 +442,24 @@ function applyEvaluationToMessage(
     evaluation: TurnEvaluation,
     turnId?: string,
 ) {
-    const message = messages[messageIndex];
-    const activeMissionIds = new Set(activeMissions.map((mission) => mission.id));
-    const previouslyCompletedIds = new Set(
-        messages.flatMap((candidate) => candidate.completedMissions ?? []).map((mission) => mission.missionId),
-    );
-    const confirmed = evaluationConfirmsMission(evaluation)
-        ? (message.pendingMissionCompletions ?? []).filter((mission) => (
-            activeMissionIds.has(mission.missionId) && !previouslyCompletedIds.has(mission.missionId)
-        ))
-        : [];
-    const completedMissions = mergeUniqueCompletions(message.completedMissions, confirmed);
-    const completedIds = new Set(confirmed.map((mission) => mission.missionId));
-    const missions = refillActiveMissions(
-        activeMissions.filter((mission) => !completedIds.has(mission.id)),
+    const completed = applyImmediateMissionCompletions(
+        messages,
+        messageIndex,
+        activeMissions,
         missionQueue,
-        confirmed.length > 0 ? getUserMessageKey(message) : undefined,
     );
-    const nextMessages = [...messages];
+    const nextMessages = [...completed.messages];
+    const message = nextMessages[messageIndex];
     nextMessages[messageIndex] = {
         ...message,
         id: turnId ?? message.id,
         evaluation,
         evaluationStatus: 'ready',
-        pendingMissionCompletions: undefined,
-        completedMissions: completedMissions.length > 0 ? completedMissions : undefined,
     };
     return {
         messages: nextMessages,
-        activeMissions: missions.activeMissions,
-        missionQueue: missions.missionQueue,
+        activeMissions: completed.activeMissions,
+        missionQueue: completed.missionQueue,
     };
 }
 
@@ -484,14 +496,6 @@ function firstMissionCheck(mission: PracticeMission): MissionCheck | undefined {
 function missionValues(check?: MissionCheck): string[] {
     if (!check?.value) return [];
     return typeof check.value === 'string' ? [check.value] : [...check.value];
-}
-
-function evaluationConfirmsMission(evaluation: TurnEvaluation): boolean {
-    const confidence = evaluation.confidence.trim().toLowerCase();
-    return (confidence === 'high' || confidence === 'medium')
-        && evaluation.scores.overall >= 50
-        && evaluation.scores.relevance >= 55
-        && evaluation.scores.interaction >= 40;
 }
 
 function formatMissionValues(values: string[]): string {
@@ -680,6 +684,7 @@ function localizeMission(mission: PracticeMission): PracticeMission {
 export const useStore = create<AppState>((set, get) => ({
     isConnecting: false,
     isConnected: false,
+    isSttReady: false,
     isRecording: false,
     isPlaying: false,
     volume: 0,
@@ -704,6 +709,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     setConnecting: (status) => set({ isConnecting: status }),
     setConnected: (status) => set({ isConnected: status }),
+    setSttReady: (status) => set({ isSttReady: status }),
     setRecording: (status) => set({ isRecording: status }),
     setPlaying: (status) => set({ isPlaying: status }),
     setVolume: (volume) => set({ volume }),
@@ -718,72 +724,53 @@ export const useStore = create<AppState>((set, get) => ({
                     candidateMessages[existingIndex] = {
                         ...existingMessage,
                         content,
-                    };
-                    const completions = completeMissions(
-                        content,
-                        getApplicableMissionsForMessage(candidateMessages, existingIndex, state.activeMissions),
-                    );
-                    const pendingMissionCompletions = mergeUniqueCompletions(
-                        existingMessage.pendingMissionCompletions,
-                        completions,
-                    );
-
-                    messages[existingIndex] = {
-                        ...existingMessage,
-                        content,
                         correctionStatus: existingMessage.correctionStatus ?? 'pending',
                         evaluationStatus: existingMessage.evaluationStatus ?? 'pending',
-                        pendingMissionCompletions: pendingMissionCompletions.length > 0
-                            ? pendingMissionCompletions
-                            : undefined,
                     };
-
-                    return { messages };
+                    return applyImmediateMissionCompletions(
+                        candidateMessages,
+                        existingIndex,
+                        state.activeMissions,
+                        state.missionQueue,
+                    );
                 }
             }
 
-            const candidateMessages = [
+            const replayedMissionState = role === 'user' && state.isSessionReplay
+                ? state.missionReplaySnapshot?.[getUserMessageKey({ id, content })]
+                : undefined;
+            const messages = [
                 ...state.messages,
                 {
                     id,
                     role,
                     content,
+                    correctionStatus: role === 'user' ? 'pending' as const : undefined,
+                    evaluationStatus: role === 'user' ? 'pending' as const : undefined,
+                    pendingMissionCompletions: replayedMissionState?.pendingMissionCompletions,
+                    completedMissions: replayedMissionState?.completedMissions,
                 },
             ];
-            const replayedMissionState = role === 'user' && state.isSessionReplay
-                ? state.missionReplaySnapshot?.[getUserMessageKey({ id, content })]
-                : undefined;
-            const matchedMissionCompletions = role === 'user' && !state.isSessionReplay
-                ? completeMissions(
-                    content,
-                    getApplicableMissionsForMessage(candidateMessages, candidateMessages.length - 1, state.activeMissions),
-                )
-                : [];
-            const pendingMissionCompletions = mergeUniqueCompletions(
-                replayedMissionState?.pendingMissionCompletions,
-                matchedMissionCompletions,
+            if (role !== 'user' || state.isSessionReplay) {
+                return { messages };
+            }
+            return applyImmediateMissionCompletions(
+                messages,
+                messages.length - 1,
+                state.activeMissions,
+                state.missionQueue,
             );
-            return {
-                messages: [
-                    ...state.messages,
-                    {
-                        id,
-                        role,
-                        content,
-                        correctionStatus: role === 'user' ? 'pending' : undefined,
-                        evaluationStatus: role === 'user' ? 'pending' : undefined,
-                        pendingMissionCompletions: pendingMissionCompletions.length > 0
-                            ? pendingMissionCompletions
-                            : undefined,
-                        completedMissions: replayedMissionState?.completedMissions,
-                    },
-                ],
-            };
         }),
     syncMessages: (messages) =>
         set((state) => {
-            const synced = applyMissionCompletionsToMessages(messages, state.activeMissions);
-            return { messages: synced.messages };
+            const latestUserIndex = messages.findLastIndex((message) => message.role === 'user');
+            if (latestUserIndex < 0) return { messages };
+            return applyImmediateMissionCompletions(
+                messages,
+                latestUserIndex,
+                state.activeMissions,
+                state.missionQueue,
+            );
         }),
     appendToLastAssistantMessage: (content) =>
         set((state) => {
@@ -987,14 +974,38 @@ export const useStore = create<AppState>((set, get) => ({
             return state;
         }),
     setEvaluationBatchStatus: (status) =>
-        set({
-            evaluationBatchStatus: {
-                ...status,
-                pendingCount: Math.max(0, Math.floor(status.pendingCount)),
-                maxTurns: Math.max(1, Math.floor(status.maxTurns)),
-                delaySeconds: Math.max(0, status.delaySeconds),
-                receivedAtEpochMs: Date.now(),
-            },
+        set((state) => {
+            const receivedAtEpochMs = Date.now();
+            const delaySeconds = Math.max(0, status.delaySeconds);
+            const sourceNextFlushAtEpochMs = status.nextFlushAtEpochMs ?? null;
+            const sameServerDeadline = sourceNextFlushAtEpochMs !== null
+                && state.evaluationBatchStatus?.sourceNextFlushAtEpochMs === sourceNextFlushAtEpochMs;
+            let nextFlushAtEpochMs: number | null = null;
+
+            if (sourceNextFlushAtEpochMs !== null) {
+                if (sameServerDeadline && state.evaluationBatchStatus?.nextFlushAtEpochMs) {
+                    nextFlushAtEpochMs = state.evaluationBatchStatus.nextFlushAtEpochMs;
+                } else {
+                    const serverEpochMs = status.serverEpochMs;
+                    const remainingMs = typeof serverEpochMs === 'number' && Number.isFinite(serverEpochMs)
+                        ? sourceNextFlushAtEpochMs - serverEpochMs
+                        : delaySeconds * 1000;
+                    nextFlushAtEpochMs = receivedAtEpochMs
+                        + Math.max(0, Math.min(delaySeconds * 1000, remainingMs));
+                }
+            }
+
+            return {
+                evaluationBatchStatus: {
+                    pendingCount: Math.max(0, Math.floor(status.pendingCount)),
+                    maxTurns: Math.max(1, Math.floor(status.maxTurns)),
+                    delaySeconds,
+                    nextFlushAtEpochMs,
+                    sourceNextFlushAtEpochMs,
+                    serverEpochMs: status.serverEpochMs ?? null,
+                    receivedAtEpochMs,
+                },
+            };
         }),
     queueLocalEvaluationBatchTurn: (delaySeconds, maxTurns) =>
         set((state) => {
@@ -1013,6 +1024,8 @@ export const useStore = create<AppState>((set, get) => ({
                     maxTurns: normalizedMaxTurns,
                     delaySeconds: Math.max(0, delaySeconds),
                     nextFlushAtEpochMs,
+                    sourceNextFlushAtEpochMs: undefined,
+                    serverEpochMs: undefined,
                     receivedAtEpochMs: now,
                 },
             };

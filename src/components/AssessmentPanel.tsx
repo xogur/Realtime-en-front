@@ -1325,12 +1325,29 @@ function formatCountdown(milliseconds: number): string {
     return `${minutes}분 ${seconds.toString().padStart(2, '0')}초`;
 }
 
-function getBatchCountdown(status: EvaluationBatchStatus | null, nowEpochMs: number): string | null {
+const EVALUATION_BATCH_COUNTDOWN_MS = 30_000;
+
+export function getBatchCountdown(status: EvaluationBatchStatus | null, nowEpochMs: number): string | null {
     if (!status || status.pendingCount <= 0) return null;
     if (status.nextFlushAtEpochMs) {
-        return formatCountdown(status.nextFlushAtEpochMs - nowEpochMs);
+        return formatCountdown(Math.min(
+            EVALUATION_BATCH_COUNTDOWN_MS,
+            status.nextFlushAtEpochMs - nowEpochMs,
+        ));
     }
-    return formatCountdown(status.delaySeconds * 1000);
+    return formatCountdown(EVALUATION_BATCH_COUNTDOWN_MS);
+}
+
+export function useCountdownClock(active: boolean): number {
+    const [nowEpochMs, setNowEpochMs] = useState(() => Date.now());
+
+    useEffect(() => {
+        if (!active) return;
+        const timer = window.setInterval(() => setNowEpochMs(Date.now()), 1000);
+        return () => window.clearInterval(timer);
+    }, [active]);
+
+    return nowEpochMs;
 }
 
 function StatusLine({
@@ -1951,7 +1968,6 @@ export function AssessmentPanel() {
     const showDeveloperLpControls = process.env.NODE_ENV !== 'production';
     const [developerLpDeltas, setDeveloperLpDeltas] = useState<number[]>([]);
     const [developerControlsOpen, setDeveloperControlsOpen] = useState(false);
-    const [nowEpochMs, setNowEpochMs] = useState(() => Date.now());
     const [detailTab, setDetailTab] = useState<AssessmentDetailTab>('feedback');
     const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -1991,6 +2007,7 @@ export function AssessmentPanel() {
     }, [messages]);
 
     const { userMessages, turns, latestTurn, sessionScore, trend, metricAverages, pendingCount, skippedCount, unavailableMessages } = assessment;
+    const nowEpochMs = useCountdownClock(pendingCount > 0);
     const previousTurns = turns.slice(0, -1).reverse();
     const weakestMetric = metricAverages.length > 0 ? getWeakestMetric(metricAverages) : null;
     const latestCorrectionMessage = [...userMessages]
@@ -2095,12 +2112,6 @@ export function AssessmentPanel() {
             ));
         });
     }, [addMissionCandidates, messages, turns]);
-
-    useEffect(() => {
-        if (!evaluationBatchStatus || evaluationBatchStatus.pendingCount <= 0) return;
-        const timer = window.setInterval(() => setNowEpochMs(Date.now()), 1000);
-        return () => window.clearInterval(timer);
-    }, [evaluationBatchStatus]);
 
     useEffect(() => {
         if (!showDeveloperLpControls) return;

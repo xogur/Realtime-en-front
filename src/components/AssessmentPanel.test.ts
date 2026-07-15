@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { createElement } from 'react';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { animateMock, stopMock } = vi.hoisted(() => {
@@ -23,9 +23,11 @@ vi.mock('framer-motion', async () => {
 
 import {
     CorrectionCoachCard,
+    getBatchCountdown,
     getEvaluationReliabilityNotice,
     getPracticeMissionCandidates,
     shouldShowCoachContent,
+    useCountdownClock,
 } from './AssessmentPanel';
 import type { ChatMessage, TurnEvaluation } from '@/stores/useStore';
 
@@ -44,7 +46,35 @@ beforeEach(() => {
     }));
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+});
+
+describe('batch evaluation countdown', () => {
+    it('caps stale or cross-clock deadlines at 30 seconds', () => {
+        expect(getBatchCountdown({
+            pendingCount: 1,
+            maxTurns: 4,
+            delaySeconds: 30,
+            nextFlushAtEpochMs: 1_086_000,
+            receivedAtEpochMs: 1_000_000,
+        }, 1_000_000)).toBe('30초');
+    });
+
+    it('ticks once per second while evaluation is pending', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(1_000_000);
+        const { result } = renderHook(() => useCountdownClock(true));
+        expect(result.current).toBe(1_000_000);
+
+        act(() => {
+            vi.advanceTimersByTime(1_000);
+        });
+
+        expect(result.current).toBe(1_001_000);
+    });
+});
 
 describe('shouldShowCoachContent', () => {
     it('shows realtime correction before the first batch evaluation arrives', () => {

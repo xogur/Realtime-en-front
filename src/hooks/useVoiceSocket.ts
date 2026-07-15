@@ -55,6 +55,7 @@ type SocketMessage = {
   maxTurns?: number;
   delaySeconds?: number;
   nextFlushAtEpochMs?: number | null;
+  serverEpochMs?: number | null;
   eventSeq?: number;
 };
 
@@ -198,7 +199,9 @@ export function useVoiceSocket() {
 
   const setConnecting = useStore((state) => state.setConnecting);
   const setConnected = useStore((state) => state.setConnected);
+  const setSttReady = useStore((state) => state.setSttReady);
   const isConnected = useStore((state) => state.isConnected);
+  const isSttReady = useStore((state) => state.isSttReady);
   const addMessage = useStore((state) => state.addMessage);
   const appendToLastAssistantMessage = useStore((state) => state.appendToLastAssistantMessage);
   const appendToAssistantMessage = useStore((state) => state.appendToAssistantMessage);
@@ -467,6 +470,7 @@ export function useVoiceSocket() {
         maxTurns: Number(data.maxTurns ?? 1),
         delaySeconds: Number(data.delaySeconds ?? 0),
         nextFlushAtEpochMs: data.nextFlushAtEpochMs ?? null,
+        serverEpochMs: data.serverEpochMs ?? null,
       });
     },
     [setEvaluationBatchStatus],
@@ -610,12 +614,12 @@ export function useVoiceSocket() {
 
     isConnecting.current = true;
     setConnecting(true);
+    setSttReady(false);
 
     const ws = new WebSocket(getConfiguredWsUrl(role));
 
     ws.onopen = () => {
       isConnecting.current = false;
-      setConnecting(false);
       setConnected(true);
       setSocket(ws);
       if (shouldStartRecording) {
@@ -730,9 +734,15 @@ export function useVoiceSocket() {
             handleEvaluationBatchStatus(data);
             break;
           case 'stt_provider_status':
+            if (data.content === 'ready') {
+              setSttReady(true);
+              setConnecting(false);
+            }
             console.info('STT provider status:', data.content);
             break;
           case 'stt_provider_error':
+            setSttReady(false);
+            setConnecting(false);
             console.error('STT provider error:', data.content);
             break;
           case 'stop_tts':
@@ -755,6 +765,7 @@ export function useVoiceSocket() {
       isConnecting.current = false;
       setConnecting(false);
       setConnected(false);
+      setSttReady(false);
       setSocket(null);
       activeGenerationIdRef.current = null;
       discardPendingEvaluations();
@@ -767,6 +778,7 @@ export function useVoiceSocket() {
       isConnecting.current = false;
       setConnecting(false);
       setConnected(false);
+      setSttReady(false);
       setSocket(null);
       activeGenerationIdRef.current = null;
       clearSupplementaryPolling();
@@ -795,6 +807,7 @@ export function useVoiceSocket() {
     scheduleSupplementaryPolling,
     setConnected,
     setConnecting,
+    setSttReady,
     setSocket,
     setThinking,
     setTurnEvaluationSkipped,
@@ -813,10 +826,11 @@ export function useVoiceSocket() {
     discardPendingEvaluations();
     flushActiveTts();
     setConnected(false);
+    setSttReady(false);
     setSocket(null);
     stopRecording();
     isDisconnecting.current = false;
-  }, [cleanupSocket, clearSupplementaryPolling, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, stopRecording]);
+  }, [cleanupSocket, clearSupplementaryPolling, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, setSttReady, stopRecording]);
 
   const startListening = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -897,5 +911,5 @@ export function useVoiceSocket() {
     addMessage('assistant', '(시스템) 대화 내용이 초기화되었습니다.');
   }, [addMessage, clearMessages, clearSupplementaryPolling]);
 
-  return { connect, disconnect, startListening, stopListening, isConnected, isRecording, clearHistory };
+  return { connect, disconnect, startListening, stopListening, isConnected, isSttReady, isRecording, clearHistory };
 }

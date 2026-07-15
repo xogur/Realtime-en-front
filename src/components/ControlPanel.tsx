@@ -10,9 +10,12 @@ interface ControlPanelProps {
 }
 
 export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
-    const { startListening, stopListening, isConnected, isRecording, clearHistory } = useVoiceSocket();
+    const { startListening, stopListening, isConnected, isSttReady, isRecording, clearHistory } = useVoiceSocket();
     const isConnecting = useStore((state) => state.isConnecting);
     const [isProcessing, setIsProcessing] = useState(false);
+    const isLive = isConnected && isSttReady && isRecording;
+    const isPreparingStt = isConnecting;
+    const isSttUnavailable = isConnected && !isSttReady && !isConnecting;
 
     const handleToggleConnection = useCallback(() => {
         if (isProcessing || isConnecting) return;
@@ -73,15 +76,15 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
                 disabled={isProcessing || isConnecting}
                 className={`relative flex items-center justify-center w-16 h-16 rounded-full transition-all duration-300 shadow-lg ${isConnecting || isProcessing
                     ? 'bg-blue-600 text-white shadow-blue-500/30'
-                    : isConnected && isRecording
+                    : isLive
                         ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/30'
                         : 'bg-zinc-900 hover:bg-zinc-800 text-white shadow-zinc-900/30'
                     }`}
-                aria-label={isConnected && isRecording ? 'Turn microphone off' : 'Turn microphone on'}
-                title={isConnected && isRecording ? 'Turn microphone off' : 'Turn microphone on'}
+                aria-label={isLive ? 'Turn microphone off' : 'Turn microphone on'}
+                title={isLive ? 'Turn microphone off' : 'Turn microphone on'}
             >
                 <AnimatePresence mode="wait">
-                    {isConnecting || isProcessing ? (
+                    {isPreparingStt || isProcessing ? (
                         <motion.div
                             key="connecting"
                             initial={{ scale: 0, opacity: 0 }}
@@ -90,7 +93,7 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
                         >
                             <Loader2 className="w-8 h-8 animate-spin" />
                         </motion.div>
-                    ) : isConnected && isRecording ? (
+                    ) : isLive ? (
                         <motion.div
                             key="connected"
                             initial={{ scale: 0 }}
@@ -115,11 +118,11 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
 
             <div className="flex flex-col items-start w-24">
                 <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${isConnecting ? 'bg-blue-500 animate-pulse' :
-                        isConnected && isRecording ? 'bg-green-500 animate-pulse' : isConnected ? 'bg-amber-500' : 'bg-zinc-300'
+                    <span className={`w-2 h-2 rounded-full ${isPreparingStt ? 'bg-blue-500 animate-pulse' :
+                        isLive ? 'bg-green-500 animate-pulse' : isSttUnavailable ? 'bg-red-500' : isConnected ? 'bg-amber-500' : 'bg-zinc-300'
                         }`} />
                     <span className="text-xs font-medium text-zinc-500">
-                        {isConnecting ? 'Connecting' : isConnected && isRecording ? 'Listening' : isConnected ? 'Mic off' : 'Offline'}
+                        {isPreparingStt ? 'Preparing STT' : isLive ? 'Live' : isSttUnavailable ? 'STT unavailable' : isConnected ? 'Mic off' : 'Offline'}
                     </span>
                 </div>
             </div>

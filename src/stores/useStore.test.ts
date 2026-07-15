@@ -72,18 +72,18 @@ describe('mission completion store rules', () => {
         resetStore();
     });
 
-    it('keeps a text-matched mission pending until evaluation confirms it', () => {
+    it('completes and rewards a text-matched mission immediately', () => {
         useStore.getState().setActiveMissions([mission()]);
 
         useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-1');
 
         const state = useStore.getState();
-        expect(state.messages[0].pendingMissionCompletions?.[0].missionId).toBe('mission-because');
-        expect(state.messages[0].completedMissions).toBeUndefined();
-        expect(state.activeMissions).toHaveLength(1);
+        expect(state.messages[0].pendingMissionCompletions).toBeUndefined();
+        expect(state.messages[0].completedMissions?.[0].missionId).toBe('mission-because');
+        expect(state.activeMissions).toHaveLength(0);
     });
 
-    it('confirms and rewards a pending mission after a relevant evaluation', () => {
+    it('keeps an immediately completed mission after evaluation arrives', () => {
         useStore.getState().setActiveMissions([mission()]);
         useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-ready');
 
@@ -95,7 +95,7 @@ describe('mission completion store rules', () => {
         expect(state.activeMissions).toHaveLength(0);
     });
 
-    it('rejects a text-matched mission when the evaluated answer is off-topic', () => {
+    it('does not make immediate mission success depend on batch relevance scoring', () => {
         useStore.getState().setActiveMissions([mission()]);
         useStore.getState().addMessage('user', 'because', 'turn-ready');
 
@@ -105,30 +105,30 @@ describe('mission completion store rules', () => {
 
         const state = useStore.getState();
         expect(state.messages[0].pendingMissionCompletions).toBeUndefined();
-        expect(state.messages[0].completedMissions).toBeUndefined();
-        expect(state.activeMissions).toHaveLength(1);
+        expect(state.messages[0].completedMissions?.[0].missionId).toBe('mission-because');
+        expect(state.activeMissions).toHaveLength(0);
     });
 
-    it('does not confirm a mission from a low-confidence fallback evaluation', () => {
+    it('keeps immediate mission success when batch evaluation confidence is low', () => {
         useStore.getState().setActiveMissions([mission()]);
         useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-ready');
 
         useStore.getState().setTurnEvaluation('turn-ready', evaluation({ confidence: 'low' }));
 
         const state = useStore.getState();
-        expect(state.messages[0].completedMissions).toBeUndefined();
-        expect(state.activeMissions).toHaveLength(1);
+        expect(state.messages[0].completedMissions?.[0].missionId).toBe('mission-because');
+        expect(state.activeMissions).toHaveLength(0);
     });
 
-    it('does not confirm a mission from an unknown confidence value', () => {
+    it('keeps immediate mission success when batch confidence value is unknown', () => {
         useStore.getState().setActiveMissions([mission()]);
         useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-ready');
 
         useStore.getState().setTurnEvaluation('turn-ready', evaluation({ confidence: 'uncertain' }));
 
         const state = useStore.getState();
-        expect(state.messages[0].completedMissions).toBeUndefined();
-        expect(state.activeMissions).toHaveLength(1);
+        expect(state.messages[0].completedMissions?.[0].missionId).toBe('mission-because');
+        expect(state.activeMissions).toHaveLength(0);
     });
 
     it('does not duplicate completion when the same user message id updates', () => {
@@ -137,9 +137,9 @@ describe('mission completion store rules', () => {
         useStore.getState().addMessage('user', 'I stayed home because it rained.', 'turn-1');
         useStore.getState().addMessage('user', 'I stayed home because it rained a lot.', 'turn-1');
 
-        const pending = useStore.getState().messages[0].pendingMissionCompletions ?? [];
-        expect(pending).toHaveLength(1);
-        expect(pending.map((item) => item.missionId)).toEqual(['mission-because']);
+        const completed = useStore.getState().messages[0].completedMissions ?? [];
+        expect(completed).toHaveLength(1);
+        expect(completed.map((item) => item.missionId)).toEqual(['mission-because']);
     });
 
     it('keeps reconnect turns separate when backend generation ids repeat with new event sequences', () => {
@@ -215,8 +215,6 @@ describe('mission completion store rules', () => {
         expect(useStore.getState().activeMissions).toHaveLength(1);
 
         useStore.getState().addMessage('user', matchingText, `match-${_name}`);
-        expect(useStore.getState().messages[1].pendingMissionCompletions?.map((item) => item.missionId)).toEqual([candidate.id]);
-        useStore.getState().setTurnEvaluation(`match-${_name}`, evaluation({ turnId: `match-${_name}` }));
         expect(useStore.getState().messages[1].completedMissions?.map((item) => item.missionId)).toEqual([candidate.id]);
         expect(useStore.getState().activeMissions).toHaveLength(0);
     });
@@ -406,19 +404,38 @@ describe('turn evaluation policy state', () => {
     });
 
     it('stores normalized evaluation batch status for the UI countdown', () => {
+        const receivedAtEpochMs = Date.now();
         useStore.getState().setEvaluationBatchStatus({
             pendingCount: 2.8,
             maxTurns: 4.2,
-            delaySeconds: 60,
+            delaySeconds: 30,
             nextFlushAtEpochMs: 1800000000000,
+            serverEpochMs: 1799999970000,
         });
 
         const status = useStore.getState().evaluationBatchStatus;
         expect(status?.pendingCount).toBe(2);
         expect(status?.maxTurns).toBe(4);
-        expect(status?.delaySeconds).toBe(60);
-        expect(status?.nextFlushAtEpochMs).toBe(1800000000000);
-        expect(status?.receivedAtEpochMs).toBeGreaterThan(0);
+        expect(status?.delaySeconds).toBe(30);
+        expect(status?.nextFlushAtEpochMs).toBeGreaterThanOrEqual(receivedAtEpochMs + 30000);
+        expect(status?.nextFlushAtEpochMs).toBeLessThanOrEqual(Date.now() + 30000);
+        expect(status?.receivedAtEpochMs).toBeGreaterThanOrEqual(receivedAtEpochMs);
+    });
+
+    it('does not reset the local countdown when polling returns the same server deadline', () => {
+        const serverStatus = {
+            pendingCount: 1,
+            maxTurns: 4,
+            delaySeconds: 30,
+            nextFlushAtEpochMs: 1800000000000,
+            serverEpochMs: 1799999970000,
+        };
+        useStore.getState().setEvaluationBatchStatus(serverStatus);
+        const firstDeadline = useStore.getState().evaluationBatchStatus?.nextFlushAtEpochMs;
+
+        useStore.getState().setEvaluationBatchStatus(serverStatus);
+
+        expect(useStore.getState().evaluationBatchStatus?.nextFlushAtEpochMs).toBe(firstDeadline);
     });
 
     it('clears evaluation batch status with messages', () => {
