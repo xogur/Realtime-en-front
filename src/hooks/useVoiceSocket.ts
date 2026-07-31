@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useStore, type TurnCorrection, type TurnEvaluation } from '@/stores/useStore';
 import { useAudioPlayer } from './useAudioPlayer';
-import { useAudioRecorder } from './useAudioRecorder';
+import { useSttAdapter } from './useSttAdapter';
 import type { Emotion, TtsAudioChunk, TtsVisemeTimeline } from '@/lib/lipsync/types';
 import { getKioskIdFromLocation, withKioskSessionParams, type KioskRole } from '@/lib/kioskIdentity';
+import { buildBrowserTranscriptMessage } from '@/lib/stt';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
 const EVALUATION_BATCH_MAX_TURNS = 4;
@@ -313,6 +314,7 @@ export function useVoiceSocket() {
   const supplementaryPollsRef = useRef<Map<string, SupplementaryPollState>>(new Map());
   const processedSupplementaryKeysRef = useRef<Set<string>>(new Set());
   const finalizedAssistantGenerationIdsRef = useRef<Set<string>>(new Set());
+  const activeSpeechTextRef = useRef('');
 
   const setConnecting = useStore((state) => state.setConnecting);
   const setConnected = useStore((state) => state.setConnected);
@@ -348,6 +350,7 @@ export function useVoiceSocket() {
   const reconcileSessionReplayPendingEvaluations = useStore((state) => state.reconcileSessionReplayPendingEvaluations);
 
   const notifyTtsPlaybackStopped = useCallback(() => {
+    activeSpeechTextRef.current = '';
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({ type: 'tts_stop' }));
     }
@@ -356,7 +359,6 @@ export function useVoiceSocket() {
   const { playPcmChunk, clearQueue } = useAudioPlayer({
     onPlaybackIdle: notifyTtsPlaybackStopped,
   });
-  const { startRecording, stopRecording, setOnDataAvailable, isRecording } = useAudioRecorder();
 
   const cleanupSocket = useCallback(() => {
     if (!socketRef.current) return;
@@ -383,6 +385,7 @@ export function useVoiceSocket() {
 
   const flushActiveTts = useCallback(
     (responseId?: string) => {
+      activeSpeechTextRef.current = '';
       clearQueue(responseId);
       clearTtsSegments(responseId);
       useStore.getState().setPartialMessage('');
@@ -390,6 +393,52 @@ export function useVoiceSocket() {
     },
     [clearQueue, clearTtsSegments, setLipSyncMode],
   );
+
+  const handleSttAudioData = useCallback((pcmData: Int16Array) => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) return;
+    socketRef.current.send(buildAudioPacket(pcmData, useStore.getState().isPlaying));
+  }, []);
+
+  const handleBrowserFinalTranscript = useCallback((transcript: string) => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) return;
+    socketRef.current.send(buildBrowserTranscriptMessage(transcript));
+  }, []);
+
+  const handleBrowserSpeechStarted = useCallback(() => {
+    if (!useStore.getState().isPlaying) return;
+    flushActiveTts();
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'tts_stop' }));
+    }
+  }, [flushActiveTts]);
+
+  const handleBrowserSttReadyChange = useCallback((ready: boolean) => {
+    setSttReady(ready);
+    setConnecting(false);
+  }, [setConnecting, setSttReady]);
+
+  const handleBrowserSttError = useCallback((code: string) => {
+    console.error('Browser STT error:', code);
+  }, []);
+
+  const getPlaybackState = useCallback(() => ({
+    isPlaying: useStore.getState().isPlaying,
+    text: activeSpeechTextRef.current,
+  }), []);
+
+  const {
+    provider: sttProvider,
+    start: startSttInput,
+    stop: stopSttInput,
+    isRecording,
+  } = useSttAdapter({
+    onAudioData: handleSttAudioData,
+    onFinalTranscript: handleBrowserFinalTranscript,
+    onReadyChange: handleBrowserSttReadyChange,
+    onError: handleBrowserSttError,
+    onSpeechStarted: handleBrowserSpeechStarted,
+    getPlaybackState,
+  });
 
   const getGenerationId = useCallback((data: SocketMessage): string | null => {
     if (data.generation_id === undefined || data.generation_id === null) {
@@ -840,6 +889,9 @@ export function useVoiceSocket() {
     (data: SocketMessage) => {
       if (!isCurrentGeneration(data)) return;
       if (!data.segment_id || !data.response_id) return;
+      if (data.text?.trim()) {
+        activeSpeechTextRef.current = `${activeSpeechTextRef.current} ${data.text}`.trim();
+      }
       upsertTtsSegment({
         responseId: data.response_id,
         segmentId: data.segment_id,
@@ -895,7 +947,7 @@ export function useVoiceSocket() {
       setConnected(true);
       setSocket(ws);
       if (shouldStartRecording) {
-        startRecording();
+        void startSttInput();
       }
 
       const currentVoice = useStore.getState().voice;
@@ -1022,15 +1074,17 @@ export function useVoiceSocket() {
             handleEvaluationBatchStatus(data);
             break;
           case 'stt_provider_status':
-            if (data.content === 'ready') {
+            if (sttProvider === 'server' && data.content === 'ready') {
               setSttReady(true);
               setConnecting(false);
             }
             console.info('STT provider status:', data.content);
             break;
           case 'stt_provider_error':
-            setSttReady(false);
-            setConnecting(false);
+            if (sttProvider === 'server') {
+              setSttReady(false);
+              setConnecting(false);
+            }
             console.error('STT provider error:', data.content);
             break;
           case 'stop_tts':
@@ -1060,7 +1114,7 @@ export function useVoiceSocket() {
         discardPendingEvaluations();
       }
       flushActiveTts();
-      stopRecording();
+      void stopSttInput();
     };
 
     ws.onerror = (error) => {
@@ -1104,8 +1158,9 @@ export function useVoiceSocket() {
     setTurnEvaluationSkipped,
     beginSessionReplay,
     finishSessionReplay,
-    startRecording,
-    stopRecording,
+    startSttInput,
+    stopSttInput,
+    sttProvider,
   ]);
 
   const disconnect = useCallback(() => {
@@ -1121,28 +1176,21 @@ export function useVoiceSocket() {
     setConnected(false);
     setSttReady(false);
     setSocket(null);
-    stopRecording();
+    void stopSttInput();
     isDisconnecting.current = false;
-  }, [cleanupSocket, clearSupplementaryPolling, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, setSttReady, stopRecording]);
+  }, [cleanupSocket, clearSupplementaryPolling, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, setSttReady, stopSttInput]);
 
   const startListening = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      void startRecording();
+      void startSttInput();
       return;
     }
     connect();
-  }, [connect, startRecording]);
+  }, [connect, startSttInput]);
 
   const stopListening = useCallback(() => {
-    void stopRecording();
-  }, [stopRecording]);
-
-  useEffect(() => {
-    setOnDataAvailable((pcmData) => {
-      if (socketRef.current?.readyState !== WebSocket.OPEN) return;
-      socketRef.current.send(buildAudioPacket(pcmData, useStore.getState().isPlaying));
-    });
-  }, [setOnDataAvailable]);
+    void stopSttInput();
+  }, [stopSttInput]);
 
   useEffect(() => {
     disconnectRef.current = disconnect;
@@ -1195,5 +1243,15 @@ export function useVoiceSocket() {
     addMessage('assistant', '(시스템) 대화 내용이 초기화되었습니다.');
   }, [addMessage, clearMessages, clearSupplementaryPolling]);
 
-  return { connect, disconnect, startListening, stopListening, isConnected, isSttReady, isRecording, clearHistory };
+  return {
+    connect,
+    disconnect,
+    startListening,
+    stopListening,
+    isConnected,
+    isSttReady,
+    isRecording,
+    sttProvider,
+    clearHistory,
+  };
 }

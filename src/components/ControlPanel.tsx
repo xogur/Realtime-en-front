@@ -1,14 +1,17 @@
 import { useCallback, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Settings, MessageSquare, Trash2, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Trash2, Loader2 } from 'lucide-react';
+// import { Settings, MessageSquare } from 'lucide-react';
 import { useVoiceSocket } from '@/hooks/useVoiceSocket';
-import { buildKioskUrl } from '@/lib/kioskIdentity';
+// import { buildKioskUrl } from '@/lib/kioskIdentity';
 
 interface ControlPanelProps {
     onOpenSettings: () => void;
 }
 
+// 설정 버튼 복원 시 onOpenSettings가 다시 사용됩니다.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
     const { startListening, stopListening, isConnected, isSttReady, isRecording, clearHistory } = useVoiceSocket();
     const isConnecting = useStore((state) => state.isConnecting);
@@ -52,6 +55,7 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
                 <Trash2 className="w-6 h-6" />
             </button>
 
+            {/* 실제 운영 환경에서는 설정 버튼을 사용하지 않습니다.
             <button
                 onClick={onOpenSettings}
                 className="p-3 rounded-full border border-white/15 bg-white/5 text-sky-200 drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)] transition-all hover:bg-white/20 hover:text-sky-100 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/90 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
@@ -71,6 +75,7 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
             >
                 <MessageSquare className="w-6 h-6" />
             </button>
+            */}
 
             <button
                 onClick={handleToggleConnection}
