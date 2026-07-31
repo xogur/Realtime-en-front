@@ -399,6 +399,39 @@ describe('mission completion store rules', () => {
         expect(useStore.getState().activeMissions).toHaveLength(0);
     });
 
+    it('counts STT sentence boundaries expressed as line breaks or full-width punctuation', () => {
+        const candidate = mission({
+            id: 'mission-spoken-two-sentences',
+            kind: 'length',
+            title: 'Two sentences',
+            target: 'Speak at least two sentences.',
+            checks: [{ type: 'sentenceCount', min: 2 }],
+        });
+
+        useStore.getState().setActiveMissions([candidate]);
+        useStore.getState().addMessage('user', 'I like morning walks\nThey make me feel fresh', 'turn-line-break');
+
+        expect(useStore.getState().messages[0].completedMissions?.map((item) => item.missionId)).toEqual([candidate.id]);
+        expect(useStore.getState().activeMissions).toEqual([]);
+    });
+
+    it('rechecks a finalized STT turn when its authoritative text replaces an earlier partial transcript', () => {
+        const candidate = mission({
+            id: 'mission-finalized-two-sentences',
+            kind: 'length',
+            title: 'Two sentences',
+            target: 'Speak at least two sentences.',
+            checks: [{ type: 'sentenceCount', min: 2 }],
+        });
+
+        useStore.getState().setActiveMissions([candidate]);
+        useStore.getState().addMessage('user', 'I like morning walks', 'turn-authoritative');
+        useStore.getState().addMessage('user', 'I like morning walks。They make me feel fresh！', 'turn-authoritative');
+
+        expect(useStore.getState().messages[0].completedMissions?.map((item) => item.missionId)).toEqual([candidate.id]);
+        expect(useStore.getState().activeMissions).toEqual([]);
+    });
+
     it('refills a completed slot without auto-completing the queued mission from the same utterance', () => {
         useStore.getState().setActiveMissions([
             mission(),

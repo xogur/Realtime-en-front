@@ -44,6 +44,7 @@ export type TurnEvaluation = {
         suggested: string;
         reason: string;
     };
+    errorTags?: string[];
     learningTier?: {
         label: string;
         description: string;
@@ -274,7 +275,19 @@ const MAX_ACTIVE_MISSIONS = 3;
 const MAX_QUEUED_MISSIONS = 12;
 
 function wordCount(text: string): number {
-    return text.match(/[A-Za-z]+(?:'[A-Za-z]+)?/g)?.length ?? 0;
+    // STT can return curly apostrophes, full-width punctuation, and non-Latin
+    // tokens. Count visible word-like groups instead of only ASCII letters.
+    return text.normalize('NFKC').match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu)?.length ?? 0;
+}
+
+function sentenceCount(text: string): number {
+    // A final STT result may use a newline rather than punctuation between
+    // spoken sentences. Full-width punctuation is also common on IME paths.
+    return text
+        .normalize('NFKC')
+        .split(/[.!?。！？]+|\r?\n+/)
+        .filter((part) => wordCount(part) > 0)
+        .length;
 }
 
 function normalizeMissionText(text: string): string {
@@ -307,7 +320,7 @@ function checkMissionRule(text: string, check: MissionCheck): boolean {
         case 'includesAny':
             return values.length > 0 && textIncludesAny(text, values);
         case 'sentenceCount':
-            return text.split(/[.!?]+/).filter((part) => wordCount(part) > 0).length >= (check.min ?? 2);
+            return sentenceCount(text) >= (check.min ?? 2);
         case 'question':
             return hasQuestionSyntax(text);
         case 'pastTense':

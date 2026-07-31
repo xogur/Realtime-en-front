@@ -27,6 +27,7 @@ import {
     getBatchCountdown,
     getEvaluationReliabilityNotice,
     getPracticeMissionCandidates,
+    getRepeatedErrorPatterns,
     shouldShowCoachContent,
     useCountdownClock,
 } from './AssessmentPanel';
@@ -98,6 +99,62 @@ describe('getEvaluationReliabilityNotice', () => {
 
     it('does not warn for normal confidence', () => {
         expect(getEvaluationReliabilityNotice('high')).toBeNull();
+    });
+});
+
+describe('getRepeatedErrorPatterns', () => {
+    function makeTurn(
+        id: string,
+        errorTags: string[],
+        confidence: TurnEvaluation['confidence'] = 'high',
+    ) {
+        const content = `Original ${id}`;
+        const evaluation: TurnEvaluation = {
+            rubricVersion: 'speaking-v2',
+            turnId: id,
+            provider: 'test',
+            model: 'test',
+            createdAt: '2026-07-26T00:00:00.000Z',
+            scores: { overall: 70, grammar: 65, vocabulary: 70, relevance: 75, fluency: 68, interaction: 72 },
+            evidence: { overall: '', grammar: '', vocabulary: '', relevance: '', fluency: '', interaction: '' },
+            feedback: { summary: '', strength: '', improvement: '', nextPractice: '' },
+            cefrEstimate: { level: 'A2', reason: '' },
+            correction: { original: content, suggested: `Corrected ${id}`, reason: '교정 근거' },
+            errorTags,
+            capabilities: { pronunciation: 'not_available' },
+            confidence,
+            confidenceReasons: [],
+        };
+        return {
+            message: { id, role: 'user' as const, content },
+            evaluation,
+        };
+    }
+
+    it('counts one occurrence per reliable turn and requires two turns', () => {
+        const patterns = getRepeatedErrorPatterns([
+            makeTurn('turn-1', ['verb_tense', 'verb_tense']),
+            makeTurn('turn-2', ['verb_tense']),
+            makeTurn('turn-3', ['preposition']),
+            makeTurn('turn-low', ['verb_tense'], 'low'),
+        ]);
+
+        expect(patterns).toHaveLength(1);
+        expect(patterns[0]).toMatchObject({
+            code: 'verb_tense',
+            label: '동사 시제',
+            count: 2,
+            total: 3,
+            original: 'Original turn-1',
+            suggested: 'Corrected turn-1',
+        });
+    });
+
+    it('does not invent a repeated pattern from one tagged response', () => {
+        expect(getRepeatedErrorPatterns([
+            makeTurn('turn-1', ['article']),
+            makeTurn('turn-2', []),
+        ])).toEqual([]);
     });
 });
 

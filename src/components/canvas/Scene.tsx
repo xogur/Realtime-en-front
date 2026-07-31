@@ -2,77 +2,63 @@
 
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
-import { Suspense, useEffect, useMemo } from 'react';
+import { Suspense, useEffect, useLayoutEffect, useMemo } from 'react';
 import * as THREE from 'three';
-import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { Character } from './Character';
 import { OptimizedLights } from './OptimizedLights';
 import { useStore } from '@/stores/useStore';
+import { getAvatarCameraFrame } from './avatarCameraFrame';
 
-// 반응형 카메라 제어 컴포넌트
 function CameraController() {
-    const { camera, size, controls } = useThree();
+    const { camera, size } = useThree();
+    const frame = useMemo(
+        () => getAvatarCameraFrame(size.width, size.height),
+        [size.width, size.height],
+    );
 
-    const config = useMemo(() => {
-        const aspect = size.width / size.height;
-
-        if (aspect < 0.6) {
-            // 초세로 모드 (iPhone SE 등)
-            return {
-                fov: 50,
-                position: new THREE.Vector3(0, 2.2, 2.45),
-                target: new THREE.Vector3(0, 2.2, 0)
-            };
-        } else if (aspect < 1) {
-            // 일반 세로 모드
-            return {
-                fov: 46,
-                position: new THREE.Vector3(0, 2.2, 1.95),
-                target: new THREE.Vector3(0, 2.2, 0)
-            };
-        } else {
-            // 가로 모드 (데스크탑)
-            return {
-                fov: 35,
-                position: new THREE.Vector3(0, 2.3, 1.35),
-                target: new THREE.Vector3(0, 2.3, 0)
-            };
-        }
-    }, [size.width, size.height]);
-
-    useEffect(() => {
-        if (camera instanceof THREE.PerspectiveCamera) {
-            // React Three Fiber owns the camera instance; this controller updates its viewport framing.
-            // eslint-disable-next-line react-hooks/immutability
-            camera.fov = config.fov;
-            camera.position.copy(config.position);
-            camera.updateProjectionMatrix();
-        }
-
-        if (controls) {
-            const orbitControls = controls as OrbitControlsImpl;
-            orbitControls.target.copy(config.target);
-            orbitControls.update();
-        }
-    }, [config, camera, controls]);
+    useLayoutEffect(() => {
+        if (!(camera instanceof THREE.PerspectiveCamera)) return;
+        // React Three Fiber owns the camera instance; update only the current frame.
+        // eslint-disable-next-line react-hooks/immutability
+        camera.fov = frame.fov;
+        camera.position.set(frame.position[0], frame.position[1], frame.position[2]);
+        camera.updateProjectionMatrix();
+    }, [camera, frame]);
 
     return null;
 }
 
-// WebGL 컨텍스트 이벤트 핸들러 컴포넌트
+function ResponsiveOrbitControls() {
+    const { size } = useThree();
+    const frame = useMemo(
+        () => getAvatarCameraFrame(size.width, size.height),
+        [size.width, size.height],
+    );
+
+    return (
+        <OrbitControls
+            makeDefault
+            enableZoom={false}
+            enablePan={false}
+            minPolarAngle={Math.PI / 2.5}
+            maxPolarAngle={Math.PI / 1.8}
+            target={frame.target}
+        />
+    );
+}
+
 function ContextLostHandler() {
     const { gl } = useThree();
 
     useEffect(() => {
         const handleContextLost = (event: Event) => {
             event.preventDefault();
-            console.error('THREE.WebGLRenderer: Context Lost! (HMR 또는 메모리 초과로 발생할 수 있음)');
-            // 강제 새로고침이 필요한 상황이면 여기에 안내 문구 노출 가능
+            console.error('THREE.WebGLRenderer: Context Lost!');
         };
 
         const handleContextRestored = () => {
-            console.log('THREE.WebGLRenderer: Context Restored! 렌더링이 재개됩니다.');
-            window.location.reload(); // 컨텍스트가 복구되었을 때 상태를 완전히 초기화하기 위해 페이지 새로고침 (가장 확실한 방법)
+            console.log('THREE.WebGLRenderer: Context Restored!');
+            window.location.reload();
         };
 
         const canvasElement = gl.domElement;
@@ -82,7 +68,6 @@ function ContextLostHandler() {
         return () => {
             canvasElement.removeEventListener('webglcontextlost', handleContextLost);
             canvasElement.removeEventListener('webglcontextrestored', handleContextRestored);
-            // 언마운트 시 명시적인 메모리 해제
             gl.dispose();
         };
     }, [gl]);
@@ -96,35 +81,26 @@ export function Scene() {
     return (
         <div className="w-full h-full min-h-[500px] bg-transparent">
             <Canvas
-                key="avatar-canvas-recovery-v2"
+                key="avatar-canvas-recovery-v3"
                 shadows
                 camera={{ position: [0, 2.3, 1.35], fov: 35 }}
                 className="w-full h-full"
-                gl={{ preserveDrawingBuffer: true, 
-                    antialias: true, 
+                gl={{
+                    preserveDrawingBuffer: true,
+                    antialias: true,
                     alpha: true,
-                    powerPreference: "default",
+                    powerPreference: 'default',
                 }}
                 dpr={[1, 2]}
             >
                 <ContextLostHandler />
                 <CameraController />
-
-                {/* 조명 복구 및 최적화 */}
+                <ResponsiveOrbitControls />
                 <OptimizedLights />
 
                 <Suspense fallback={<mesh><sphereGeometry args={[0.1]} /><meshBasicMaterial color="yellow" /></mesh>}>
                     <Character key={currentAvatarId} />
                 </Suspense>
-
-                <OrbitControls
-                    makeDefault
-                    enableZoom={false}
-                    enablePan={false}
-                    minPolarAngle={Math.PI / 2.5}
-                    maxPolarAngle={Math.PI / 1.8}
-                    target={[0, 2.3, 0]}
-                />
             </Canvas>
         </div>
     );

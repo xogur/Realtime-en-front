@@ -50,11 +50,100 @@ type AssessmentDetailTab = 'feedback' | 'evaluation';
 
 type MetricSnapshot = { key: MetricKey; label: string; value: number };
 
+export type ReportErrorPattern = {
+    code: string;
+    label: string;
+    count: number;
+    total: number;
+    original: string;
+    suggested: string;
+    reason: string;
+};
+
 const MISSION_CELEBRATION_VISIBLE_MS = 2600;
 const TIER_PROMOTION_VISIBLE_MS = 2200;
 const PRINT_CORE_CORRECTION_LIMIT = 3;
 const PRINT_EXTRA_CORRECTION_LIMIT = 2;
 const PRINT_TOTAL_CORRECTION_LIMIT = PRINT_CORE_CORRECTION_LIMIT + PRINT_EXTRA_CORRECTION_LIMIT;
+
+const ERROR_PATTERN_GUIDES: Record<string, {
+    label: string;
+    question: string;
+    success: string;
+    modeling: string;
+    practice: string;
+}> = {
+    article: {
+        label: '관사',
+        question: 'Describe a place you visited recently.',
+        success: '3문장 안에서 a, an, the 누락 1회 이하',
+        modeling: '장소를 처음 말할 때와 다시 언급할 때의 관사 사용을 비교합니다.',
+        practice: '사람·장소·사물을 바꾸어 같은 문장 구조를 반복합니다.',
+    },
+    verb_tense: {
+        label: '동사 시제',
+        question: 'Tell me what you did last weekend.',
+        success: '3문장 안에서 과거 시제 오류 1회 이하',
+        modeling: '핵심 동사의 현재형과 과거형을 나란히 보여줍니다.',
+        practice: '시간·장소·사람을 바꾸어 과거 경험 문장을 반복합니다.',
+    },
+    subject_verb_agreement: {
+        label: '주어-동사 일치',
+        question: 'Tell me about someone in your family.',
+        success: '3문장 안에서 주어-동사 일치 오류 1회 이하',
+        modeling: 'I/you와 he/she 뒤의 동사 형태를 대조합니다.',
+        practice: '주어를 바꾸면서 같은 의미의 문장을 반복합니다.',
+    },
+    preposition: {
+        label: '전치사',
+        question: 'Tell me about your weekday routine.',
+        success: '시간·장소 전치사 오류 1회 이하',
+        modeling: '교정 문장의 전치사와 함께 쓰이는 표현을 묶어 보여줍니다.',
+        practice: '시간과 장소만 바꾸어 같은 표현 덩어리를 반복합니다.',
+    },
+    word_order: {
+        label: '어순',
+        question: 'Explain how you usually spend your evening.',
+        success: '3문장 모두 주어-동사-목적어 순서 유지',
+        modeling: '교정 전후 문장에서 움직인 단어의 위치를 표시합니다.',
+        practice: '핵심 단어를 카드처럼 재배열해 완전한 문장을 만듭니다.',
+    },
+    sentence_fragment: {
+        label: '불완전 문장',
+        question: 'Tell me about your favorite activity in three sentences.',
+        success: '주어와 동사가 있는 완전한 문장 3개',
+        modeling: '짧은 구와 완전한 문장을 나란히 비교합니다.',
+        practice: '짧은 답변에 주어·동사·이유를 하나씩 덧붙입니다.',
+    },
+    plural: {
+        label: '단수·복수',
+        question: 'Tell me about things you use every day.',
+        success: '셀 수 있는 명사의 단수·복수 오류 1회 이하',
+        modeling: '수량 표현과 명사의 단수·복수 형태를 함께 보여줍니다.',
+        practice: '숫자와 수량만 바꾸어 같은 명사 문장을 반복합니다.',
+    },
+    pronoun: {
+        label: '대명사',
+        question: 'Tell me about a person who helped you.',
+        success: '대명사의 대상이 모든 문장에서 명확함',
+        modeling: '명사와 이를 대신하는 대명사를 선으로 연결합니다.',
+        practice: '사람과 사물을 바꾸며 대명사 문장을 다시 만듭니다.',
+    },
+    word_choice: {
+        label: '단어 선택',
+        question: 'Describe something you enjoyed recently.',
+        success: '핵심 표현 2개를 문맥에 맞게 사용',
+        modeling: '직역 표현과 자연스러운 영어 표현의 쓰임을 비교합니다.',
+        practice: '같은 의미를 다른 상황에 맞는 표현으로 바꾸어 말합니다.',
+    },
+    connector: {
+        label: '문장 연결',
+        question: 'What do you like, and why?',
+        success: 'because, so, but 중 하나로 2문장 연결',
+        modeling: '두 짧은 문장을 연결어 하나로 합치는 과정을 보여줍니다.',
+        practice: '이유·결과·대조 관계를 바꾸어 문장을 연결합니다.',
+    },
+};
 
 type TierConfig = {
     id: TierId;
@@ -1876,6 +1965,92 @@ function getReportHighlights(turns: EvaluatedTurn[], metricAverages: MetricSnaps
     };
 }
 
+export function getRepeatedErrorPatterns(turns: EvaluatedTurn[]): ReportErrorPattern[] {
+    const eligibleTurns = turns.filter((turn) => turn.evaluation.confidence.toLowerCase() !== 'low');
+    const patterns = new Map<string, ReportErrorPattern>();
+
+    eligibleTurns.forEach((turn) => {
+        const uniqueTags = new Set(turn.evaluation.errorTags ?? []);
+        uniqueTags.forEach((code) => {
+            const guide = ERROR_PATTERN_GUIDES[code];
+            if (!guide) return;
+
+            const existing = patterns.get(code);
+            const original = turn.evaluation.correction.original.trim() || turn.message.content.trim();
+            const suggested = turn.evaluation.correction.suggested.trim();
+            const hasUsefulExample = suggested.length > 0 && suggested.toLowerCase() !== original.toLowerCase();
+
+            if (existing) {
+                existing.count += 1;
+                if (!existing.suggested && hasUsefulExample) {
+                    existing.original = original;
+                    existing.suggested = suggested;
+                    existing.reason = turn.evaluation.correction.reason;
+                }
+                return;
+            }
+
+            patterns.set(code, {
+                code,
+                label: guide.label,
+                count: 1,
+                total: eligibleTurns.length,
+                original: hasUsefulExample ? original : '',
+                suggested: hasUsefulExample ? suggested : '',
+                reason: hasUsefulExample ? turn.evaluation.correction.reason : '',
+            });
+        });
+    });
+
+    return Array.from(patterns.values())
+        .filter((pattern) => pattern.count >= 2)
+        .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label, 'ko'))
+        .slice(0, 2);
+}
+
+function getReportConfidenceLabel(confidence?: string): string {
+    if (confidence?.toLowerCase() === 'high') return '높음';
+    if (confidence?.toLowerCase() === 'medium') return '중간';
+    if (confidence?.toLowerCase() === 'low') return '낮음';
+    return '확인 필요';
+}
+
+function getReportConversationTurnCount(messages: ChatMessage[]): number {
+    return messages.filter((message) => (
+        (message.role === 'user' || message.role === 'assistant')
+        && message.content.trim().length > 0
+    )).length;
+}
+
+function getInstructorPlan(
+    patterns: ReportErrorPattern[],
+    highlights: ReturnType<typeof getReportHighlights>,
+) {
+    const primaryPattern = patterns[0] ?? null;
+    const guide = primaryPattern ? ERROR_PATTERN_GUIDES[primaryPattern.code] : null;
+
+    if (primaryPattern && guide) {
+        return {
+            diagnosis: `강점 영역은 ${highlights.strongest?.label ?? '질문 이해'}이고, ${primaryPattern.label} 오류가 ${primaryPattern.count}개 응답에서 반복됩니다.`,
+            question: guide.question,
+            success: guide.success,
+            modeling: guide.modeling,
+            practice: guide.practice,
+            reassessment: `새 질문에 3문장으로 답하고 ${primaryPattern.label} 오류가 성공 기준 이내인지 확인합니다.`,
+        };
+    }
+
+    const weakestLabel = highlights.weakest?.label ?? '문장 구성';
+    return {
+        diagnosis: `강점 영역은 ${highlights.strongest?.label ?? '응답'}입니다. 아직 확정된 반복 오류는 없으며 ${weakestLabel}을 우선 확인하는 것이 좋습니다.`,
+        question: 'Tell me about something you enjoyed recently.',
+        success: '질문에 맞는 완전한 문장 3개로 답하기',
+        modeling: '핵심 교정 한 문장을 짧게 설명하고 자연스러운 답변 예시를 보여줍니다.',
+        practice: '시간·장소·이유를 하나씩 바꾸어 같은 문장 구조를 반복합니다.',
+        reassessment: '새 질문에 3문장으로 답하고 같은 교정이 다시 필요한지 확인합니다.',
+    };
+}
+
 function PrintScoreRing({ score }: { score: number | null }) {
     const value = score ?? 0;
     const radius = 42;
@@ -1947,198 +2122,256 @@ function PrintReport({
     metricAverages: MetricSnapshot[];
 }) {
     const correctionTurns = getReportCorrections(turns, messages);
-    const coreCorrections = correctionTurns.slice(0, PRINT_CORE_CORRECTION_LIMIT);
-    const extraCorrections = correctionTurns.slice(PRINT_CORE_CORRECTION_LIMIT, PRINT_TOTAL_CORRECTION_LIMIT);
+    const reportCorrections = correctionTurns.slice(0, PRINT_CORE_CORRECTION_LIMIT);
     const latestTurn = turns[turns.length - 1] ?? null;
     const highlights = getReportHighlights(turns, metricAverages);
+    const repeatedPatterns = getRepeatedErrorPatterns(turns);
+    const instructorPlan = getInstructorPlan(repeatedPatterns, highlights);
+    const conversationTurnCount = getReportConversationTurnCount(messages);
+    const reliableTurnCount = turns.filter((turn) => turn.evaluation.confidence.toLowerCase() !== 'low').length;
+    const reportConfidence = turns.some((turn) => turn.evaluation.confidence.toLowerCase() === 'low')
+        ? 'low'
+        : turns.length >= 3 && turns.every((turn) => turn.evaluation.confidence.toLowerCase() === 'high')
+            ? 'high'
+            : 'medium';
     const reportDate = new Intl.DateTimeFormat('ko-KR', {
-        year: '2-digit',
+        year: 'numeric',
         month: '2-digit',
         day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
     }).format(new Date());
 
     return (
         <section className="print-document hidden bg-white text-[#2f261e]">
             <div className="mx-auto max-w-[184mm]">
-                <article className="print-page break-after-page">
-                    <header className="flex items-start justify-between border-b-4 border-[#6b5a4a] pb-4">
-                        <div>
-                            <p className="text-[10px] font-bold uppercase tracking-normal text-[#8a6f5a]">영어 말하기 평가</p>
-                            <h1 className="mt-1 text-[28px] font-black tracking-normal text-[#2f261e]">영어 코치 리포트</h1>
-                            <p className="mt-1 text-[11px] font-semibold text-[#6b5a4a]">
-                                {reportDate} · UXROOM Voice Chat · 평가 응답 {turns.length}개
+                <article className="print-page break-after-page flex flex-col">
+                    <div className="flex-1">
+                        <header className="flex items-start justify-between border-b-4 border-[#6b5a4a] pb-4">
+                            <div>
+                                <p className="text-[10px] font-bold uppercase tracking-normal text-[#8a6f5a]">영어 말하기 평가</p>
+                                <h1 className="mt-1 text-[28px] font-black tracking-normal text-[#2f261e]">영어 코치 리포트</h1>
+                                <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-bold text-[#6b5a4a]">
+                                    <span className="rounded-full bg-[#f8f1ea] px-2 py-1">대화 {conversationTurnCount}턴</span>
+                                    <span className="rounded-full bg-[#f8f1ea] px-2 py-1">평가 가능 응답 {turns.length}개</span>
+                                    <span className="rounded-full bg-[#f8f1ea] px-2 py-1">{reportDate}</span>
+                                </div>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">현재 티어</p>
+                                <p className="mt-1 text-[22px] font-black leading-none" style={{ color: tier.tier.text }}>{tier.tier.label}</p>
+                                <p className="mt-1 text-[10px] font-bold text-[#6b5a4a]">{tier.totalLp} LP</p>
+                            </div>
+                        </header>
+
+                        <div className="mt-3 flex items-start gap-2 rounded-md border border-[#2f6f4f]/20 bg-[#edf5ed] px-3 py-2 text-[10px] font-semibold leading-snug text-[#29452c]">
+                            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#2f6f4f]" />
+                            <p>
+                                <span className="font-black">평가 범위: </span>
+                                STT로 변환된 응답의 문법·어휘·응답 구성을 평가했습니다. 발음·말하기 속도·휴지는 점수에 포함하지 않았습니다.
                             </p>
                         </div>
-                        <div className="text-right">
-                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">현재 티어</p>
-                            <p className="mt-1 text-[22px] font-black leading-none" style={{ color: tier.tier.text }}>{tier.tier.label}</p>
-                            <p className="mt-1 text-[10px] font-bold text-[#6b5a4a]">{tier.totalLp} LP</p>
-                        </div>
-                    </header>
 
-                    <section className="mt-5 grid grid-cols-[150px_1fr_132px] gap-5">
-                        <div className="flex flex-col items-center rounded-md bg-[#f8f1ea] p-4">
-                            <PrintScoreRing score={sessionScore} />
-                            <p className="mt-2 text-center text-[11px] font-bold leading-snug text-[#6b5a4a]">
-                                {latestTurn?.evaluation.cefrEstimate.level ?? 'CEFR'} 추정
-                            </p>
-                        </div>
-                        <div className="rounded-md border border-[#6b5a4a]/15 p-4">
-                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">영역별 요약</p>
-                            <div className="mt-3 space-y-2.5">
-                                {metricAverages.map((metric) => (
-                                    <PrintMetricBar key={metric.key} label={metric.label} value={metric.value} />
-                                ))}
-                            </div>
-                        </div>
-                        <div className="flex flex-col items-center justify-center rounded-md border border-[#6b5a4a]/15 p-3">
-                            <TierBadge tier={tier.tier} size={90} />
-                            <p className="mt-2 text-center text-[11px] font-black leading-tight" style={{ color: tier.tier.text }}>
-                                {tier.tier.subtitle}
-                            </p>
-                            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#efe5d8]">
-                                <div className="h-full rounded-full bg-[#2f6f4f]" style={{ width: `${tier.progress}%` }} />
-                            </div>
-                        </div>
-                    </section>
-
-                    <section className="mt-4 grid grid-cols-3 gap-3">
-                        <PrintInsightCard title="강점" value={highlights.strength} tone="good" />
-                        <PrintInsightCard title="집중 영역" value={`${highlights.weakest?.label ?? '연습'}: ${highlights.improvement}`} tone="focus" />
-                        <PrintInsightCard title="다음 연습" value={highlights.nextPractice} />
-                    </section>
-
-                    <section className="mt-5 rounded-md border border-[#6b5a4a]/15 p-4">
-                        <div className="flex items-end justify-between border-b border-[#6b5a4a]/15 pb-2">
-                            <div>
-                                <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">코치 요약</p>
-                                <h2 className="text-[18px] font-black text-[#2f261e]">다음에 집중할 연습</h2>
-                            </div>
-                            <p className="text-[10px] font-bold text-[#6b5a4a]">전문가 상담용 요약</p>
-                        </div>
-                        <div className="mt-3 grid grid-cols-[1fr_1fr] gap-4 text-[12px] leading-snug">
-                            <div>
-                                <p className="font-black text-[#2f6f4f]">추천 코칭 방향</p>
-                                <p className="mt-1 text-[#514337]">{highlights.improvement}</p>
-                            </div>
-                            <div>
-                                <p className="font-black text-[#2f6f4f]">평가 근거</p>
-                                <p className="mt-1 text-[#514337]">
-                                    최근 응답에 더 높은 비중을 두고 점수를 계산합니다. 아래 교정 항목은 학습 가치가 분명한 응답만 추렸습니다.
-                                </p>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section className="mt-5">
-                        <div className="mb-3 flex items-end justify-between">
-                            <div>
-                                <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">핵심 교정</p>
-                                <h2 className="text-[18px] font-black text-[#2f261e]">다시 연습할 문장</h2>
-                            </div>
-                            <p className="text-[10px] font-bold text-[#6b5a4a]">최대 {Math.min(correctionTurns.length, PRINT_CORE_CORRECTION_LIMIT)}개</p>
-                        </div>
-                        <div className="grid gap-2.5">
-                            {coreCorrections.map((turn, index) => (
-                                <article key={`${turn.evaluation.turnId}:page1`} className="rounded-md border-l-4 border-[#2f6f4f] bg-[#f8f1ea] px-3 py-2">
-                                    <div className="flex items-start gap-3">
-                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#2f6f4f] text-[11px] font-black text-white">{index + 1}</span>
-                                        <div className="min-w-0 flex-1">
-                                            {turn.assistantPrompt && (
-                                                <p className="line-clamp-2 break-words rounded bg-white/70 px-2 py-1 text-[10px] font-semibold leading-snug text-[#6b5a4a]">
-                                                    <span className="font-black text-[#2f6f4f]">AI 질문: </span>{turn.assistantPrompt}
-                                                </p>
-                                            )}
-                                            <p className="mt-1 line-clamp-2 break-words text-[11px] font-bold leading-snug text-[#6b5a4a]">
-                                                <span className="font-black text-[#7a4b3a]">내 답변: </span>{turn.evaluation.correction.original || turn.message.content}
-                                            </p>
-                                            <p className="mt-1 line-clamp-2 break-words rounded bg-white px-2 py-1 text-[12px] font-black leading-snug text-[#29452c]">
-                                                <span>교정: </span>{turn.evaluation.correction.suggested || turn.message.content}
-                                            </p>
-                                            <p className="mt-1 line-clamp-2 break-words text-[10px] font-semibold leading-snug text-[#514337]">
-                                                <span className="font-black">근거: </span>{turn.evaluation.correction.reason || turn.evaluation.evidence.overall}
-                                            </p>
-                                        </div>
-                                        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[10px] font-black text-[#2f261e]">
-                                            {getMetricScore(turn.evaluation, 'overall')}
-                                        </span>
+                        <section className="mt-4">
+                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">강사 코칭 브리핑</p>
+                            <div className="mt-2 grid grid-cols-[1.35fr_1fr] gap-3">
+                                <div className="rounded-md bg-[#2f261e] px-4 py-3 text-white">
+                                    <p className="text-[10px] font-black text-[#d9cbbd]">한 줄 진단</p>
+                                    <p className="mt-1 text-[14px] font-black leading-snug">{instructorPlan.diagnosis}</p>
+                                </div>
+                                <div className="grid gap-2">
+                                    <div className="rounded-md border border-[#6b5a4a]/15 px-3 py-2">
+                                        <p className="text-[9px] font-black text-[#8a6f5a]">첫 진단 질문</p>
+                                        <p className="mt-1 text-[11px] font-black leading-snug text-[#2f261e]">“{instructorPlan.question}”</p>
                                     </div>
-                                </article>
-                            ))}
-                        </div>
-                    </section>
+                                    <div className="rounded-md border border-[#6b5a4a]/15 px-3 py-2">
+                                        <p className="text-[9px] font-black text-[#8a6f5a]">오늘의 성공 기준</p>
+                                        <p className="mt-1 text-[11px] font-black leading-snug text-[#2f261e]">{instructorPlan.success}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section className="mt-4">
+                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">현재 수준</p>
+                            <div className="mt-2 grid grid-cols-[150px_1fr] gap-4">
+                                <div className="flex flex-col items-center rounded-md bg-[#f8f1ea] p-3">
+                                    <PrintScoreRing score={sessionScore} />
+                                    <p className="mt-1 text-center text-[11px] font-bold text-[#6b5a4a]">
+                                        CEFR 추정 {latestTurn?.evaluation.cefrEstimate.level ?? '--'}
+                                    </p>
+                                </div>
+                                <div className="rounded-md border border-[#6b5a4a]/15 p-4">
+                                    <div className="space-y-2.5">
+                                        {metricAverages.map((metric) => (
+                                            <PrintMetricBar key={metric.key} label={metric.label} value={metric.value} />
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="mt-3 grid grid-cols-3 gap-3">
+                                <PrintInsightCard title="강점" value={highlights.strength} tone="good" />
+                                <PrintInsightCard title="집중 영역" value={`${highlights.weakest?.label ?? '연습'}: ${highlights.improvement}`} tone="focus" />
+                                <PrintInsightCard title="다음 연습" value={highlights.nextPractice} />
+                            </div>
+                        </section>
+
+                        <section className="mt-4">
+                            <div className="flex items-end justify-between">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">우선 교정 패턴</p>
+                                    <h2 className="mt-0.5 text-[18px] font-black text-[#2f261e]">반복된 실수부터 코칭하세요</h2>
+                                </div>
+                                <p className="text-[9px] font-bold text-[#6b5a4a]">신뢰 응답 {reliableTurnCount}개 기준</p>
+                            </div>
+                            <div className="mt-2 grid gap-2">
+                                {repeatedPatterns.map((pattern) => (
+                                    <article key={pattern.code} className="grid grid-cols-[105px_1fr] overflow-hidden rounded-md border border-[#6b5a4a]/15">
+                                        <div className="flex flex-col justify-center bg-[#f8f1ea] px-3 py-2">
+                                            <p className="text-[11px] font-black text-[#514337]">{pattern.label}</p>
+                                            <p className="mt-1 text-[16px] font-black text-[#2f6f4f]">{pattern.count} / {pattern.total}개</p>
+                                        </div>
+                                        <div className="grid grid-cols-[1fr_18px_1fr] items-center gap-2 px-3 py-2">
+                                            <div>
+                                                <p className="text-[9px] font-black text-[#8a6f5a]">학습자 문장</p>
+                                                <p className="line-clamp-2 mt-0.5 text-[11px] font-bold leading-snug text-[#6b5a4a]">{pattern.original || '대표 문장은 상세 교정에서 확인하세요.'}</p>
+                                            </div>
+                                            <span className="text-center text-[15px] font-black text-[#b77f1e]">→</span>
+                                            <div>
+                                                <p className="text-[9px] font-black text-[#8a6f5a]">권장 표현</p>
+                                                <p className="line-clamp-2 mt-0.5 text-[11px] font-black leading-snug text-[#29452c]">{pattern.suggested || '강사 확인 필요'}</p>
+                                            </div>
+                                        </div>
+                                    </article>
+                                ))}
+                                {repeatedPatterns.length === 0 && (
+                                    <div className="rounded-md border border-dashed border-[#6b5a4a]/25 bg-[#f8f1ea] px-4 py-3">
+                                        <p className="text-[12px] font-black text-[#514337]">확인된 반복 패턴이 아직 없습니다.</p>
+                                        <p className="mt-1 text-[10px] font-semibold leading-snug text-[#6b5a4a]">
+                                            같은 오류 태그가 신뢰할 수 있는 서로 다른 응답에서 2회 이상 확인될 때 표시합니다.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+                        </section>
+                    </div>
+                    <footer className="mt-3 flex justify-between border-t border-[#6b5a4a]/15 pt-2 text-[9px] font-semibold text-[#6b5a4a]">
+                        <span>전체 대화가 아닌 핵심 교정 근거만 담았습니다.</span>
+                        <span>1 / 2</span>
+                    </footer>
                 </article>
 
-                <article className="print-page">
-                    <header className="border-b-4 border-[#6b5a4a] pb-3">
-                        <p className="text-[10px] font-bold uppercase tracking-normal text-[#8a6f5a]">상담 참고자료</p>
-                        <h2 className="mt-1 text-[24px] font-black text-[#2f261e]">상세 연습 노트</h2>
-                    </header>
+                <article className="print-page flex flex-col">
+                    <div className="flex-1">
+                        <header className="flex items-start justify-between border-b-4 border-[#6b5a4a] pb-4">
+                            <div>
+                                <p className="text-[10px] font-bold uppercase tracking-normal text-[#8a6f5a]">상담 참고자료</p>
+                                <h2 className="mt-1 text-[24px] font-black text-[#2f261e]">코칭 근거와 실행 계획</h2>
+                            </div>
+                            <div className="text-right">
+                                <p className="text-[10px] font-black text-[#8a6f5a]">평가 가능 응답</p>
+                                <p className="mt-1 text-[20px] font-black text-[#2f261e]">{turns.length}개</p>
+                                <p className="text-[9px] font-bold text-[#6b5a4a]">총 대화 {conversationTurnCount}턴</p>
+                            </div>
+                        </header>
 
-                    <section className="mt-5 grid grid-cols-[1fr_1fr] gap-4">
-                        <div className="rounded-md border border-[#6b5a4a]/15 p-4">
-                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">레벨 근거</p>
-                            <p className="mt-2 text-[18px] font-black text-[#2f261e]">{latestTurn?.evaluation.cefrEstimate.level ?? '--'}</p>
-                            <p className="mt-2 text-[12px] font-semibold leading-snug text-[#514337]">
-                                {latestTurn?.evaluation.cefrEstimate.reason ?? '아직 레벨 근거가 충분하지 않습니다.'}
-                            </p>
-                        </div>
-                        <div className="rounded-md border border-[#6b5a4a]/15 p-4">
-                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">신뢰도</p>
-                            <p className="mt-2 text-[18px] font-black capitalize text-[#2f261e]">{latestTurn?.evaluation.confidence ?? '--'}</p>
-                            <p className="mt-2 text-[12px] font-semibold leading-snug text-[#514337]">
-                                {(latestTurn?.evaluation.confidenceReasons ?? []).slice(0, 2).join(' ') || '최종 레벨 판단은 전문가와 함께 확인하는 것이 좋습니다.'}
-                            </p>
-                        </div>
-                    </section>
+                        <section className="mt-4">
+                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">평가 근거</p>
+                            <div className="mt-2 grid grid-cols-2 gap-3">
+                                <div className="rounded-md border border-[#6b5a4a]/15 p-3">
+                                    <p className="text-[9px] font-black text-[#8a6f5a]">최근 평가 CEFR 추정</p>
+                                    <p className="mt-1 text-[20px] font-black text-[#2f261e]">{latestTurn?.evaluation.cefrEstimate.level ?? '--'}</p>
+                                    <p className="line-clamp-2 mt-1 text-[11px] font-semibold leading-snug text-[#514337]">
+                                        {latestTurn?.evaluation.cefrEstimate.reason ?? '아직 레벨 근거가 충분하지 않습니다.'}
+                                    </p>
+                                </div>
+                                <div className="rounded-md border border-[#6b5a4a]/15 p-3">
+                                    <p className="text-[9px] font-black text-[#8a6f5a]">평가 신뢰도</p>
+                                    <p className="mt-1 text-[20px] font-black text-[#2f261e]">{getReportConfidenceLabel(reportConfidence)}</p>
+                                    <p className="mt-1 text-[11px] font-semibold leading-snug text-[#514337]">
+                                        반복 패턴은 낮은 신뢰도 응답을 제외한 {reliableTurnCount}개를 사용했습니다. 최종 레벨은 전문가 확인을 권장합니다.
+                                    </p>
+                                </div>
+                            </div>
+                        </section>
 
-                    <section className="mt-5">
-                        <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">추가 교정</p>
-                        <div className="mt-3 grid gap-2.5">
-                            {extraCorrections.map((turn, index) => (
-                                <article key={`${turn.evaluation.turnId}:page2`} className="rounded-md border-l-4 border-[#b77f1e] bg-[#fff7e8] px-3 py-2">
-                                    <div className="flex items-start gap-3">
-                                        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#b77f1e] text-[11px] font-black text-white">{index + PRINT_CORE_CORRECTION_LIMIT + 1}</span>
-                                        <div className="min-w-0 flex-1">
-                                            {turn.assistantPrompt && (
-                                                <p className="line-clamp-2 break-words rounded bg-white/70 px-2 py-1 text-[10px] font-semibold leading-snug text-[#6b5a4a]">
-                                                    <span className="font-black text-[#b77f1e]">AI 질문: </span>{turn.assistantPrompt}
-                                                </p>
-                                            )}
-                                            <p className="mt-1 line-clamp-2 break-words text-[11px] font-bold leading-snug text-[#6b5a4a]">
-                                                <span className="font-black text-[#7a4b3a]">내 답변: </span>{turn.evaluation.correction.original || turn.message.content}
+                        <section className="mt-4">
+                            <div className="flex items-end justify-between">
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">핵심 교정</p>
+                                    <h2 className="mt-0.5 text-[18px] font-black text-[#2f261e]">같은 규칙으로 묶어 설명하세요</h2>
+                                </div>
+                                <p className="text-[9px] font-bold text-[#6b5a4a]">최대 {Math.min(correctionTurns.length, PRINT_CORE_CORRECTION_LIMIT)}개</p>
+                            </div>
+                            <div className="mt-2 grid gap-2">
+                                {reportCorrections.map((turn, index) => (
+                                    <article key={`${turn.evaluation.turnId}:report`} className="rounded-md border-l-4 border-[#b77f1e] bg-[#fff7e8] px-3 py-2">
+                                        {turn.assistantPrompt && (
+                                            <p className="line-clamp-2 text-[9px] font-semibold leading-snug text-[#6b5a4a]">
+                                                <span className="font-black text-[#b77f1e]">질문: </span>{turn.assistantPrompt}
                                             </p>
-                                            <p className="mt-1 line-clamp-2 break-words rounded bg-white px-2 py-1 text-[12px] font-black leading-snug text-[#6b4f20]">
-                                                <span>교정: </span>{turn.evaluation.correction.suggested || turn.message.content}
-                                            </p>
-                                            <p className="mt-1 line-clamp-2 break-words text-[10px] font-semibold leading-snug text-[#514337]">
-                                                <span className="font-black">근거: </span>{turn.evaluation.correction.reason || turn.evaluation.evidence.overall}
-                                            </p>
+                                        )}
+                                        <div className="mt-1 grid grid-cols-[24px_1fr_1fr_1.15fr] gap-2 text-[10px] leading-snug">
+                                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#b77f1e] font-black text-white">{index + 1}</span>
+                                            <div>
+                                                <p className="font-black text-[#8a6f5a]">학습자 문장</p>
+                                                <p className="line-clamp-2 mt-0.5 font-bold text-[#6b5a4a]">{turn.evaluation.correction.original || turn.message.content}</p>
+                                            </div>
+                                            <div>
+                                                <p className="font-black text-[#8a6f5a]">권장 표현</p>
+                                                <p className="line-clamp-2 mt-0.5 font-black text-[#29452c]">{turn.evaluation.correction.suggested || turn.message.content}</p>
+                                            </div>
+                                            <div>
+                                                <p className="font-black text-[#8a6f5a]">코칭 포인트</p>
+                                                <p className="line-clamp-2 mt-0.5 font-semibold text-[#514337]">{turn.evaluation.correction.reason || turn.evaluation.evidence.overall}</p>
+                                            </div>
                                         </div>
+                                    </article>
+                                ))}
+                                {reportCorrections.length === 0 && (
+                                    <p className="rounded-md bg-[#f8f1ea] px-3 py-2 text-[11px] font-semibold text-[#514337]">
+                                        표시할 교정 문장이 없습니다. 새 답변으로 평가 근거를 더 확보하세요.
+                                    </p>
+                                )}
+                            </div>
+                        </section>
+
+                        <section className="mt-4">
+                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">추천 코칭 방향</p>
+                            <h2 className="mt-0.5 text-[18px] font-black text-[#2f261e]">20분 원투원 진행 예시</h2>
+                            <div className="mt-2 grid grid-cols-4 gap-2">
+                                {[
+                                    ['진단', `“${instructorPlan.question}”로 현재 사용을 확인합니다.`, '3분'],
+                                    ['모델링', instructorPlan.modeling, '5분'],
+                                    ['변형 연습', instructorPlan.practice, '7분'],
+                                    ['재평가', instructorPlan.reassessment, '5분'],
+                                ].map(([title, value, time]) => (
+                                    <div key={title} className="relative rounded-md border border-[#6b5a4a]/15 p-3">
+                                        <p className="text-[11px] font-black text-[#2f6f4f]">{title}</p>
+                                        <p className="mt-1 text-[10px] font-semibold leading-snug text-[#514337]">{value}</p>
+                                        <p className="mt-2 text-[9px] font-black text-[#b77f1e]">{time}</p>
                                     </div>
-                                </article>
-                            ))}
-                            {extraCorrections.length === 0 && (
-                                <p className="rounded-md bg-[#f8f1ea] px-3 py-2 text-[12px] font-semibold text-[#514337]">
-                                    추가 교정 항목이 없습니다. 첫 페이지의 핵심 교정을 상담 자료로 사용하세요.
-                                </p>
-                            )}
-                        </div>
-                    </section>
+                                ))}
+                            </div>
+                        </section>
 
-                    <section className="mt-5 rounded-md border border-[#6b5a4a]/15 p-4">
-                        <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">7일 연습 계획</p>
-                        <div className="mt-3 grid grid-cols-3 gap-3 text-[12px] leading-snug">
-                            <PrintInsightCard title="1-2일차" value="교정 문장을 자연스럽게 말할 수 있을 때까지 소리 내어 반복하세요." />
-                            <PrintInsightCard title="3-5일차" value={highlights.nextPractice} tone="focus" />
-                            <PrintInsightCard title="6-7일차" value="짧은 대화를 한 뒤 같은 실수가 반복되는지 확인하세요." tone="good" />
-                        </div>
-                    </section>
+                        <section className="mt-4">
+                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">7일 연습 계획</p>
+                            <div className="mt-2 grid grid-cols-3 gap-3">
+                                <PrintInsightCard title="1-2일차" value="핵심 교정 문장을 자연스럽게 말할 수 있을 때까지 소리 내어 반복하세요." />
+                                <PrintInsightCard title="3-5일차" value={instructorPlan.practice} tone="focus" />
+                                <PrintInsightCard title="6-7일차" value={instructorPlan.reassessment} tone="good" />
+                            </div>
+                        </section>
 
-                    <footer className="mt-6 border-t border-[#6b5a4a]/15 pt-3 text-[10px] font-semibold leading-snug text-[#6b5a4a]">
-                        이 리포트는 전체 대화 대신 핵심 교정 근거만 담습니다. 사용자가 출력하거나 전문가와 상담할 때 3페이지를 넘기지 않도록 구성했습니다.
+                        <section className="mt-4">
+                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">강사 메모</p>
+                            <div className="mt-2 h-[52px] rounded-md border border-dashed border-[#6b5a4a]/30 px-3 py-2 text-[10px] font-semibold text-[#9a8b7d]">
+                                수업 중 확인한 추가 관찰과 다음 상담 목표를 기록하세요.
+                            </div>
+                        </section>
+                    </div>
+                    <footer className="mt-3 flex justify-between border-t border-[#6b5a4a]/15 pt-2 text-[9px] font-semibold text-[#6b5a4a]">
+                        <span>자동평가 결과는 코칭을 돕는 참고자료이며 전문가 판단을 대체하지 않습니다.</span>
+                        <span>2 / 2</span>
                     </footer>
                 </article>
             </div>

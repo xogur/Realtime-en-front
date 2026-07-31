@@ -45,7 +45,7 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
                         clearHistory();
                     }
                 }}
-                className="p-3 rounded-full hover:bg-white/10 transition-colors text-zinc-500 hover:text-red-400 group relative"
+                className="p-3 rounded-full border border-white/15 bg-white/5 text-red-200 drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)] transition-all hover:bg-white/20 hover:text-red-100 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-200/90 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
                 aria-label="Reset Conversation"
                 title="Reset conversation"
             >
@@ -54,8 +54,9 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
 
             <button
                 onClick={onOpenSettings}
-                className="p-3 rounded-full hover:bg-white/10 transition-colors text-zinc-500 hover:text-zinc-800"
+                className="p-3 rounded-full border border-white/15 bg-white/5 text-sky-200 drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)] transition-all hover:bg-white/20 hover:text-sky-100 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/90 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
                 aria-label="Settings"
+                title="Settings"
             >
                 <Settings className="w-6 h-6" />
             </button>
@@ -64,7 +65,7 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
                 onClick={() => {
                     window.open(buildKioskUrl('/chat'), 'UXROOM_Chat', 'width=450,height=850,menubar=no,toolbar=no,location=no,status=no');
                 }}
-                className="p-3 rounded-full transition-colors hover:bg-white/10 text-zinc-500 hover:text-zinc-800"
+                className="p-3 rounded-full border border-white/15 bg-white/5 text-amber-200 drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)] transition-all hover:bg-white/20 hover:text-amber-100 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200/90 focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950"
                 aria-label="Open Chat Window"
                 title="Open chat window"
             >
@@ -74,11 +75,11 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
             <button
                 onClick={handleToggleConnection}
                 disabled={isProcessing || isConnecting}
-                className={`relative flex items-center justify-center w-16 h-16 rounded-full transition-all duration-300 shadow-lg ${isConnecting || isProcessing
+                className={`relative flex items-center justify-center w-16 h-16 rounded-full transition-all duration-300 shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:cursor-not-allowed disabled:opacity-75 ${isConnecting || isProcessing
                     ? 'bg-blue-600 text-white shadow-blue-500/30'
                     : isLive
                         ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/30'
-                        : 'bg-zinc-900 hover:bg-zinc-800 text-white shadow-zinc-900/30'
+                        : 'bg-zinc-700 hover:bg-zinc-600 text-white shadow-black/35'
                     }`}
                 aria-label={isLive ? 'Turn microphone off' : 'Turn microphone on'}
                 title={isLive ? 'Turn microphone off' : 'Turn microphone on'}
@@ -121,7 +122,7 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
                     <span className={`w-2 h-2 rounded-full ${isPreparingStt ? 'bg-blue-500 animate-pulse' :
                         isLive ? 'bg-green-500 animate-pulse' : isSttUnavailable ? 'bg-red-500' : isConnected ? 'bg-amber-500' : 'bg-zinc-300'
                         }`} />
-                    <span className="text-xs font-medium text-zinc-500">
+                    <span className="text-xs font-semibold text-zinc-100">
                         {isPreparingStt ? 'Preparing STT' : isLive ? 'Live' : isSttUnavailable ? 'STT unavailable' : isConnected ? 'Mic off' : 'Offline'}
                     </span>
                 </div>
