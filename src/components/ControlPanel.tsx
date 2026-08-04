@@ -13,7 +13,7 @@ interface ControlPanelProps {
 // 설정 버튼 복원 시 onOpenSettings가 다시 사용됩니다.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
-    const { startListening, stopListening, isConnected, isSttReady, isRecording, clearHistory } = useVoiceSocket();
+    const { startListening, stopListening, isConnected, isSttReady, isRecording, sttProvider, clearHistory } = useVoiceSocket();
     const isConnecting = useStore((state) => state.isConnecting);
     const [isProcessing, setIsProcessing] = useState(false);
     const isLive = isConnected && isSttReady && isRecording;
@@ -128,7 +128,11 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
                         isLive ? 'bg-green-500 animate-pulse' : isSttUnavailable ? 'bg-red-500' : isConnected ? 'bg-amber-500' : 'bg-zinc-300'
                         }`} />
                     <span className="text-xs font-semibold text-zinc-100">
-                        {isPreparingStt ? 'Preparing STT' : isLive ? 'Live' : isSttUnavailable ? 'STT unavailable' : isConnected ? 'Mic off' : 'Offline'}
+                        {isPreparingStt
+                            ? 'Preparing STT'
+                            : isLive
+                                ? sttProvider === 'browser' ? 'Web Speech' : 'Server STT'
+                                : isSttUnavailable ? 'STT unavailable' : isConnected ? 'Mic off' : 'Offline'}
                     </span>
                 </div>
             </div>

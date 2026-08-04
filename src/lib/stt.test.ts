@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   assembleBrowserSpeechEvent,
+  buildBrowserPartialTranscriptMessage,
   buildBrowserTranscriptMessage,
   getBrowserSttConfig,
   isLateBrowserFinal,
@@ -28,7 +29,7 @@ describe('browser STT configuration', () => {
       maxAlternatives: 1,
       processLocally: false,
       phrases: [],
-      silenceMs: 500,
+      silenceMs: 1_500,
     });
   });
 
@@ -86,6 +87,13 @@ describe('browser speech events', () => {
     expect(JSON.parse(buildBrowserTranscriptMessage('  Hello there.  '))).toEqual({
       type: 'user_text_message',
       text: 'Hello there.',
+    });
+  });
+
+  it('builds the cross-profile browser interim transcript contract', () => {
+    expect(JSON.parse(buildBrowserPartialTranscriptMessage('I would like to'))).toEqual({
+      type: 'browser_partial_transcript',
+      content: 'I would like to',
     });
   });
 });

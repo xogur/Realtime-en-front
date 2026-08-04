@@ -22,6 +22,7 @@ const controls = {
     isConnected: true,
     isSttReady: true,
     isRecording: true,
+    sttProvider: 'browser' as 'browser' | 'server',
 };
 
 describe('ControlPanel microphone toggle', () => {
@@ -30,6 +31,7 @@ describe('ControlPanel microphone toggle', () => {
         controls.isConnected = true;
         controls.isSttReady = true;
         controls.isRecording = true;
+        controls.sttProvider = 'browser';
         useStore.setState({ isConnecting: false });
         mockUseVoiceSocket.mockReturnValue(controls);
     });
@@ -53,12 +55,21 @@ describe('ControlPanel microphone toggle', () => {
         expect(controls.connect).not.toHaveBeenCalled();
     });
 
-    it('does not show Live until STT reports ready', () => {
+    it('does not show a provider until STT reports ready', () => {
         controls.isSttReady = false;
         useStore.setState({ isConnecting: true });
         render(<ControlPanel onOpenSettings={vi.fn()} />);
 
         expect(screen.getByText('Preparing STT')).toBeTruthy();
-        expect(screen.queryByText('Live')).toBeNull();
+        expect(screen.queryByText('Web Speech')).toBeNull();
+    });
+
+    it('shows the active STT provider', () => {
+        const { rerender } = render(<ControlPanel onOpenSettings={vi.fn()} />);
+        expect(screen.getByText('Web Speech')).toBeTruthy();
+
+        controls.sttProvider = 'server';
+        rerender(<ControlPanel onOpenSettings={vi.fn()} />);
+        expect(screen.getByText('Server STT')).toBeTruthy();
     });
 });

@@ -38,6 +38,7 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
     const socket = useStore((state) => state.socket);
     const isThinking = useStore((state) => state.isThinking);
     const partialMessage = useStore((state) => state.partialMessage);
+    const liveTranscript = useStore((state) => state.liveTranscript);
     const textScale = useStore((state) => state.textScale);
     const setTextScale = useStore((state) => state.setTextScale);
     const showKoreanInterpretation = useStore((state) => state.showKoreanInterpretation);
@@ -48,7 +49,7 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
         if (scrollRef.current) {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
-    }, [messages, isChatOpen, partialMessage, isThinking]);
+    }, [messages, isChatOpen, partialMessage, liveTranscript, isThinking]);
 
     const handleSendMessage = () => {
         const text = inputValue.trim();
@@ -169,7 +170,7 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
                         ref={scrollRef}
                         className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-[#483c2d]/10 scrollbar-track-transparent"
                     >
-                        {messages.length === 0 && !partialMessage && !isThinking ? (
+                        {messages.length === 0 && !partialMessage && !liveTranscript && !isThinking ? (
                             <div className="h-full flex items-center justify-center text-[#483c2d]/40 text-sm italic flex-col gap-2">
                                 <p>No messages yet.</p>
                                 <p className="text-[#483c2d]/30 text-xs font-medium">Start speaking or type below!</p>
@@ -229,6 +230,26 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
                         )}
 
                         {/* 임시 메시지 (타이핑 효과) */}
+                        {liveTranscript && (
+                            <motion.div
+                                data-chat-live-transcript="true"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="flex w-full justify-end"
+                                role="status"
+                                aria-live="polite"
+                                aria-label={`You are saying: ${liveTranscript}`}
+                            >
+                                <div
+                                    className="max-w-[85%] rounded-2xl rounded-br-none bg-[#6b5a4a]/85 p-3.5 font-medium leading-relaxed text-[#fdf8f4] shadow-md md:max-w-[75%]"
+                                    style={{ fontSize: `calc(clamp(14px, 1.5vw, 18px) * ${textScale})` }}
+                                >
+                                    {liveTranscript}
+                                    <span className="ml-1 inline-block h-4 w-1.5 align-middle animate-pulse rounded-sm bg-[#fdf8f4]/70" />
+                                </div>
+                            </motion.div>
+                        )}
+
                         {partialMessage && (
                             <motion.div
                                 initial={{ opacity: 0, y: 10 }}

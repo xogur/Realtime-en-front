@@ -176,6 +176,8 @@ interface AppState {
     isSessionReplay: boolean;
     partialMessage: string;
     setPartialMessage: (message: string) => void;
+    liveTranscript: string;
+    setLiveTranscript: (transcript: string) => void;
     isChatOpen: boolean;
     toggleChat: () => void;
 
@@ -885,6 +887,7 @@ export const useStore = create<AppState>((set, get) => ({
     sessionReplayMessageKeys: [],
     isSessionReplay: false,
     partialMessage: '',
+    liveTranscript: '',
     isChatOpen: false, // Default closed
     voice: DEFAULT_VOICE_ID,
     speed: 0.8,
@@ -1470,8 +1473,10 @@ export const useStore = create<AppState>((set, get) => ({
             return state;
         }),
     setPartialMessage: (message) => set({ partialMessage: message }),
+    setLiveTranscript: (transcript) => set({ liveTranscript: transcript }),
     clearMessages: () => set({
         messages: [],
+        liveTranscript: '',
         evaluationBatchStatus: null,
         activeMissions: [],
         missionQueue: [],

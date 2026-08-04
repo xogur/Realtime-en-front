@@ -115,6 +115,30 @@ describe('useChatSync', () => {
         expect(useStore.getState().isThinking).toBe(false);
     });
 
+    it('syncs the controller interim transcript into the chat window', () => {
+        useStore.setState({ socket: { readyState: WebSocket.OPEN } as WebSocket });
+        renderHook(() => useChatSync(false));
+        const channel = MockBroadcastChannel.instances[0];
+
+        act(() => {
+            channel.emit({ type: 'SYNC_LIVE_TRANSCRIPT', payload: 'I would like to' });
+        });
+
+        expect(useStore.getState().liveTranscript).toBe('I would like to');
+    });
+
+    it('broadcasts interim transcript changes from the controller', () => {
+        renderHook(() => useChatSync(true));
+        const channel = MockBroadcastChannel.instances[0];
+
+        act(() => useStore.getState().setLiveTranscript('Can you help'));
+
+        expect(channel.posted).toContainEqual({
+            type: 'SYNC_LIVE_TRANSCRIPT',
+            payload: 'Can you help',
+        });
+    });
+
     it('merges richer evaluated messages from the main window while the viewer socket is open', () => {
         const openSocket = { readyState: WebSocket.OPEN } as WebSocket;
         useStore.setState({ socket: openSocket });

@@ -55,7 +55,7 @@ export function getBrowserSttConfig(
   );
   const silenceMs = Number.isFinite(requestedSilenceMs)
     ? Math.min(1_500, Math.max(300, requestedSilenceMs))
-    : 500;
+    : 1_500;
   const phrases = Array.from(new Set(
     (environment.NEXT_PUBLIC_BROWSER_STT_PHRASES ?? '')
       .split(',')
@@ -157,4 +157,8 @@ export function mapBrowserSpeechError(error: string): string | null {
 
 export function buildBrowserTranscriptMessage(text: string): string {
   return JSON.stringify({ type: 'user_text_message', text: text.trim() });
+}
+
+export function buildBrowserPartialTranscriptMessage(text: string): string {
+  return JSON.stringify({ type: 'browser_partial_transcript', content: text });
 }

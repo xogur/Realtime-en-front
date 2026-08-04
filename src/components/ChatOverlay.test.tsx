@@ -56,4 +56,16 @@ describe('ChatOverlay', () => {
         expect(getByText('Second answer.')).toBeTruthy();
         expect(getByText('Second reply.')).toBeTruthy();
     });
+
+    it('shows interim speech as a live user bubble', () => {
+        const { container, getByText, queryByText } = render(<ChatOverlay standalone />);
+
+        act(() => useStore.getState().setLiveTranscript('thank you for'));
+
+        expect(getByText('thank you for')).toBeTruthy();
+        expect(container.querySelector('[data-chat-live-transcript="true"]')).toBeTruthy();
+
+        act(() => useStore.getState().setLiveTranscript(''));
+        expect(queryByText('thank you for')).toBeNull();
+    });
 });

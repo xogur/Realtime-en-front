@@ -9,17 +9,17 @@ import {
     Flag,
     Info,
     Minus,
+    MessagesSquare,
     Plus,
     Printer,
     RotateCcw,
-    SlidersHorizontal,
     Sparkles,
     Target,
     X,
 } from 'lucide-react';
 import { AnimatePresence, motion, useAnimate } from 'framer-motion';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { useStore, type ChatMessage, type EvaluationBatchStatus, type PracticeMission, type TurnCorrection, type TurnEvaluation } from '@/stores/useStore';
 import { useMissionCelebration, type MissionCelebrationPresentation } from '@/hooks/useMissionCelebration';
 import { MissionSuccessAudio, useMissionSuccessSoundEnabled } from '@/lib/missionSuccessAudio';
@@ -65,6 +65,17 @@ const TIER_PROMOTION_VISIBLE_MS = 2200;
 const PRINT_CORE_CORRECTION_LIMIT = 3;
 const PRINT_EXTRA_CORRECTION_LIMIT = 2;
 const PRINT_TOTAL_CORRECTION_LIMIT = PRINT_CORE_CORRECTION_LIMIT + PRINT_EXTRA_CORRECTION_LIMIT;
+const CONVERSATION_PRINT_PAGE_CAPACITY = 950;
+
+type PrintDocumentKind = 'assessment' | 'conversation';
+
+export type ConversationReviewTurn = {
+    sequence: number;
+    prompt: string;
+    learner: string;
+    assistant: string;
+    assistantKorean: string;
+};
 
 const ERROR_PATTERN_GUIDES: Record<string, {
     label: string;
@@ -450,6 +461,180 @@ function compactReportText(text: string, maxLength = 180): string {
     const normalized = text.replace(/\s+/g, ' ').trim();
     if (normalized.length <= maxLength) return normalized;
     return `${normalized.slice(0, maxLength - 1).trim()}…`;
+}
+
+function isMeaningfulConversationText(text: string): boolean {
+    const spokenText = text.replace(/[^\p{L}\p{N}]+/gu, '');
+    return spokenText.length >= 2;
+}
+
+const NON_CONTENT_EVALUATION_REASONS = new Set([
+    'empty_input',
+    'near_empty_input',
+    'no_linguistic_signal',
+    'non_speech_source',
+    'conversation_control',
+    'non_english_speech',
+]);
+
+const LOW_INFORMATION_UTTERANCES = new Set([
+    'hi',
+    'hello',
+    'hey',
+    'ok',
+    'okay',
+    'sure',
+    'thanks',
+    'thank you',
+    'bye',
+    'goodbye',
+    'got it',
+    'i see',
+]);
+
+function isMeaningfulLearnerMessage(message: ChatMessage): boolean {
+    const normalized = message.content
+        .normalize('NFKC')
+        .toLowerCase()
+        .replace(/[^\p{L}\p{N}']+/gu, ' ')
+        .trim();
+
+    if (!normalized) return false;
+    if (message.evaluationSkipReason && NON_CONTENT_EVALUATION_REASONS.has(message.evaluationSkipReason)) {
+        return false;
+    }
+    if (LOW_INFORMATION_UTTERANCES.has(normalized)) return false;
+
+    const hasReviewSignal = Boolean(
+        message.evaluation
+        || message.correction
+        || message.attemptedMission
+        || message.evaluationStatus === 'pending'
+        || message.evaluationStatus === 'unavailable',
+    );
+    if (hasReviewSignal) return true;
+
+    const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+    const letterCount = normalized.replace(/[^\p{L}\p{N}]+/gu, '').length;
+    return wordCount >= 3 || letterCount >= 12;
+}
+
+function splitAssistantReportText(content: string): { english: string; korean: string } {
+    const normalized = content.trim();
+    const translationLabel = /(?:\r?\n\s*)+(?:한국어 해석:|Korean:)\s*/i;
+    const match = translationLabel.exec(normalized);
+
+    if (!match || match.index < 0) {
+        return { english: normalized, korean: '' };
+    }
+
+    return {
+        english: normalized.slice(0, match.index).trim(),
+        korean: normalized.slice(match.index + match[0].length).trim(),
+    };
+}
+
+export function buildConversationReviewTurns(messages: ChatMessage[]): ConversationReviewTurn[] {
+    const turns: ConversationReviewTurn[] = [];
+
+    messages.forEach((message, messageIndex) => {
+        if (message.role !== 'user' || !isMeaningfulLearnerMessage(message)) return;
+
+        let prompt = '';
+        for (let index = messageIndex - 1; index >= 0; index -= 1) {
+            if (messages[index].role !== 'assistant') continue;
+            if (!isMeaningfulConversationText(messages[index].content) || messages[index].content.startsWith('(시스템)')) continue;
+            prompt = splitAssistantReportText(messages[index].content).english;
+            break;
+        }
+
+        const assistantParts: Array<{ english: string; korean: string }> = [];
+        for (let index = messageIndex + 1; index < messages.length; index += 1) {
+            const candidate = messages[index];
+            if (candidate.role === 'user') break;
+            if (!isMeaningfulConversationText(candidate.content) || candidate.content.startsWith('(시스템)')) continue;
+            assistantParts.push(splitAssistantReportText(candidate.content));
+        }
+
+        turns.push({
+            sequence: turns.length + 1,
+            prompt: compactReportText(prompt, 140),
+            learner: compactReportText(message.content, 260),
+            assistant: compactReportText(
+                assistantParts.map((part) => part.english).filter(Boolean).join(' '),
+                320,
+            ),
+            assistantKorean: compactReportText(
+                assistantParts.map((part) => part.korean).filter(Boolean).join(' '),
+                180,
+            ),
+        });
+    });
+
+    return turns;
+}
+
+function normalizeConversationLine(text: string): string {
+    return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function shouldShowConversationPrompt(turns: ConversationReviewTurn[], index: number): boolean {
+    const turn = turns[index];
+    if (!turn?.prompt) return false;
+    if (index === 0) return true;
+    return normalizeConversationLine(turn.prompt) !== normalizeConversationLine(turns[index - 1].assistant);
+}
+
+function estimateConversationLineCount(text: string, charactersPerLine: number): number {
+    if (!text) return 1;
+    return text.split(/\r?\n/).reduce(
+        (total, line) => total + Math.max(1, Math.ceil(line.trim().length / charactersPerLine)),
+        0,
+    );
+}
+
+function estimateConversationTurnHeight(
+    turns: ConversationReviewTurn[],
+    index: number,
+): number {
+    const turn = turns[index];
+    const learnerLines = estimateConversationLineCount(turn.learner, 52);
+    const assistantLines = estimateConversationLineCount(turn.assistant, 60);
+    const assistantKoreanLines = turn.assistantKorean
+        ? estimateConversationLineCount(turn.assistantKorean, 46)
+        : 0;
+    const dialogueLineCount = Math.max(learnerLines, assistantLines + assistantKoreanLines);
+    const promptHeight = shouldShowConversationPrompt(turns, index)
+        ? 20 + ((estimateConversationLineCount(turn.prompt, 118) - 1) * 10)
+        : 0;
+
+    return 72 + ((dialogueLineCount - 1) * 14) + promptHeight;
+}
+
+export function paginateConversationReviewTurns(turns: ConversationReviewTurn[]): ConversationReviewTurn[][] {
+    if (turns.length === 0) return [];
+
+    const pages: ConversationReviewTurn[][] = [];
+    let currentPage: ConversationReviewTurn[] = [];
+    let currentHeight = 0;
+
+    turns.forEach((turn, index) => {
+        const turnHeight = estimateConversationTurnHeight(turns, index);
+        if (currentPage.length > 0 && currentHeight + turnHeight > CONVERSATION_PRINT_PAGE_CAPACITY) {
+            pages.push(currentPage);
+            currentPage = [];
+            currentHeight = 0;
+        }
+
+        currentPage.push(turn);
+        currentHeight += turnHeight;
+    });
+
+    if (currentPage.length > 0) {
+        pages.push(currentPage);
+    }
+
+    return pages;
 }
 
 function getAssistantPromptBeforeTurn(messages: ChatMessage[], turnId: string): string {
@@ -2155,10 +2340,13 @@ function PrintReport({
                                     <span className="rounded-full bg-[#f8f1ea] px-2 py-1">{reportDate}</span>
                                 </div>
                             </div>
-                            <div className="text-right">
-                                <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">현재 티어</p>
-                                <p className="mt-1 text-[22px] font-black leading-none" style={{ color: tier.tier.text }}>{tier.tier.label}</p>
-                                <p className="mt-1 text-[10px] font-bold text-[#6b5a4a]">{tier.totalLp} LP</p>
+                            <div className="flex items-center gap-2.5 text-right">
+                                <TierBadge tier={tier.tier} size={52} />
+                                <div>
+                                    <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">현재 티어</p>
+                                    <p className="mt-1 text-[22px] font-black leading-none" style={{ color: tier.tier.text }}>{tier.tier.label}</p>
+                                    <p className="mt-1 text-[10px] font-bold text-[#6b5a4a]">{tier.totalLp} LP</p>
+                                </div>
                             </div>
                         </header>
 
@@ -2378,6 +2566,81 @@ function PrintReport({
         </section>
     );
 }
+
+function ConversationHistoryReport({ messages }: { messages: ChatMessage[] }) {
+    const reviewTurns = buildConversationReviewTurns(messages);
+    const pages = paginateConversationReviewTurns(reviewTurns);
+    const reportDate = new Intl.DateTimeFormat('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).format(new Date());
+
+    return (
+        <section className="print-document hidden bg-white text-[#24312c]">
+            <div className="mx-auto">
+                {pages.map((pageTurns, pageIndex) => (
+                    <article
+                        key={`conversation-page-${pageIndex + 1}`}
+                        className={`print-page flex flex-col ${pageIndex < pages.length - 1 ? 'break-after-page' : ''}`}
+                    >
+                        <header className="flex items-end justify-between border-b-2 border-[#244d40] pb-2">
+                            <h1 className="text-[20px] font-black leading-none text-[#1f302a]">대화 내역</h1>
+                            <p className="text-[8px] font-bold text-[#66756f]">{reportDate} · {reviewTurns.length} turns</p>
+                        </header>
+
+                        <section className="mt-2 flex-1 space-y-1.5">
+                            {pageTurns.map((turn) => {
+                                const showPrompt = shouldShowConversationPrompt(reviewTurns, turn.sequence - 1);
+
+                                return (
+                                    <article key={`conversation-turn-${turn.sequence}`} className="print-card overflow-hidden rounded-md border border-[#244d40]/15 bg-white">
+                                        <div className="border-b border-[#244d40]/10 bg-[#f7f3ec] px-2 py-1 text-[7px] font-black text-[#66756f]">
+                                            {String(turn.sequence).padStart(2, '0')}
+                                        </div>
+
+                                        {showPrompt && (
+                                            <div className="flex gap-2 border-b border-[#244d40]/10 px-2 py-1 text-[8px] leading-tight">
+                                                <span className="w-7 shrink-0 font-black text-[#a86e29]">AI</span>
+                                                <span className="font-semibold text-[#3c332a]">{turn.prompt}</span>
+                                            </div>
+                                        )}
+
+                                        <div className="grid grid-cols-[0.95fr_1.05fr] gap-1.5 px-2 py-1.5">
+                                            <div className="border-l-[3px] border-[#3e7a63] bg-[#edf5f0] px-2 py-1.5">
+                                                <p className="text-[7px] font-black uppercase tracking-[0.1em] text-[#3e7a63]">User</p>
+                                                <p className="mt-0.5 text-[9px] font-bold leading-[1.3] text-[#20332b]">{turn.learner}</p>
+                                            </div>
+                                            {turn.assistant && (
+                                                <div className="border-l-[3px] border-[#c98b3c] bg-[#fbf6ee] px-2 py-1.5">
+                                                <p className="text-[7px] font-black uppercase tracking-[0.1em] text-[#a86e29]">AI response</p>
+                                                <p className="mt-0.5 text-[9px] font-semibold leading-[1.3] text-[#3c332a]">
+                                                    {turn.assistant}
+                                                </p>
+                                                {turn.assistantKorean && (
+                                                    <p className="mt-1 border-t border-[#c98b3c]/15 pt-1 text-[7.5px] font-medium leading-[1.25] text-[#776b5d]">
+                                                        <span className="mr-1 font-black text-[#a86e29]">해석</span>
+                                                        {turn.assistantKorean}
+                                                    </p>
+                                                )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </article>
+                                );
+                            })}
+                        </section>
+
+                        <footer className="mt-2 border-t border-[#244d40]/15 pt-1.5 text-right text-[7px] font-black text-[#66756f]">
+                            {pageIndex + 1} / {pages.length}
+                        </footer>
+                    </article>
+                ))}
+            </div>
+        </section>
+    );
+}
+
 export function AssessmentPanel() {
     const isClientReady = useSyncExternalStore(
         subscribeClientReady,
@@ -2393,6 +2656,7 @@ export function AssessmentPanel() {
     const [developerLpDeltas, setDeveloperLpDeltas] = useState<number[]>([]);
     const [developerControlsOpen, setDeveloperControlsOpen] = useState(false);
     const [detailTab, setDetailTab] = useState<AssessmentDetailTab>('feedback');
+    const [printDocumentKind, setPrintDocumentKind] = useState<PrintDocumentKind | null>(null);
     const prefersReducedMotion = usePrefersReducedMotion();
 
     const [missionSuccessSoundEnabled] = useMissionSuccessSoundEnabled();
@@ -2426,6 +2690,10 @@ export function AssessmentPanel() {
     }, [messages]);
 
     const { userMessages, turns, latestTurn, sessionScore, metricAverages, pendingCount, skippedCount, unavailableMessages } = assessment;
+    const conversationReviewTurnCount = useMemo(
+        () => buildConversationReviewTurns(messages).length,
+        [messages],
+    );
     const nowEpochMs = useCountdownClock(pendingCount > 0);
     const previousTurns = turns.slice(0, -1).reverse();
     const previousEvaluatedTurn = turns[turns.length - 2] ?? null;
@@ -2549,11 +2817,26 @@ export function AssessmentPanel() {
         return () => window.removeEventListener('keydown', toggleDeveloperControls);
     }, [showDeveloperLpControls]);
 
+    useEffect(() => {
+        const clearPrintedDocument = () => setPrintDocumentKind(null);
+        window.addEventListener('afterprint', clearPrintedDocument);
+        return () => window.removeEventListener('afterprint', clearPrintedDocument);
+    }, []);
+
+    const handlePrintDocument = useCallback((kind: PrintDocumentKind) => {
+        flushSync(() => setPrintDocumentKind(kind));
+        window.print();
+    }, []);
+
     return (
         <aside className="relative isolate flex h-full min-h-0 flex-col overflow-hidden border-t border-[#483c2d]/10 bg-[#eee5dc]/95 text-[#3b3028] shadow-[-16px_0_48px_rgba(72,60,45,0.12)] backdrop-blur-xl print:border-0 print:bg-white lg:border-l lg:border-t-0">
             <MissionSuccessCelebration presentation={missionCelebration.current} />
-            {printRoot ? createPortal(
+            {printRoot && printDocumentKind === 'assessment' ? createPortal(
                 <PrintReport messages={messages} turns={turns} tier={tier} sessionScore={sessionScore} metricAverages={metricAverages} />,
+                printRoot,
+            ) : null}
+            {printRoot && printDocumentKind === 'conversation' ? createPortal(
+                <ConversationHistoryReport messages={messages} />,
                 printRoot,
             ) : null}
 
@@ -2566,6 +2849,7 @@ export function AssessmentPanel() {
                     <h2 className="text-[15px] font-black tracking-tight text-[#3b3028]">영어 코치</h2>
                 </div>
                 <div className="flex items-center gap-1">
+                    {/* 개발자용 LP 조정 버튼은 사용자 화면에서 노출하지 않습니다.
                     {showDeveloperLpControls && (
                         <button
                             type="button"
@@ -2576,16 +2860,28 @@ export function AssessmentPanel() {
                         >
                             <SlidersHorizontal className="h-4 w-4" />
                         </button>
-                    )}
+                    )} */}
                     <button
                         type="button"
-                        onClick={() => window.print()}
+                        onClick={() => handlePrintDocument('assessment')}
                         disabled={turns.length === 0}
-                        className="rounded-lg p-2 text-[#7a695b] transition-colors hover:bg-white/45 hover:text-[#3b3028] focus:outline-none focus:ring-2 focus:ring-[#71805f]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[#7a695b] transition-colors hover:bg-white/45 hover:text-[#3b3028] focus:outline-none focus:ring-2 focus:ring-[#71805f]/25 disabled:cursor-not-allowed disabled:opacity-40"
                         title={turns.length === 0 ? '출력할 평가가 없습니다' : '평가 리포트 출력'}
                         aria-label="평가 리포트 출력"
                     >
                         <Printer className="h-4 w-4" />
+                        <span className="text-[11px] font-black">결과지</span>
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handlePrintDocument('conversation')}
+                        disabled={conversationReviewTurnCount === 0}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-[#edf1e8] px-2.5 py-2 text-[#526849] transition-colors hover:bg-[#e2e9dc] hover:text-[#34452f] focus:outline-none focus:ring-2 focus:ring-[#71805f]/25 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-[#7a695b] disabled:opacity-40"
+                        title={conversationReviewTurnCount === 0 ? '출력할 대화가 없습니다' : '교수 검토용 대화 기록 출력'}
+                        aria-label="대화 기록 출력"
+                    >
+                        <MessagesSquare className="h-4 w-4" />
+                        <span className="text-[11px] font-black">대화 기록</span>
                     </button>
                 </div>
             </div>

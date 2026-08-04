@@ -31,6 +31,9 @@ export function useChatSync(isMainWindow: boolean) {
                 if (state.partialMessage !== prevState.partialMessage) {
                     channel.postMessage({ type: 'SYNC_PARTIAL_MESSAGE', payload: state.partialMessage });
                 }
+                if (state.liveTranscript !== prevState.liveTranscript) {
+                    channel.postMessage({ type: 'SYNC_LIVE_TRANSCRIPT', payload: state.liveTranscript });
+                }
                 if (state.isThinking !== prevState.isThinking) {
                     channel.postMessage({ type: 'SYNC_THINKING', payload: state.isThinking });
                 }
@@ -63,6 +66,7 @@ export function useChatSync(isMainWindow: boolean) {
                     // Send initial state to newly opened window
                     channel.postMessage({ type: 'SYNC_MESSAGES', payload: useStore.getState().messages, reason: 'initial' });
                     channel.postMessage({ type: 'SYNC_PARTIAL_MESSAGE', payload: useStore.getState().partialMessage });
+                    channel.postMessage({ type: 'SYNC_LIVE_TRANSCRIPT', payload: useStore.getState().liveTranscript });
                     channel.postMessage({ type: 'SYNC_THINKING', payload: useStore.getState().isThinking });
                     channel.postMessage({ type: 'SYNC_EMOTION', payload: useStore.getState().emotion });
                     channel.postMessage({
@@ -106,6 +110,8 @@ export function useChatSync(isMainWindow: boolean) {
                     } else if (useStore.getState().getPendingEvaluationTurnIds().length === 0) {
                         useStore.getState().clearEvaluationBatchStatus();
                     }
+                } else if (type === 'SYNC_LIVE_TRANSCRIPT') {
+                    useStore.getState().setLiveTranscript(typeof payload === 'string' ? payload : '');
                 } else if (useStore.getState().socket?.readyState === WebSocket.OPEN) {
                     // The viewer socket owns ephemeral streaming state. Durable
                     // message/evaluation state still merges monotonically above.

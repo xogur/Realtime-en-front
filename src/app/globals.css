@@ -89,7 +89,8 @@ nextjs-portal {
 
 @page {
   size: A4 portrait;
-  margin: 10mm;
+  /* 브라우저가 URL/날짜를 넣을 여백을 만들지 않고 문서가 자체 여백을 관리합니다. */
+  margin: 0;
 }
 
 @media print {
@@ -134,8 +135,8 @@ nextjs-portal {
   }
 
   .print-document > div {
-    width: 190mm !important;
-    max-width: 190mm !important;
+    width: 210mm !important;
+    max-width: 210mm !important;
     min-height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -144,11 +145,12 @@ nextjs-portal {
 
   .print-document .print-page {
     box-sizing: border-box !important;
-    width: 190mm !important;
-    max-width: 190mm !important;
-    height: 277mm !important;
-    max-height: 277mm !important;
-    min-height: 277mm !important;
+    width: 210mm !important;
+    max-width: 210mm !important;
+    height: 297mm !important;
+    max-height: 297mm !important;
+    min-height: 297mm !important;
+    padding: 10mm !important;
     overflow: hidden !important;
     break-inside: avoid;
     page-break-inside: avoid;

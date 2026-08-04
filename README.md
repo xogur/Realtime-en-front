@@ -16,6 +16,13 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
+사용자용 키오스크는 아래 명령으로 실행합니다. 개발 서버가 실행 중이 아니면 자동으로 시작하며,
+인쇄 버튼은 Windows 기본 프린터로 인쇄 미리보기 없이 바로 출력합니다.
+
+```bash
+npm run kiosk
+```
+
 ## Swappable STT providers
 
 The microphone input is exposed through one STT adapter and has two interchangeable implementations:

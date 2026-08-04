@@ -60,9 +60,9 @@ export function useAudioRecorder() {
         isRecordingRef.current = false;
     }, []);
 
-    const startRecording = useCallback(async () => {
+    const startRecording = useCallback(async (): Promise<boolean> => {
         if (isStartingRef.current || isRecordingRef.current || useStore.getState().isRecording) {
-            return;
+            return true;
         }
 
         isStartingRef.current = true;
@@ -83,7 +83,7 @@ export function useAudioRecorder() {
             });
             if (operationId !== operationIdRef.current) {
                 stream.getTracks().forEach((track) => track.stop());
-                return;
+                return false;
             }
             streamRef.current = stream;
             stream.getAudioTracks().forEach((track) => {
@@ -106,7 +106,7 @@ export function useAudioRecorder() {
             });
             if (operationId !== operationIdRef.current) {
                 await actx.close().catch(() => undefined);
-                return;
+                return false;
             }
             context.current = actx;
 
@@ -117,7 +117,7 @@ export function useAudioRecorder() {
             await actx.audioWorklet.addModule('/audio-processor.js');
             if (operationId !== operationIdRef.current) {
                 await resetAudioPipeline();
-                return;
+                return false;
             }
 
             const source = actx.createMediaStreamSource(stream);
@@ -162,11 +162,13 @@ export function useAudioRecorder() {
             workletRef.current = worklet;
             isRecordingRef.current = true;
             setRecording(true);
+            return true;
         } catch (err) {
             console.error('Mic access denied or AudioContext failed:', err);
             cleanupPromiseRef.current = resetAudioPipeline();
             await cleanupPromiseRef.current;
             setRecording(false);
+            return false;
         } finally {
             isStartingRef.current = false;
         }

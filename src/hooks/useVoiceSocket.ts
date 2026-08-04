@@ -4,7 +4,10 @@ import { useAudioPlayer } from './useAudioPlayer';
 import { useSttAdapter } from './useSttAdapter';
 import type { Emotion, TtsAudioChunk, TtsVisemeTimeline } from '@/lib/lipsync/types';
 import { getKioskIdFromLocation, withKioskSessionParams, type KioskRole } from '@/lib/kioskIdentity';
-import { buildBrowserTranscriptMessage } from '@/lib/stt';
+import {
+  buildBrowserPartialTranscriptMessage,
+  buildBrowserTranscriptMessage,
+} from '@/lib/stt';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
 const EVALUATION_BATCH_MAX_TURNS = 4;
@@ -315,6 +318,7 @@ export function useVoiceSocket() {
   const processedSupplementaryKeysRef = useRef<Set<string>>(new Set());
   const finalizedAssistantGenerationIdsRef = useRef<Set<string>>(new Set());
   const activeSpeechTextRef = useRef('');
+  const sttProviderRef = useRef<'browser' | 'server'>('browser');
 
   const setConnecting = useStore((state) => state.setConnecting);
   const setConnected = useStore((state) => state.setConnected);
@@ -400,8 +404,16 @@ export function useVoiceSocket() {
   }, []);
 
   const handleBrowserFinalTranscript = useCallback((transcript: string) => {
+    useStore.getState().setLiveTranscript('');
     if (socketRef.current?.readyState !== WebSocket.OPEN) return;
     socketRef.current.send(buildBrowserTranscriptMessage(transcript));
+  }, []);
+
+  const handleBrowserInterimTranscript = useCallback((transcript: string) => {
+    useStore.getState().setLiveTranscript(transcript);
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(buildBrowserPartialTranscriptMessage(transcript));
+    }
   }, []);
 
   const handleBrowserSpeechStarted = useCallback(() => {
@@ -434,11 +446,16 @@ export function useVoiceSocket() {
   } = useSttAdapter({
     onAudioData: handleSttAudioData,
     onFinalTranscript: handleBrowserFinalTranscript,
+    onInterimTranscript: handleBrowserInterimTranscript,
     onReadyChange: handleBrowserSttReadyChange,
     onError: handleBrowserSttError,
     onSpeechStarted: handleBrowserSpeechStarted,
     getPlaybackState,
   });
+
+  useEffect(() => {
+    sttProviderRef.current = sttProvider;
+  }, [sttProvider]);
 
   const getGenerationId = useCallback((data: SocketMessage): string | null => {
     if (data.generation_id === undefined || data.generation_id === null) {
@@ -1009,11 +1026,13 @@ export function useVoiceSocket() {
             flushActiveTts(data.response_id);
             break;
           case 'partial_user_request':
+            useStore.getState().setLiveTranscript(sanitizeModelText(data.content ?? ''));
             break;
           case 'partial_assistant_answer':
             handlePartialAssistantAnswer(data);
             break;
           case 'final_user_request':
+            useStore.getState().setLiveTranscript('');
             activeGenerationIdRef.current = getGenerationId(data);
             const clientTurnId = buildClientTurnId(
               activeGenerationIdRef.current,
@@ -1074,14 +1093,14 @@ export function useVoiceSocket() {
             handleEvaluationBatchStatus(data);
             break;
           case 'stt_provider_status':
-            if (sttProvider === 'server' && data.content === 'ready') {
+            if (sttProviderRef.current === 'server' && data.content === 'ready') {
               setSttReady(true);
               setConnecting(false);
             }
             console.info('STT provider status:', data.content);
             break;
           case 'stt_provider_error':
-            if (sttProvider === 'server') {
+            if (sttProviderRef.current === 'server') {
               setSttReady(false);
               setConnecting(false);
             }
@@ -1110,6 +1129,7 @@ export function useVoiceSocket() {
       setSttReady(false);
       setSocket(null);
       activeGenerationIdRef.current = null;
+      useStore.getState().setLiveTranscript('');
       if (roleRef.current === 'controller') {
         discardPendingEvaluations();
       }
@@ -1160,7 +1180,6 @@ export function useVoiceSocket() {
     finishSessionReplay,
     startSttInput,
     stopSttInput,
-    sttProvider,
   ]);
 
   const disconnect = useCallback(() => {
@@ -1176,6 +1195,7 @@ export function useVoiceSocket() {
     setConnected(false);
     setSttReady(false);
     setSocket(null);
+    useStore.getState().setLiveTranscript('');
     void stopSttInput();
     isDisconnecting.current = false;
   }, [cleanupSocket, clearSupplementaryPolling, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, setSttReady, stopSttInput]);
@@ -1189,6 +1209,7 @@ export function useVoiceSocket() {
   }, [connect, startSttInput]);
 
   const stopListening = useCallback(() => {
+    useStore.getState().setLiveTranscript('');
     void stopSttInput();
   }, [stopSttInput]);
 

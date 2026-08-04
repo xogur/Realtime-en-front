@@ -37,8 +37,10 @@ type BrowserSpeechWindow = Window & {
 
 type BrowserSttOptions = {
   onFinalTranscript: (transcript: string) => void;
+  onInterimTranscript: (transcript: string) => void;
   onReadyChange: (ready: boolean) => void;
   onError: (code: string) => void;
+  onUnavailable: () => void;
   onSpeechStarted: () => void;
   getPlaybackState: () => { isPlaying: boolean; text: string };
 };
@@ -65,6 +67,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const restartAttemptRef = useRef(0);
   const utteranceRef = useRef<{ text: string; lastChangedAt: number } | null>(null);
+  const finalPrefixRef = useRef('');
   const lastCommitRef = useRef<{ text: string; at: number } | null>(null);
   const speechStartedRef = useRef(false);
   const startRecognitionRef = useRef<() => boolean>(() => false);
@@ -89,6 +92,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
       setRecording(false);
       optionsRef.current.onReadyChange(false);
       optionsRef.current.onError('STT_UNAVAILABLE');
+      optionsRef.current.onUnavailable();
       return;
     }
     restartAttemptRef.current += 1;
@@ -104,11 +108,13 @@ export function useBrowserStt(options: BrowserSttOptions) {
     if (!transcript) return;
     clearSilenceTimer();
     utteranceRef.current = null;
+    finalPrefixRef.current = '';
     speechStartedRef.current = false;
     lastCommitRef.current = { text: transcript, at: Date.now() };
+    optionsRef.current.onInterimTranscript('');
     optionsRef.current.onFinalTranscript(transcript);
     try {
-      recognition.stop();
+      (recognitionRef.current ?? recognition).stop();
     } catch {
       // The recognizer may already be ending; onend will recycle it.
     }
@@ -127,6 +133,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
     }
 
     const recognition = new Recognition();
+    let restartIsFailure = false;
     recognition.lang = CONFIG.language;
     recognition.continuous = CONFIG.continuous;
     recognition.interimResults = CONFIG.interimResults;
@@ -147,8 +154,15 @@ export function useBrowserStt(options: BrowserSttOptions) {
     recognition.onspeechstart = () => {
       if (recognitionRef.current !== recognition) return;
       clearSilenceTimer();
-      utteranceRef.current = { text: '', lastChangedAt: Date.now() };
-      speechStartedRef.current = false;
+      const pendingUtterance = utteranceRef.current;
+      utteranceRef.current = pendingUtterance
+        ? { ...pendingUtterance, lastChangedAt: Date.now() }
+        : { text: '', lastChangedAt: Date.now() };
+      if (!pendingUtterance) {
+        finalPrefixRef.current = '';
+        speechStartedRef.current = false;
+        optionsRef.current.onInterimTranscript('');
+      }
     };
     recognition.onspeechend = () => undefined;
     recognition.onaudioend = () => undefined;
@@ -167,7 +181,9 @@ export function useBrowserStt(options: BrowserSttOptions) {
       if (playbackEcho) {
         clearSilenceTimer();
         utteranceRef.current = null;
+        finalPrefixRef.current = '';
         speechStartedRef.current = false;
+        optionsRef.current.onInterimTranscript('');
         if (finalText) {
           try { recognition.stop(); } catch { /* onend will recycle */ }
         }
@@ -190,16 +206,36 @@ export function useBrowserStt(options: BrowserSttOptions) {
         )) {
           return;
         }
-        commitTranscript(recognition, finalText);
+        const normalizedFinal = finalText.replace(/\s+/g, ' ').trim();
+        const prefix = finalPrefixRef.current;
+        if (!prefix) {
+          finalPrefixRef.current = normalizedFinal;
+        } else if (normalizedFinal.includes(prefix)) {
+          finalPrefixRef.current = normalizedFinal;
+        } else if (!prefix.includes(normalizedFinal)) {
+          finalPrefixRef.current = `${prefix} ${normalizedFinal}`.trim();
+        }
+        const pendingText = finalPrefixRef.current;
+        optionsRef.current.onInterimTranscript(pendingText);
+        utteranceRef.current = { text: pendingText, lastChangedAt: Date.now() };
+        clearSilenceTimer();
+        silenceTimerRef.current = setTimeout(() => {
+          silenceTimerRef.current = null;
+          const utterance = utteranceRef.current;
+          if (!utterance || Date.now() - utterance.lastChangedAt < CONFIG.silenceMs) return;
+          commitTranscript(recognition, utterance.text);
+        }, CONFIG.silenceMs);
         return;
       }
 
       const normalizedInterim = result.interim.replace(/\s+/g, ' ').trim();
       if (!normalizedInterim) return;
+      const pendingText = [finalPrefixRef.current, normalizedInterim].filter(Boolean).join(' ');
+      optionsRef.current.onInterimTranscript(pendingText);
       const current = utteranceRef.current;
       utteranceRef.current = {
-        text: normalizedInterim,
-        lastChangedAt: current?.text === normalizedInterim
+        text: pendingText,
+        lastChangedAt: current?.text === pendingText
           ? current.lastChangedAt
           : Date.now(),
       };
@@ -219,9 +255,12 @@ export function useBrowserStt(options: BrowserSttOptions) {
       if (recognitionRef.current !== recognition) return;
       const code = mapBrowserSpeechError(event.error);
       if (!code) return;
+      restartIsFailure = code === 'STT_UNAVAILABLE';
+      optionsRef.current.onInterimTranscript('');
       if (code === 'STT_NO_RESULT') {
         clearSilenceTimer();
         utteranceRef.current = null;
+        finalPrefixRef.current = '';
         speechStartedRef.current = false;
         return;
       }
@@ -234,12 +273,20 @@ export function useBrowserStt(options: BrowserSttOptions) {
     };
     recognition.onend = () => {
       if (recognitionRef.current !== recognition) return;
-      clearSilenceTimer();
+      const hasPendingTranscript = Boolean(utteranceRef.current?.text);
+      if (!hasPendingTranscript) clearSilenceTimer();
       detachRecognition(recognition);
       recognitionRef.current = null;
-      utteranceRef.current = null;
-      speechStartedRef.current = false;
+      if (!hasPendingTranscript) {
+        utteranceRef.current = null;
+        finalPrefixRef.current = '';
+        speechStartedRef.current = false;
+        optionsRef.current.onInterimTranscript('');
+      }
       if (desiredRef.current) {
+        // Chrome periodically ends a healthy recognizer (including after no-speech).
+        // Only service/runtime failures should consume the fallback retry budget.
+        if (!restartIsFailure) restartAttemptRef.current = 0;
         scheduleRestart();
         return;
       }
@@ -274,7 +321,9 @@ export function useBrowserStt(options: BrowserSttOptions) {
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
     restartTimerRef.current = null;
     utteranceRef.current = null;
+    finalPrefixRef.current = '';
     speechStartedRef.current = false;
+    optionsRef.current.onInterimTranscript('');
     const recognition = recognitionRef.current;
     if (!recognition) {
       return;

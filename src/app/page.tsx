@@ -19,6 +19,12 @@ export default function Home() {
 
   // 페이지 로드 시 자동으로 채팅창을 서브 모니터(우측)에 풀스크린으로 띄움
   useEffect(() => {
+    // Windows 키오스크 실행기가 두 모니터의 창을 직접 배치하는 경우에는
+    // 중복 채팅 팝업을 열지 않는다.
+    if (new URLSearchParams(window.location.search).get('dualScreen') === '1') {
+      return;
+    }
+
     // 이미 열려있으면 포커스만
     if (chatWindowRef.current && !chatWindowRef.current.closed) {
       chatWindowRef.current.focus();
