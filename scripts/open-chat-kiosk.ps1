@@ -46,6 +46,25 @@ if (-not $chromePath) {
 
 # Chrome이 이미 실행 중이어도 키오스크 인쇄 옵션이 무시되지 않도록
 # 이 프로젝트 전용 프로필로 별도 브라우저 프로세스를 실행합니다.
+$chromeVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($chromePath).FileVersion
+$chromeMajorVersion = 0
+$parsedChromeMajorVersion = [int]::TryParse(
+    ($chromeVersion -split '\.')[0],
+    [ref]$chromeMajorVersion
+)
+
+if ($parsedChromeMajorVersion -and $chromeMajorVersion -lt 135) {
+    Write-Error "Chrome 135 or newer is required for AEC-backed Web Speech input. Installed: $chromeVersion"
+    exit 1
+}
+
+if (-not $parsedChromeMajorVersion) {
+    Write-Warning "Could not determine the installed Chrome version. Web Speech track input may be unavailable."
+}
+elseif ($chromeMajorVersion -lt 141) {
+    Write-Warning "Chrome $chromeVersion supports track-backed recognition, but Chrome 141+ is recommended for echoCancellation=all."
+}
+
 $kioskProfilePath = Join-Path $env:LOCALAPPDATA "RealtimeEnglish\ChromeKioskProfile"
 New-Item -ItemType Directory -Path $kioskProfilePath -Force | Out-Null
 

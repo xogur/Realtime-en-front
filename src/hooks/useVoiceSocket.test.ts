@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  addFinalUserRequestMessage,
   buildAudioPacket,
   buildClientTurnId,
   fetchWithTimeout,
@@ -11,6 +12,54 @@ import {
   shouldIgnorePartialAssistantAnswer,
   shouldProcessEventSeq,
 } from './useVoiceSocket';
+
+describe('final user request messages', () => {
+  it('propagates browser speech evidence into the stored user message', () => {
+    const addMessage = vi.fn();
+    const speechEvidence = {
+      version: 1 as const,
+      provider: 'browser' as const,
+      finalSegments: ['I like morning walks', 'They make me feel fresh'],
+    };
+
+    addFinalUserRequestMessage(
+      addMessage,
+      '<|start_of_turn|>user I like morning walks They make me feel fresh',
+      'turn-1',
+      speechEvidence,
+    );
+
+    expect(addMessage).toHaveBeenCalledWith(
+      'user',
+      'I like morning walks They make me feel fresh',
+      'turn-1',
+      speechEvidence,
+    );
+  });
+
+  it('preserves natural role words while keeping sanitized evidence aligned', () => {
+    const addMessage = vi.fn();
+    const speechEvidence = {
+      version: 1 as const,
+      provider: 'browser' as const,
+      finalSegments: ['I am a user', 'I like this app'],
+    };
+
+    addFinalUserRequestMessage(
+      addMessage,
+      'I am a user I like this app',
+      'turn-role-word',
+      speechEvidence,
+    );
+
+    expect(addMessage).toHaveBeenCalledWith(
+      'user',
+      'I am a user I like this app',
+      'turn-role-word',
+      speechEvidence,
+    );
+  });
+});
 
 afterEach(() => {
   vi.restoreAllMocks();

@@ -1,4 +1,16 @@
 export type SttProviderName = 'browser' | 'server';
+export type BrowserSttAecMode = 'auto' | 'standard' | 'off';
+
+export type SpeechEvidenceV1 = {
+  version: 1;
+  provider: 'browser';
+  finalSegments: string[];
+};
+
+export type BrowserFinalTranscript = {
+  text: string;
+  speechEvidence: SpeechEvidenceV1;
+};
 
 export type BrowserSpeechResultEvent = {
   resultIndex: number;
@@ -9,12 +21,20 @@ export type BrowserSpeechResultEvent = {
   }>;
 };
 
+export type IndexedBrowserFinalSegment = {
+  resultIndex: number;
+  transcript: string;
+};
+
 export type BrowserSttConfig = {
   language: string;
   continuous: boolean;
   interimResults: boolean;
   maxAlternatives: number;
   processLocally: boolean;
+  unspokenPunctuation: boolean;
+  aecMode: BrowserSttAecMode;
+  autoGainControl: boolean;
   phrases: string[];
   silenceMs: number;
 };
@@ -27,12 +47,18 @@ const parseBoolean = (value: string | undefined, fallback: boolean): boolean => 
   return fallback;
 };
 
+const parseAecMode = (value: string | undefined): BrowserSttAecMode => {
+  const normalized = value?.trim().toLowerCase();
+  if (normalized === 'standard' || normalized === 'off') return normalized;
+  return 'auto';
+};
+
 export function resolveSttProvider(value?: string): SttProviderName {
   const normalized = value?.trim().toLowerCase();
-  if (normalized === 'server' || normalized === 'backend' || normalized === 'realtimestt') {
-    return 'server';
+  if (normalized === 'browser' || normalized === 'web-speech' || normalized === 'webspeech') {
+    return 'browser';
   }
-  return 'browser';
+  return 'server';
 }
 
 export function getConfiguredSttProvider(): SttProviderName {
@@ -69,6 +95,15 @@ export function getBrowserSttConfig(
     interimResults: parseBoolean(environment.NEXT_PUBLIC_BROWSER_STT_INTERIM_RESULTS, true),
     maxAlternatives,
     processLocally: parseBoolean(environment.NEXT_PUBLIC_BROWSER_STT_PROCESS_LOCALLY, false),
+    unspokenPunctuation: parseBoolean(
+      environment.NEXT_PUBLIC_BROWSER_STT_UNSPOKEN_PUNCTUATION,
+      true,
+    ),
+    aecMode: parseAecMode(environment.NEXT_PUBLIC_BROWSER_STT_AEC_MODE),
+    autoGainControl: parseBoolean(
+      environment.NEXT_PUBLIC_BROWSER_STT_AUTO_GAIN_CONTROL,
+      true,
+    ),
     phrases,
     silenceMs,
   };
@@ -81,6 +116,11 @@ export function getConfiguredBrowserSttConfig(): BrowserSttConfig {
     NEXT_PUBLIC_BROWSER_STT_INTERIM_RESULTS: process.env.NEXT_PUBLIC_BROWSER_STT_INTERIM_RESULTS,
     NEXT_PUBLIC_BROWSER_STT_MAX_ALTERNATIVES: process.env.NEXT_PUBLIC_BROWSER_STT_MAX_ALTERNATIVES,
     NEXT_PUBLIC_BROWSER_STT_PROCESS_LOCALLY: process.env.NEXT_PUBLIC_BROWSER_STT_PROCESS_LOCALLY,
+    NEXT_PUBLIC_BROWSER_STT_UNSPOKEN_PUNCTUATION:
+      process.env.NEXT_PUBLIC_BROWSER_STT_UNSPOKEN_PUNCTUATION,
+    NEXT_PUBLIC_BROWSER_STT_AEC_MODE: process.env.NEXT_PUBLIC_BROWSER_STT_AEC_MODE,
+    NEXT_PUBLIC_BROWSER_STT_AUTO_GAIN_CONTROL:
+      process.env.NEXT_PUBLIC_BROWSER_STT_AUTO_GAIN_CONTROL,
     NEXT_PUBLIC_BROWSER_STT_PHRASES: process.env.NEXT_PUBLIC_BROWSER_STT_PHRASES,
     NEXT_PUBLIC_BROWSER_STT_SILENCE_MS: process.env.NEXT_PUBLIC_BROWSER_STT_SILENCE_MS,
   });
@@ -88,18 +128,42 @@ export function getConfiguredBrowserSttConfig(): BrowserSttConfig {
 
 export function assembleBrowserSpeechEvent(event: BrowserSpeechResultEvent): {
   finals: string[];
+  finalSegments: IndexedBrowserFinalSegment[];
   interim: string;
 } {
   const finals: string[] = [];
+  const finalSegments: IndexedBrowserFinalSegment[] = [];
   const interim: string[] = [];
   for (let index = event.resultIndex; index < event.results.length; index += 1) {
     const result = event.results[index];
     const transcript = result?.[0]?.transcript?.trim();
     if (!transcript) continue;
-    if (result.isFinal) finals.push(transcript);
+    if (result.isFinal) {
+      finals.push(transcript);
+      finalSegments.push({ resultIndex: index, transcript });
+    }
     else interim.push(transcript);
   }
-  return { finals, interim: interim.join(' ').trim() };
+  return { finals, finalSegments, interim: interim.join(' ').trim() };
+}
+
+const normalizeTranscript = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+export function reconcileBrowserFinalSegments(
+  currentSegments: readonly IndexedBrowserFinalSegment[],
+  incomingSegments: readonly IndexedBrowserFinalSegment[],
+): IndexedBrowserFinalSegment[] {
+  const byIndex = new Map<number, string>();
+  currentSegments.forEach(({ resultIndex, transcript }) => {
+    const normalized = normalizeTranscript(transcript);
+    if (normalized) byIndex.set(resultIndex, normalized);
+  });
+  incomingSegments.forEach(({ resultIndex, transcript }) => {
+    const normalized = normalizeTranscript(transcript);
+    if (normalized) byIndex.set(resultIndex, normalized);
+  });
+  return Array.from(byIndex, ([resultIndex, transcript]) => ({ resultIndex, transcript }))
+    .sort((left, right) => left.resultIndex - right.resultIndex);
 }
 
 const normalizeSpeech = (value: string): string => value
@@ -155,8 +219,12 @@ export function mapBrowserSpeechError(error: string): string | null {
   return 'STT_UNAVAILABLE';
 }
 
-export function buildBrowserTranscriptMessage(text: string): string {
-  return JSON.stringify({ type: 'user_text_message', text: text.trim() });
+export function buildBrowserTranscriptMessage(transcript: BrowserFinalTranscript): string {
+  return JSON.stringify({
+    type: 'user_text_message',
+    text: transcript.text.trim(),
+    speechEvidence: transcript.speechEvidence,
+  });
 }
 
 export function buildBrowserPartialTranscriptMessage(text: string): string {

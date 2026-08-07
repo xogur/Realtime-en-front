@@ -11,9 +11,9 @@ const LANDSCAPE_FRAME: AvatarCameraFrame = {
 };
 
 const PORTRAIT_FRAME: AvatarCameraFrame = {
-    // Keep a portrait close-up without turning it into a face-only crop.
+    // Pull back in portrait so the avatar does not become an imposing face-only crop.
     fov: 33,
-    position: [0, 2.38, 1.512],
+    position: [0, 2.38, 2.0],
     target: [0, 2.38, 0],
 };
 

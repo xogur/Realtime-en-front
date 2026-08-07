@@ -173,4 +173,12 @@ nextjs-portal {
     -webkit-line-clamp: 2 !important;
     overflow: hidden !important;
   }
+
+  .assessment-print-document [class~="text-[9px]"] {
+    font-size: 10px !important;
+  }
+
+  .assessment-print-document [class~="text-[10px]"] {
+    font-size: 11px !important;
+  }
 }

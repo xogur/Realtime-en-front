@@ -80,10 +80,10 @@ export default function Home() {
           className="w-full flex flex-col items-center sm:items-start text-center sm:text-left space-y-1"
         >
           <h1 className="text-3xl md:text-5xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-zinc-900 to-zinc-600">
-            ULJU AI Consultant
+            ULJU AI Free Talk
           </h1>
           <p className="text-sm md:text-lg text-zinc-500 font-bold uppercase tracking-widest">
-            Project UXROOM
+            Practice real English conversations.
           </p>
         </motion.div>
       </header>

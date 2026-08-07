@@ -74,7 +74,6 @@ export type ConversationReviewTurn = {
     prompt: string;
     learner: string;
     assistant: string;
-    assistantKorean: string;
 };
 
 const ERROR_PATTERN_GUIDES: Record<string, {
@@ -564,10 +563,6 @@ export function buildConversationReviewTurns(messages: ChatMessage[]): Conversat
                 assistantParts.map((part) => part.english).filter(Boolean).join(' '),
                 320,
             ),
-            assistantKorean: compactReportText(
-                assistantParts.map((part) => part.korean).filter(Boolean).join(' '),
-                180,
-            ),
         });
     });
 
@@ -598,17 +593,14 @@ function estimateConversationTurnHeight(
     index: number,
 ): number {
     const turn = turns[index];
-    const learnerLines = estimateConversationLineCount(turn.learner, 52);
-    const assistantLines = estimateConversationLineCount(turn.assistant, 60);
-    const assistantKoreanLines = turn.assistantKorean
-        ? estimateConversationLineCount(turn.assistantKorean, 46)
-        : 0;
-    const dialogueLineCount = Math.max(learnerLines, assistantLines + assistantKoreanLines);
+    const learnerLines = estimateConversationLineCount(turn.learner, 48);
+    const assistantLines = estimateConversationLineCount(turn.assistant, 54);
+    const dialogueLineCount = Math.max(learnerLines, assistantLines);
     const promptHeight = shouldShowConversationPrompt(turns, index)
-        ? 20 + ((estimateConversationLineCount(turn.prompt, 118) - 1) * 10)
+        ? 20 + ((estimateConversationLineCount(turn.prompt, 109) - 1) * 10)
         : 0;
 
-    return 72 + ((dialogueLineCount - 1) * 14) + promptHeight;
+    return 88 + ((dialogueLineCount - 1) * 18) + promptHeight;
 }
 
 export function paginateConversationReviewTurns(turns: ConversationReviewTurn[]): ConversationReviewTurn[][] {
@@ -2326,7 +2318,7 @@ function PrintReport({
     }).format(new Date());
 
     return (
-        <section className="print-document hidden bg-white text-[#2f261e]">
+        <section className="print-document assessment-print-document hidden bg-white text-[#2f261e]">
             <div className="mx-auto max-w-[184mm]">
                 <article className="print-page break-after-page flex flex-col">
                     <div className="flex-1">
@@ -2600,7 +2592,7 @@ function ConversationHistoryReport({ messages }: { messages: ChatMessage[] }) {
                                         </div>
 
                                         {showPrompt && (
-                                            <div className="flex gap-2 border-b border-[#244d40]/10 px-2 py-1 text-[8px] leading-tight">
+                                            <div className="flex gap-2 border-b border-[#244d40]/10 px-2 py-1 text-[13px] leading-[1.35]">
                                                 <span className="w-7 shrink-0 font-black text-[#a86e29]">AI</span>
                                                 <span className="font-semibold text-[#3c332a]">{turn.prompt}</span>
                                             </div>
@@ -2608,21 +2600,15 @@ function ConversationHistoryReport({ messages }: { messages: ChatMessage[] }) {
 
                                         <div className="grid grid-cols-[0.95fr_1.05fr] gap-1.5 px-2 py-1.5">
                                             <div className="border-l-[3px] border-[#3e7a63] bg-[#edf5f0] px-2 py-1.5">
-                                                <p className="text-[7px] font-black uppercase tracking-[0.1em] text-[#3e7a63]">User</p>
-                                                <p className="mt-0.5 text-[9px] font-bold leading-[1.3] text-[#20332b]">{turn.learner}</p>
+                                                <p className="text-[8px] font-black uppercase tracking-[0.1em] text-[#3e7a63]">User</p>
+                                                <p className="mt-0.5 text-[13px] font-bold leading-[1.35] text-[#20332b]">{turn.learner}</p>
                                             </div>
                                             {turn.assistant && (
                                                 <div className="border-l-[3px] border-[#c98b3c] bg-[#fbf6ee] px-2 py-1.5">
-                                                <p className="text-[7px] font-black uppercase tracking-[0.1em] text-[#a86e29]">AI response</p>
-                                                <p className="mt-0.5 text-[9px] font-semibold leading-[1.3] text-[#3c332a]">
+                                                <p className="text-[8px] font-black uppercase tracking-[0.1em] text-[#a86e29]">AI</p>
+                                                <p className="mt-0.5 text-[13px] font-semibold leading-[1.35] text-[#3c332a]">
                                                     {turn.assistant}
                                                 </p>
-                                                {turn.assistantKorean && (
-                                                    <p className="mt-1 border-t border-[#c98b3c]/15 pt-1 text-[7.5px] font-medium leading-[1.25] text-[#776b5d]">
-                                                        <span className="mr-1 font-black text-[#a86e29]">해석</span>
-                                                        {turn.assistantKorean}
-                                                    </p>
-                                                )}
                                                 </div>
                                             )}
                                         </div>
@@ -2657,11 +2643,14 @@ export function AssessmentPanel() {
     const [developerControlsOpen, setDeveloperControlsOpen] = useState(false);
     const [detailTab, setDetailTab] = useState<AssessmentDetailTab>('feedback');
     const [printDocumentKind, setPrintDocumentKind] = useState<PrintDocumentKind | null>(null);
+    const [printNoticeOpen, setPrintNoticeOpen] = useState(false);
     const prefersReducedMotion = usePrefersReducedMotion();
 
     const [missionSuccessSoundEnabled] = useMissionSuccessSoundEnabled();
     const missionAudioRef = useRef<MissionSuccessAudio | null>(null);
     const publishedMissionTurnIds = useRef<Set<string>>(new Set());
+    const printTimeoutRef = useRef<number | null>(null);
+    const printNoticeRef = useRef<HTMLButtonElement | null>(null);
 
     const assessment = useMemo(() => {
         const userMessages = messages.filter((message) => message.role === 'user');
@@ -2823,9 +2812,26 @@ export function AssessmentPanel() {
         return () => window.removeEventListener('afterprint', clearPrintedDocument);
     }, []);
 
+    useEffect(() => {
+        if (!printNoticeOpen) return;
+        printNoticeRef.current?.focus();
+    }, [printNoticeOpen]);
+
+    useEffect(() => () => {
+        if (printTimeoutRef.current !== null) {
+            window.clearTimeout(printTimeoutRef.current);
+        }
+    }, []);
+
     const handlePrintDocument = useCallback((kind: PrintDocumentKind) => {
-        flushSync(() => setPrintDocumentKind(kind));
-        window.print();
+        flushSync(() => {
+            setPrintDocumentKind(kind);
+            setPrintNoticeOpen(true);
+        });
+        printTimeoutRef.current = window.setTimeout(() => {
+            printTimeoutRef.current = null;
+            window.print();
+        }, 0);
     }, []);
 
     return (
@@ -2839,6 +2845,29 @@ export function AssessmentPanel() {
                 <ConversationHistoryReport messages={messages} />,
                 printRoot,
             ) : null}
+            {printRoot && printNoticeOpen ? createPortal(
+                <button
+                    ref={printNoticeRef}
+                    type="button"
+                    onClick={() => setPrintNoticeOpen(false)}
+                    className="fixed inset-0 z-[2147483000] flex cursor-pointer items-center justify-center bg-[#1e2824]/78 p-6 text-left backdrop-blur-sm focus:outline-none print:hidden"
+                    aria-label="인쇄 안내 닫기"
+                >
+                    <span className="flex w-full max-w-md flex-col items-center rounded-[28px] border border-white/20 bg-[#fffaf5] px-8 py-10 text-center shadow-[0_28px_90px_rgba(18,28,24,0.4)]">
+                        <span className="flex h-20 w-20 items-center justify-center rounded-full bg-[#5f7353] text-white shadow-lg motion-safe:animate-pulse">
+                            <Printer className="h-10 w-10" strokeWidth={2.2} />
+                        </span>
+                        <span className="mt-6 text-[28px] font-black tracking-tight text-[#2f3d36]">인쇄 중입니다</span>
+                        <span className="mt-3 text-[17px] font-bold leading-relaxed text-[#53645c]">
+                            출력물을 확인하려면<br />프린터로 이동해 주세요.
+                        </span>
+                        <span className="mt-7 rounded-full bg-[#edf1e8] px-5 py-2.5 text-[13px] font-black text-[#5f7353]">
+                            화면을 터치하면 닫힙니다
+                        </span>
+                    </span>
+                </button>,
+                printRoot,
+            ) : null}
 
             <div className="relative z-10 flex items-center justify-between border-b border-[#483c2d]/10 bg-white/15 px-5 py-3.5 print:hidden">
                 <div className="flex items-center gap-3">
@@ -2848,7 +2877,7 @@ export function AssessmentPanel() {
                     </div>
                     <h2 className="text-[15px] font-black tracking-tight text-[#3b3028]">영어 코치</h2>
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex shrink-0 items-center gap-2">
                     {/* 개발자용 LP 조정 버튼은 사용자 화면에서 노출하지 않습니다.
                     {showDeveloperLpControls && (
                         <button
@@ -2865,23 +2894,23 @@ export function AssessmentPanel() {
                         type="button"
                         onClick={() => handlePrintDocument('assessment')}
                         disabled={turns.length === 0}
-                        className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[#7a695b] transition-colors hover:bg-white/45 hover:text-[#3b3028] focus:outline-none focus:ring-2 focus:ring-[#71805f]/25 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-[#3b3028] px-3.5 py-2.5 text-white shadow-[0_5px_14px_rgba(59,48,40,0.18)] transition-all hover:-translate-y-0.5 hover:bg-[#2d251f] hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#8b6741]/35 disabled:cursor-not-allowed disabled:bg-[#d5cbc2] disabled:text-[#796c62] disabled:shadow-none disabled:hover:translate-y-0"
                         title={turns.length === 0 ? '출력할 평가가 없습니다' : '평가 리포트 출력'}
                         aria-label="평가 리포트 출력"
                     >
-                        <Printer className="h-4 w-4" />
-                        <span className="text-[11px] font-black">결과지</span>
+                        <Printer className="h-5 w-5 shrink-0" strokeWidth={2.3} />
+                        <span className="whitespace-nowrap text-[13px] font-black">결과지 인쇄</span>
                     </button>
                     <button
                         type="button"
                         onClick={() => handlePrintDocument('conversation')}
                         disabled={conversationReviewTurnCount === 0}
-                        className="inline-flex items-center gap-1.5 rounded-lg bg-[#edf1e8] px-2.5 py-2 text-[#526849] transition-colors hover:bg-[#e2e9dc] hover:text-[#34452f] focus:outline-none focus:ring-2 focus:ring-[#71805f]/25 disabled:cursor-not-allowed disabled:bg-transparent disabled:text-[#7a695b] disabled:opacity-40"
+                        className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-[#5f7353] px-3.5 py-2.5 text-white shadow-[0_5px_14px_rgba(82,104,73,0.22)] transition-all hover:-translate-y-0.5 hover:bg-[#4f6247] hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#71805f]/35 disabled:cursor-not-allowed disabled:bg-[#d5cbc2] disabled:text-[#796c62] disabled:shadow-none disabled:hover:translate-y-0"
                         title={conversationReviewTurnCount === 0 ? '출력할 대화가 없습니다' : '교수 검토용 대화 기록 출력'}
                         aria-label="대화 기록 출력"
                     >
-                        <MessagesSquare className="h-4 w-4" />
-                        <span className="text-[11px] font-black">대화 기록</span>
+                        <MessagesSquare className="h-5 w-5 shrink-0" strokeWidth={2.3} />
+                        <span className="whitespace-nowrap text-[13px] font-black">대화 기록 인쇄</span>
                     </button>
                 </div>
             </div>

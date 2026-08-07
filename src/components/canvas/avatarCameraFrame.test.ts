@@ -10,13 +10,13 @@ describe('getAvatarCameraFrame', () => {
         });
     });
 
-    it('uses a tighter and higher upper-body framing in portrait', () => {
+    it('uses a pulled-back and higher upper-body framing in portrait', () => {
         const landscape = getAvatarCameraFrame(1920, 1080);
         const portrait = getAvatarCameraFrame(1080, 1920);
 
         expect(portrait.fov).toBeLessThan(landscape.fov);
         expect(portrait.target[1]).toBeGreaterThan(landscape.target[1]);
-        expect(portrait.position[2]).toBeCloseTo(1.512);
+        expect(portrait.position[2]).toBeCloseTo(2.0);
     });
 
     it('tightens the crop further for very narrow portrait displays', () => {

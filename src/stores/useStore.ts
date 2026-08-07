@@ -6,6 +6,12 @@ import type {
     ScheduledTtsSegment,
     Emotion,
 } from '@/lib/lipsync/types';
+import {
+    countMissionSentences,
+    countWords,
+    speechEvidenceMatchesText,
+} from '@/lib/missionText';
+import type { SpeechEvidenceV1 } from '@/lib/stt';
 
 export type TurnEvaluation = {
     rubricVersion: string;
@@ -131,6 +137,7 @@ export type ChatMessage = {
     id?: string;
     role: 'user' | 'assistant';
     content: string;
+    speechEvidence?: SpeechEvidenceV1;
     suggestions?: string[];
     correction?: TurnCorrection;
     correctionStatus?: 'pending' | 'ready' | 'skipped' | 'unavailable';
@@ -219,7 +226,12 @@ interface AppState {
     setRecording: (status: boolean) => void;
     setPlaying: (status: boolean) => void;
     setVolume: (volume: number) => void;
-    addMessage: (role: 'user' | 'assistant', content: string, id?: string) => void;
+    addMessage: (
+        role: 'user' | 'assistant',
+        content: string,
+        id?: string,
+        speechEvidence?: SpeechEvidenceV1,
+    ) => void;
     syncMessages: (messages: ChatMessage[]) => void;
     appendToLastAssistantMessage: (content: string) => void;
     appendToAssistantMessage: (turnId: string, content: string) => void;
@@ -276,21 +288,8 @@ export const DEFAULT_VOICE_ID = AVATAR_VOICE_MAP[DEFAULT_AVATAR_ID];
 const MAX_ACTIVE_MISSIONS = 3;
 const MAX_QUEUED_MISSIONS = 12;
 
-function wordCount(text: string): number {
-    // STT can return curly apostrophes, full-width punctuation, and non-Latin
-    // tokens. Count visible word-like groups instead of only ASCII letters.
-    return text.normalize('NFKC').match(/[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu)?.length ?? 0;
-}
-
-function sentenceCount(text: string): number {
-    // A final STT result may use a newline rather than punctuation between
-    // spoken sentences. Full-width punctuation is also common on IME paths.
-    return text
-        .normalize('NFKC')
-        .split(/[.!?。！？]+|\r?\n+/)
-        .filter((part) => wordCount(part) > 0)
-        .length;
-}
+const MISSION_STT_SEGMENT_FALLBACK_ENABLED =
+    process.env.NEXT_PUBLIC_MISSION_STT_SEGMENT_FALLBACK?.trim().toLowerCase() !== 'false';
 
 function normalizeMissionText(text: string): string {
     return text.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -312,17 +311,25 @@ function hasQuestionSyntax(text: string): boolean {
         || /\b(can|could|would|do|does|did|is|are)\s+(you|we|they|he|she|it|i)\b[^.!?]*$/i.test(trimmed);
 }
 
-function checkMissionRule(text: string, check: MissionCheck): boolean {
+function checkMissionRule(
+    text: string,
+    check: MissionCheck,
+    speechEvidence?: SpeechEvidenceV1,
+): boolean {
     const normalized = normalizeMissionText(text);
     const values = Array.isArray(check.value) ? check.value : check.value ? [check.value] : [];
 
     switch (check.type) {
         case 'minWords':
-            return wordCount(text) >= (check.min ?? 8);
+            return countWords(text) >= (check.min ?? 8);
         case 'includesAny':
             return values.length > 0 && textIncludesAny(text, values);
         case 'sentenceCount':
-            return sentenceCount(text) >= (check.min ?? 2);
+            return countMissionSentences(
+                text,
+                speechEvidence,
+                MISSION_STT_SEGMENT_FALLBACK_ENABLED,
+            ).count >= (check.min ?? 2);
         case 'question':
             return hasQuestionSyntax(text);
         case 'pastTense':
@@ -341,15 +348,23 @@ function checkMissionRule(text: string, check: MissionCheck): boolean {
     }
 }
 
-function missionMatchesText(text: string, mission: PracticeMission): boolean {
+function missionMatchesText(
+    text: string,
+    mission: PracticeMission,
+    speechEvidence?: SpeechEvidenceV1,
+): boolean {
     if (mission.checks.length === 0) return false;
-    const results = mission.checks.map((check) => checkMissionRule(text, check));
+    const results = mission.checks.map((check) => checkMissionRule(text, check, speechEvidence));
     return mission.matchMode === 'any' ? results.some(Boolean) : results.every(Boolean);
 }
 
-function completeMissions(text: string, missions: PracticeMission[]): MissionCompletion[] {
+function completeMissions(
+    text: string,
+    missions: PracticeMission[],
+    speechEvidence?: SpeechEvidenceV1,
+): MissionCompletion[] {
     return missions
-        .filter((mission) => missionMatchesText(text, mission))
+        .filter((mission) => missionMatchesText(text, mission, speechEvidence))
         .map((mission) => ({
             missionId: mission.id,
             title: mission.title,
@@ -451,6 +466,7 @@ function applyImmediateMissionCompletions(
     const completions = completeMissions(
         message.content,
         getApplicableMissionsForMessage(messages, messageIndex, activeMissions),
+        message.speechEvidence,
     ).filter((completion) => !previouslyCompletedIds.has(completion.missionId));
     if (completions.length === 0) {
         return { messages, activeMissions, missionQueue };
@@ -503,12 +519,33 @@ function mergeMessageState(local: ChatMessage, incoming: ChatMessage): ChatMessa
         incoming.pendingMissionCompletions,
     );
     const suggestions = Array.from(new Set([...(local.suggestions ?? []), ...(incoming.suggestions ?? [])]));
+    const incomingHasMatchingEvidence = Boolean(
+        incoming.speechEvidence
+        && speechEvidenceMatchesText(incoming.content, incoming.speechEvidence),
+    );
+    const localHasMatchingEvidence = Boolean(
+        local.speechEvidence
+        && speechEvidenceMatchesText(local.content, local.speechEvidence),
+    );
+    const mergedContent = incomingHasMatchingEvidence
+        ? incoming.content
+        : localHasMatchingEvidence
+            ? local.content
+            : incoming.content.length > local.content.length
+                ? incoming.content
+                : local.content;
+    const mergedSpeechEvidence = incomingHasMatchingEvidence
+        ? incoming.speechEvidence
+        : localHasMatchingEvidence
+            ? local.speechEvidence
+            : undefined;
 
     return {
         ...incoming,
         ...local,
         id: local.id ?? incoming.id,
-        content: incoming.content.length > local.content.length ? incoming.content : local.content,
+        content: mergedContent,
+        speechEvidence: mergedSpeechEvidence,
         correction,
         evaluation,
         correctionStatus: correction ? 'ready' : pickResultStatus(local.correctionStatus, incoming.correctionStatus),
@@ -906,7 +943,7 @@ export const useStore = create<AppState>((set, get) => ({
     setRecording: (status) => set({ isRecording: status }),
     setPlaying: (status) => set({ isPlaying: status }),
     setVolume: (volume) => set({ volume }),
-    addMessage: (role, content, id) =>
+    addMessage: (role, content, id, speechEvidence) =>
         set((state) => {
             const replayMessageKey = getSessionReplayMessageKey(role, id, content);
             const sessionReplayMessageKeys = state.isSessionReplay
@@ -929,6 +966,7 @@ export const useStore = create<AppState>((set, get) => ({
                     candidateMessages[existingIndex] = {
                         ...existingMessage,
                         content,
+                        speechEvidence: speechEvidence ?? existingMessage.speechEvidence,
                         correctionStatus: existingMessage.correctionStatus ?? 'pending',
                         evaluationStatus: existingMessage.evaluationStatus ?? 'pending',
                     };
@@ -953,6 +991,7 @@ export const useStore = create<AppState>((set, get) => ({
                     id,
                     role,
                     content,
+                    speechEvidence,
                     correctionStatus: role === 'user' ? 'pending' as const : undefined,
                     evaluationStatus: role === 'user' ? 'pending' as const : undefined,
                     pendingMissionCompletions: replayedMissionState?.pendingMissionCompletions,
@@ -1089,7 +1128,11 @@ export const useStore = create<AppState>((set, get) => ({
                 .filter((mission) => {
                     if (!mission.sourceTurnId) return true;
                     const sourceMessage = findMissionSourceMessage(state.messages, mission.sourceTurnId);
-                    return !sourceMessage || !missionMatchesText(sourceMessage.content, mission);
+                    return !sourceMessage || !missionMatchesText(
+                        sourceMessage.content,
+                        mission,
+                        sourceMessage.speechEvidence,
+                    );
                 })
                 .filter((mission) => {
                     const key = getMissionKey(mission);

@@ -3,10 +3,13 @@ import { useStore, type TurnCorrection, type TurnEvaluation } from '@/stores/use
 import { useAudioPlayer } from './useAudioPlayer';
 import { useSttAdapter } from './useSttAdapter';
 import type { Emotion, TtsAudioChunk, TtsVisemeTimeline } from '@/lib/lipsync/types';
+import { speechEvidenceMatchesText } from '@/lib/missionText';
 import { getKioskIdFromLocation, withKioskSessionParams, type KioskRole } from '@/lib/kioskIdentity';
 import {
   buildBrowserPartialTranscriptMessage,
   buildBrowserTranscriptMessage,
+  type BrowserFinalTranscript,
+  type SpeechEvidenceV1,
 } from '@/lib/stt';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
@@ -69,6 +72,7 @@ type SocketMessage = {
   serverEpochMs?: number | null;
   sessionEpoch?: number;
   eventSeq?: number;
+  speechEvidence?: SpeechEvidenceV1;
 };
 
 type TurnResultsResponse = {
@@ -270,6 +274,45 @@ function sanitizeModelText(text: string): string {
     .trim();
 }
 
+function sanitizeUserTranscript(text: string): string {
+  const hasStructuredTurnMarker = /<\|?(?:start|end)_of_turn\|?>|<\/?[^>\s/]+_of_turn>/i.test(text);
+  const sanitized = text
+    .replace(/<\/?start_of_turn>/gi, ' ')
+    .replace(/<\/?end_of_turn>/gi, ' ')
+    .replace(/<\|(?:start|end)_of_turn\|>/gi, ' ')
+    .replace(/<\/?[^>\s/]+_of_turn>/gi, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return hasStructuredTurnMarker
+    ? sanitized.replace(/^(?:user|assistant)(?=\s|$)\s*/i, '').trim()
+    : sanitized;
+}
+
+export function addFinalUserRequestMessage(
+  addMessage: (
+    role: 'user',
+    content: string,
+    id?: string,
+    speechEvidence?: SpeechEvidenceV1,
+  ) => void,
+  content: string,
+  clientTurnId?: string,
+  speechEvidence?: SpeechEvidenceV1,
+): void {
+  const sanitizedContent = sanitizeUserTranscript(content);
+  const sanitizedEvidence = speechEvidence
+    ? {
+        ...speechEvidence,
+        finalSegments: speechEvidence.finalSegments.map(sanitizeUserTranscript),
+      }
+    : undefined;
+  const matchingEvidence = sanitizedEvidence
+    && speechEvidenceMatchesText(sanitizedContent, sanitizedEvidence)
+    ? sanitizedEvidence
+    : undefined;
+  addMessage('user', sanitizedContent, clientTurnId, matchingEvidence);
+}
+
 function parseTaggedEmotion(text: string): { emotion: Emotion; displayMessage: string } {
   const sanitizedText = sanitizeModelText(text);
   const match = sanitizedText.match(/^\(([^)]+)\)\s*([\s\S]*)/);
@@ -403,7 +446,7 @@ export function useVoiceSocket() {
     socketRef.current.send(buildAudioPacket(pcmData, useStore.getState().isPlaying));
   }, []);
 
-  const handleBrowserFinalTranscript = useCallback((transcript: string) => {
+  const handleBrowserFinalTranscript = useCallback((transcript: BrowserFinalTranscript) => {
     useStore.getState().setLiveTranscript('');
     if (socketRef.current?.readyState !== WebSocket.OPEN) return;
     socketRef.current.send(buildBrowserTranscriptMessage(transcript));
@@ -1044,7 +1087,12 @@ export function useVoiceSocket() {
             }
             setThinking(true);
             useStore.getState().setPartialMessage('');
-            addMessage('user', sanitizeModelText(data.content ?? ''), clientTurnId);
+            addFinalUserRequestMessage(
+              addMessage,
+              data.content ?? '',
+              clientTurnId,
+              data.speechEvidence,
+            );
             if (clientTurnId && abandonedEvaluationTurnIdsRef.current.has(clientTurnId)) {
               setTurnEvaluationSkipped(clientTurnId, 'mic_disconnected');
             } else if (clientTurnId && data.evaluation_policy === 'skip') {

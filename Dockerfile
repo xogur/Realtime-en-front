@@ -1,6 +1,8 @@
 # Build Stage
 FROM node:22-alpine AS builder
 WORKDIR /app
+ARG NEXT_PUBLIC_STT_PROVIDER=server
+ENV NEXT_PUBLIC_STT_PROVIDER=$NEXT_PUBLIC_STT_PROVIDER
 COPY package*.json ./
 RUN npm ci
 COPY . .

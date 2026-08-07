@@ -110,6 +110,83 @@ describe('replayed assistant result state', () => {
         });
     });
 
+    it('adopts replayed speech evidence and re-evaluates sentence missions', () => {
+        const candidate = mission({
+            id: 'mission-synced-browser-segments',
+            kind: 'length',
+            title: 'Two sentences',
+            target: 'Speak at least two sentences.',
+            checks: [{ type: 'sentenceCount', min: 2 }],
+        });
+        const text = 'I like morning walks they make me feel fresh';
+        useStore.getState().setActiveMissions([candidate]);
+
+        useStore.getState().syncMessages([{
+            id: 'turn-synced-evidence',
+            role: 'user',
+            content: text,
+            speechEvidence: {
+                version: 1,
+                provider: 'browser',
+                finalSegments: ['I like morning walks', 'they make me feel fresh'],
+            },
+        }]);
+
+        expect(useStore.getState().messages[0].completedMissions?.map((item) => item.missionId))
+            .toEqual([candidate.id]);
+    });
+
+    it('preserves local speech evidence when a replay update omits it', () => {
+        const text = 'I like morning walks they make me feel fresh';
+        const speechEvidence = {
+            version: 1 as const,
+            provider: 'browser' as const,
+            finalSegments: ['I like morning walks', 'they make me feel fresh'],
+        };
+        useStore.setState({ activeMissions: [], missionQueue: [] });
+        useStore.getState().addMessage('user', text, 'turn-local-evidence', speechEvidence);
+
+        useStore.getState().syncMessages([{
+            id: 'turn-local-evidence',
+            role: 'user',
+            content: text,
+        }]);
+
+        expect(useStore.getState().messages[0].speechEvidence).toEqual(speechEvidence);
+    });
+
+    it('keeps authoritative replay content and evidence as one versioned pair', () => {
+        const candidate = mission({
+            id: 'mission-authoritative-replay-evidence',
+            kind: 'length',
+            title: 'Two sentences',
+            target: 'Speak at least two sentences.',
+            checks: [{ type: 'sentenceCount', min: 2 }],
+        });
+        useStore.getState().setActiveMissions([candidate]);
+        useStore.getState().addMessage(
+            'user',
+            'I like morning walks they make me feel fresh with extra stale partial words',
+            'turn-authoritative-replay-evidence',
+        );
+
+        useStore.getState().syncMessages([{
+            id: 'turn-authoritative-replay-evidence',
+            role: 'user',
+            content: 'I like morning walks they make me feel fresh',
+            speechEvidence: {
+                version: 1,
+                provider: 'browser',
+                finalSegments: ['I like morning walks', 'they make me feel fresh'],
+            },
+        }]);
+
+        expect(useStore.getState().messages[0]).toMatchObject({
+            content: 'I like morning walks they make me feel fresh',
+            completedMissions: [{ missionId: candidate.id }],
+        });
+    });
+
     it('clears stale error metadata when window sync supplies a ready evaluation', () => {
         useStore.setState({
             messages: [{
@@ -413,6 +490,71 @@ describe('mission completion store rules', () => {
 
         expect(useStore.getState().messages[0].completedMissions?.map((item) => item.missionId)).toEqual([candidate.id]);
         expect(useStore.getState().activeMissions).toEqual([]);
+    });
+
+    it('completes a two-sentence mission from matching browser final segments', () => {
+        const candidate = mission({
+            id: 'mission-browser-segments',
+            kind: 'length',
+            title: 'Two sentences',
+            target: 'Speak at least two sentences.',
+            checks: [{ type: 'sentenceCount', min: 2 }],
+        });
+        const text = 'I like money works they made me very fresh';
+
+        useStore.getState().setActiveMissions([candidate]);
+        useStore.getState().addMessage('user', text, 'turn-browser-segments', {
+            version: 1,
+            provider: 'browser',
+            finalSegments: ['I like money works', 'they made me very fresh'],
+        });
+
+        expect(useStore.getState().messages[0].completedMissions?.map((item) => item.missionId))
+            .toEqual([candidate.id]);
+    });
+
+    it('does not complete from one unpunctuated browser final segment', () => {
+        const candidate = mission({
+            id: 'mission-one-browser-segment',
+            kind: 'length',
+            title: 'Two sentences',
+            target: 'Speak at least two sentences.',
+            checks: [{ type: 'sentenceCount', min: 2 }],
+        });
+        const text = 'I like morning walks they make me feel fresh';
+
+        useStore.getState().setActiveMissions([candidate]);
+        useStore.getState().addMessage('user', text, 'turn-one-browser-segment', {
+            version: 1,
+            provider: 'browser',
+            finalSegments: [text],
+        });
+
+        expect(useStore.getState().messages[0].completedMissions).toBeUndefined();
+        expect(useStore.getState().activeMissions).toHaveLength(1);
+    });
+
+    it('rechecks the same finalized turn when browser segment evidence arrives', () => {
+        const candidate = mission({
+            id: 'mission-late-browser-segments',
+            kind: 'length',
+            title: 'Two sentences',
+            target: 'Speak at least two sentences.',
+            checks: [{ type: 'sentenceCount', min: 2 }],
+        });
+        const text = 'I like morning walks they make me feel fresh';
+
+        useStore.getState().setActiveMissions([candidate]);
+        useStore.getState().addMessage('user', text, 'turn-late-browser-segments');
+        useStore.getState().addMessage('user', text, 'turn-late-browser-segments', {
+            version: 1,
+            provider: 'browser',
+            finalSegments: ['I like morning walks', 'they make me feel fresh'],
+        });
+
+        expect(useStore.getState().messages).toHaveLength(1);
+        expect(useStore.getState().messages[0].completedMissions?.map((item) => item.missionId))
+            .toEqual([candidate.id]);
     });
 
     it('rechecks a finalized STT turn when its authoritative text replaces an earlier partial transcript', () => {

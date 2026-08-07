@@ -13,6 +13,14 @@ const mocks = vi.hoisted(() => ({
   onUnavailable: undefined as undefined | (() => void),
 }));
 
+vi.mock('@/lib/stt', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/stt')>();
+  return {
+    ...actual,
+    getConfiguredSttProvider: () => 'browser',
+  };
+});
+
 vi.mock('./useAudioRecorder', () => ({
   useAudioRecorder: () => ({
     startRecording: mocks.startServer,
@@ -43,7 +51,7 @@ const makeOptions = () => ({
   getPlaybackState: vi.fn(() => ({ isPlaying: false, text: '' })),
 });
 
-describe('useSttAdapter browser fallback', () => {
+describe('useSttAdapter browser provider', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.startBrowser.mockResolvedValue(false);
@@ -54,7 +62,7 @@ describe('useSttAdapter browser fallback', () => {
 
   afterEach(cleanup);
 
-  it('switches to server when browser recognition cannot start', async () => {
+  it('falls back to server when browser recognition cannot start', async () => {
     const { result } = renderHook(() => useSttAdapter(makeOptions()));
 
     await act(async () => {
@@ -62,15 +70,42 @@ describe('useSttAdapter browser fallback', () => {
     });
 
     expect(result.current.provider).toBe('server');
+    expect(mocks.stopBrowser).toHaveBeenCalledTimes(1);
     expect(mocks.startServer).toHaveBeenCalledTimes(1);
   });
 
-  it('switches to server after repeated browser service failures', () => {
+  it('falls back to server after browser service failures', async () => {
+    mocks.startBrowser.mockResolvedValueOnce(true);
     const { result } = renderHook(() => useSttAdapter(makeOptions()));
 
-    act(() => mocks.onUnavailable?.());
+    await act(async () => {
+      expect(await result.current.start()).toBe(true);
+      mocks.onUnavailable?.();
+      await Promise.resolve();
+    });
 
     expect(result.current.provider).toBe('server');
     expect(mocks.startServer).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start the server recorder after stop cancels a pending browser start', async () => {
+    let resolveBrowserStart: ((started: boolean) => void) | undefined;
+    mocks.startBrowser.mockImplementationOnce(() => new Promise<boolean>((resolve) => {
+      resolveBrowserStart = resolve;
+    }));
+    const { result } = renderHook(() => useSttAdapter(makeOptions()));
+
+    let pendingStart: Promise<boolean | void> | undefined;
+    act(() => {
+      pendingStart = result.current.start();
+    });
+    await act(async () => {
+      await result.current.stop();
+      resolveBrowserStart?.(false);
+      expect(await pendingStart).toBe(false);
+    });
+
+    expect(mocks.stopBrowser).toHaveBeenCalledTimes(1);
+    expect(mocks.startServer).not.toHaveBeenCalled();
   });
 });

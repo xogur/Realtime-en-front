@@ -27,26 +27,45 @@ npm run kiosk
 
 The microphone input is exposed through one STT adapter and has two interchangeable implementations:
 
-- `browser` (default): uses the same Web Speech API path as the center Saju/stress-relief experiences and sends final English transcripts through the existing `user_text_message` WebSocket contract.
-- `server`: preserves the original PCM streaming path and the backend STT provider configured by `STT_PROVIDER`.
+- `server` (default): preserves the original PCM streaming path and the backend STT provider configured by `STT_PROVIDER`.
+- `browser`: uses the same Web Speech API path as the center Saju/stress-relief experiences and sends final English transcripts through the existing `user_text_message` WebSocket contract.
 
 Select the implementation before starting or building the frontend:
 
 ```dotenv
-NEXT_PUBLIC_STT_PROVIDER=browser
+NEXT_PUBLIC_STT_PROVIDER=server
 NEXT_PUBLIC_BROWSER_STT_LANGUAGE=en-US
 NEXT_PUBLIC_BROWSER_STT_CONTINUOUS=true
 NEXT_PUBLIC_BROWSER_STT_INTERIM_RESULTS=true
 NEXT_PUBLIC_BROWSER_STT_MAX_ALTERNATIVES=1
 NEXT_PUBLIC_BROWSER_STT_PROCESS_LOCALLY=false
+NEXT_PUBLIC_BROWSER_STT_UNSPOKEN_PUNCTUATION=true
+NEXT_PUBLIC_BROWSER_STT_AEC_MODE=auto
+NEXT_PUBLIC_BROWSER_STT_AUTO_GAIN_CONTROL=true
 NEXT_PUBLIC_BROWSER_STT_PHRASES=
-NEXT_PUBLIC_BROWSER_STT_SILENCE_MS=500
+NEXT_PUBLIC_BROWSER_STT_SILENCE_MS=1500
+NEXT_PUBLIC_MISSION_STT_SEGMENT_FALLBACK=true
 ```
 
-To restore the original STT without changing code, set:
+When supported, `UNSPOKEN_PUNCTUATION` asks the browser recognizer to infer punctuation.
+The mission fallback also preserves separate final recognition segments as optional metadata,
+so a two-sentence speaking mission can pass without changing the transcript shown to the learner.
+This evidence is used only for client-side coaching feedback; it is not authoritative proof
+for server-side rewards or other durable state.
+Set `NEXT_PUBLIC_MISSION_STT_SEGMENT_FALLBACK=false` to disable only that fallback.
+
+Desktop Chrome browser STT opens one processed microphone track and passes that exact track
+to `SpeechRecognition.start(track)`. `NEXT_PUBLIC_BROWSER_STT_AEC_MODE=auto` requests the
+Chrome `all` echo-cancellation mode when the input device advertises it, then falls back to
+standard `echoCancellation: true`. Use `standard` to disable only the experimental string
+mode, or `off` for diagnostics. Chrome 135 or newer is required for track-backed recognition;
+Chrome 141 or newer is recommended for the `all` mode. During TTS playback the recognizer
+stays active so a non-echo interim result can interrupt playback.
+
+To use browser Web Speech instead of the default server STT, set:
 
 ```dotenv
-NEXT_PUBLIC_STT_PROVIDER=server
+NEXT_PUBLIC_STT_PROVIDER=browser
 ```
 
 Restart the Next.js development server (or rebuild the frontend image) after changing a `NEXT_PUBLIC_` value.

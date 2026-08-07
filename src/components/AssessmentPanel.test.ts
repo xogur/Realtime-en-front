@@ -179,7 +179,6 @@ describe('buildConversationReviewTurns', () => {
                 prompt: 'What do you usually do after work?',
                 learner: 'I usually study English because I want to travel.',
                 assistant: 'That is a great goal. Where would you like to travel?',
-                assistantKorean: '좋은 목표네요. 어디로 여행하고 싶나요?',
             }),
         ]);
     });
@@ -215,7 +214,6 @@ describe('buildConversationReviewTurns', () => {
             prompt: '',
             learner: 'I go there yesterday.',
             assistant: 'What did you do there?',
-            assistantKorean: '',
         });
     });
 
@@ -281,15 +279,20 @@ describe('conversation history print report', () => {
         render(createElement(AssessmentPanel));
         fireEvent.click(screen.getByRole('button', { name: '대화 기록 출력' }));
 
-        expect(window.print).toHaveBeenCalledOnce();
+        expect(screen.getByText('인쇄 중입니다')).toBeTruthy();
+        expect(screen.getByText(/프린터로 이동해 주세요/)).toBeTruthy();
+        await waitFor(() => expect(window.print).toHaveBeenCalledOnce());
         const reportHeading = screen.getByRole('heading', { name: '대화 내역' });
         const report = reportHeading.closest('.print-document') as HTMLElement;
         expect(report).toBeTruthy();
         expect(screen.getByText('I usually read a book after dinner.')).toBeTruthy();
         expect(screen.getByText('That sounds relaxing. What kind of books do you enjoy?')).toBeTruthy();
-        expect(screen.getByText('편안해 보이네요. 어떤 책을 좋아하세요?')).toBeTruthy();
+        expect(screen.queryByText('편안해 보이네요. 어떤 책을 좋아하세요?')).toBeNull();
         expect(within(report).queryByText(/자동 평가|세션 점수|CEFR|교정 없음|교수 조정/)).toBeNull();
         expect(screen.queryByRole('heading', { name: '영어 코치 리포트' })).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: '인쇄 안내 닫기' }));
+        expect(screen.queryByText('인쇄 중입니다')).toBeNull();
 
         act(() => window.dispatchEvent(new Event('afterprint')));
         await waitFor(() => expect(screen.queryByRole('heading', { name: '대화 내역' })).toBeNull());
