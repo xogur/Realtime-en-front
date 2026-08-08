@@ -17,6 +17,9 @@ export type TopicSegment = {
   mode: 'guided_conversation' | 'roleplay' | 'free_talk';
   aiRole: string;
   userRole: string;
+  scenarioId: string;
+  scenarioTitle: string;
+  openingLine: string;
   sequence: number;
   occurrence: number;
   status: 'active' | 'paused' | 'ended' | 'failed';

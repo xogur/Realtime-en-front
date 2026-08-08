@@ -89,6 +89,9 @@ type SocketMessage = {
   mode?: TopicSegment['mode'];
   aiRole?: string;
   userRole?: string;
+  scenarioId?: string;
+  scenarioTitle?: string;
+  openingLine?: string;
   sequence?: number;
   occurrence?: number;
   status?: TopicSegment['status'];
@@ -1200,6 +1203,9 @@ export function useVoiceSocket() {
               && data.mode
               && data.aiRole
               && data.userRole
+              && data.scenarioId
+              && data.scenarioTitle
+              && data.openingLine
               && typeof data.sequence === 'number'
               && typeof data.occurrence === 'number'
               && data.status
@@ -1212,6 +1218,9 @@ export function useVoiceSocket() {
                 mode: data.mode,
                 aiRole: data.aiRole,
                 userRole: data.userRole,
+                scenarioId: data.scenarioId,
+                scenarioTitle: data.scenarioTitle,
+                openingLine: data.openingLine,
                 sequence: data.sequence,
                 occurrence: data.occurrence,
                 status: data.status,

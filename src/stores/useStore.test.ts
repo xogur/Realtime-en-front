@@ -302,6 +302,9 @@ describe('topic conversation state', () => {
             mode: 'guided_conversation' as const,
             aiRole: 'conversation partner',
             userRole: 'learner',
+            scenarioId: 'travel_best_trip',
+            scenarioTitle: '최고의 여행',
+            openingLine: 'What is the best trip you have ever taken?',
             status: 'active' as const,
             startedAt: '2026-08-08T00:00:00.000Z',
         };
