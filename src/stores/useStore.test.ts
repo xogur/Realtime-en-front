@@ -273,6 +273,63 @@ describe('replayed assistant result state', () => {
     });
 });
 
+describe('topic conversation state', () => {
+    beforeEach(() => {
+        resetStore();
+    });
+
+    it('stores topic metadata on conversation messages', () => {
+        useStore.getState().addMessage('assistant', 'Where did you travel?', 'turn-opening', undefined, {
+            learningSessionId: 'learning-1',
+            segmentId: 'segment-1',
+            topicId: 'travel',
+            createdAt: '2026-08-08T00:00:00.000Z',
+            isOpening: true,
+        });
+
+        expect(useStore.getState().messages[0]).toMatchObject({
+            segmentId: 'segment-1',
+            topicId: 'travel',
+            isOpening: true,
+        });
+    });
+
+    it('keeps repeated topics as separate ordered segments until clear', () => {
+        useStore.getState().setConversationState('learning-1', [], null);
+        const base = {
+            topicId: 'travel' as const,
+            label: '여행',
+            mode: 'guided_conversation' as const,
+            aiRole: 'conversation partner',
+            userRole: 'learner',
+            status: 'active' as const,
+            startedAt: '2026-08-08T00:00:00.000Z',
+        };
+        useStore.getState().upsertTopicSegment({
+            ...base,
+            segmentId: 'segment-1',
+            sequence: 1,
+            occurrence: 1,
+        });
+        useStore.getState().upsertTopicSegment({
+            ...base,
+            segmentId: 'segment-2',
+            sequence: 2,
+            occurrence: 2,
+        });
+
+        expect(useStore.getState().topicSegments.map((segment) => segment.segmentId)).toEqual([
+            'segment-1',
+            'segment-2',
+        ]);
+        expect(useStore.getState().activeSegmentId).toBe('segment-2');
+
+        useStore.getState().clearMessages();
+        expect(useStore.getState().topicSegments).toEqual([]);
+        expect(useStore.getState().learningSessionId).toBeNull();
+    });
+});
+
 describe('mission completion store rules', () => {
     beforeEach(() => {
         resetStore();

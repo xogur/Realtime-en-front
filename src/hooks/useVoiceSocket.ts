@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { useStore, type TurnCorrection, type TurnEvaluation } from '@/stores/useStore';
+import {
+  useStore,
+  type ChatMessageMetadata,
+  type TurnCorrection,
+  type TurnEvaluation,
+} from '@/stores/useStore';
 import { useAudioPlayer } from './useAudioPlayer';
 import { useSttAdapter } from './useSttAdapter';
 import type { Emotion, TtsAudioChunk, TtsVisemeTimeline } from '@/lib/lipsync/types';
@@ -11,6 +16,8 @@ import {
   type BrowserFinalTranscript,
   type SpeechEvidenceV1,
 } from '@/lib/stt';
+import { isTopicId, type TopicId, type TopicSegment } from '@/lib/conversationTopics';
+import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
 const EVALUATION_BATCH_MAX_TURNS = 4;
@@ -73,6 +80,23 @@ type SocketMessage = {
   sessionEpoch?: number;
   eventSeq?: number;
   speechEvidence?: SpeechEvidenceV1;
+  requestId?: string;
+  learningSessionId?: string;
+  activeSegmentId?: string | null;
+  segmentId?: string;
+  topicId?: TopicId;
+  label?: string;
+  mode?: TopicSegment['mode'];
+  aiRole?: string;
+  userRole?: string;
+  sequence?: number;
+  occurrence?: number;
+  status?: TopicSegment['status'];
+  startedAt?: string;
+  endedAt?: string;
+  createdAt?: string;
+  isOpening?: boolean;
+  segments?: TopicSegment[];
 };
 
 type TurnResultsResponse = {
@@ -274,6 +298,14 @@ function sanitizeModelText(text: string): string {
     .trim();
 }
 
+export function isSttInputReady(
+  provider: 'browser' | 'server',
+  isCaptureReady: boolean,
+  isServerReady: boolean,
+): boolean {
+  return isCaptureReady && (provider === 'browser' || isServerReady);
+}
+
 function sanitizeUserTranscript(text: string): string {
   const hasStructuredTurnMarker = /<\|?(?:start|end)_of_turn\|?>|<\/?[^>\s/]+_of_turn>/i.test(text);
   const sanitized = text
@@ -294,10 +326,12 @@ export function addFinalUserRequestMessage(
     content: string,
     id?: string,
     speechEvidence?: SpeechEvidenceV1,
+    metadata?: ChatMessageMetadata,
   ) => void,
   content: string,
   clientTurnId?: string,
   speechEvidence?: SpeechEvidenceV1,
+  metadata?: ChatMessageMetadata,
 ): void {
   const sanitizedContent = sanitizeUserTranscript(content);
   const sanitizedEvidence = speechEvidence
@@ -310,7 +344,11 @@ export function addFinalUserRequestMessage(
     && speechEvidenceMatchesText(sanitizedContent, sanitizedEvidence)
     ? sanitizedEvidence
     : undefined;
-  addMessage('user', sanitizedContent, clientTurnId, matchingEvidence);
+  if (metadata) {
+    addMessage('user', sanitizedContent, clientTurnId, matchingEvidence, metadata);
+  } else {
+    addMessage('user', sanitizedContent, clientTurnId, matchingEvidence);
+  }
 }
 
 function parseTaggedEmotion(text: string): { emotion: Emotion; displayMessage: string } {
@@ -362,6 +400,14 @@ export function useVoiceSocket() {
   const finalizedAssistantGenerationIdsRef = useRef<Set<string>>(new Set());
   const activeSpeechTextRef = useRef('');
   const sttProviderRef = useRef<'browser' | 'server'>('browser');
+  const isSttCaptureReadyRef = useRef(false);
+  const isServerSttReadyRef = useRef(false);
+  const pendingTopicStartRef = useRef<{
+    requestId: string;
+    topicId: TopicId;
+    sent: boolean;
+  } | null>(null);
+  const pendingResumeSegmentRef = useRef<string | null>(null);
 
   const setConnecting = useStore((state) => state.setConnecting);
   const setConnected = useStore((state) => state.setConnected);
@@ -395,6 +441,23 @@ export function useVoiceSocket() {
   const beginSessionReplay = useStore((state) => state.beginSessionReplay);
   const finishSessionReplay = useStore((state) => state.finishSessionReplay);
   const reconcileSessionReplayPendingEvaluations = useStore((state) => state.reconcileSessionReplayPendingEvaluations);
+  const setConversationState = useStore((state) => state.setConversationState);
+  const upsertTopicSegment = useStore((state) => state.upsertTopicSegment);
+  const setConversationStartStatus = useStore((state) => state.setConversationStartStatus);
+
+  const getMessageMetadata = useCallback((data: SocketMessage): ChatMessageMetadata | undefined => {
+    const topicId = isTopicId(data.topicId) ? data.topicId : undefined;
+    if (!data.learningSessionId && !data.segmentId && !topicId && !data.createdAt && !data.isOpening) {
+      return undefined;
+    }
+    return {
+      learningSessionId: data.learningSessionId,
+      segmentId: data.segmentId,
+      topicId,
+      createdAt: data.createdAt,
+      isOpening: data.isOpening,
+    };
+  }, []);
 
   const notifyTtsPlaybackStopped = useCallback(() => {
     activeSpeechTextRef.current = '';
@@ -468,8 +531,14 @@ export function useVoiceSocket() {
   }, [flushActiveTts]);
 
   const handleBrowserSttReadyChange = useCallback((ready: boolean) => {
-    setSttReady(ready);
-    setConnecting(false);
+    isSttCaptureReadyRef.current = ready;
+    const fullyReady = isSttInputReady(
+      sttProviderRef.current,
+      ready,
+      isServerSttReadyRef.current,
+    );
+    setSttReady(fullyReady);
+    setConnecting(ready && sttProviderRef.current === 'server' ? !fullyReady : false);
   }, [setConnecting, setSttReady]);
 
   const handleBrowserSttError = useCallback((code: string) => {
@@ -613,11 +682,28 @@ export function useVoiceSocket() {
       if (generationId) finalizedAssistantGenerationIdsRef.current.add(generationId);
       const { emotion, displayMessage } = parseTaggedEmotion(rawText);
       const turnId = getTurnId(data) ?? undefined;
-      addMessage('assistant', formatAssistantDisplayMessage(displayMessage, data.korean_content), turnId);
+      addMessage(
+        'assistant',
+        formatAssistantDisplayMessage(displayMessage, data.korean_content),
+        turnId,
+        undefined,
+        getMessageMetadata(data),
+      );
       useStore.getState().setPartialMessage('');
       useStore.getState().setEmotion(emotion);
+      if (data.isOpening) {
+        setConversationStartStatus('idle');
+      }
     },
-    [addMessage, bindActiveGenerationToPendingUser, getGenerationId, getTurnId, isCurrentGeneration],
+    [
+      addMessage,
+      bindActiveGenerationToPendingUser,
+      getGenerationId,
+      getMessageMetadata,
+      getTurnId,
+      isCurrentGeneration,
+      setConversationStartStatus,
+    ],
   );
 
   const handleAssistantTranslation = useCallback(
@@ -997,6 +1083,8 @@ export function useVoiceSocket() {
     roleRef.current = role;
 
     isConnecting.current = true;
+    isSttCaptureReadyRef.current = false;
+    isServerSttReadyRef.current = false;
     setConnecting(true);
     setSttReady(false);
 
@@ -1007,11 +1095,48 @@ export function useVoiceSocket() {
       setConnected(true);
       setSocket(ws);
       if (shouldStartRecording) {
-        void startSttInput();
+        void startSttInput().then((started) => {
+          if (started !== false) return;
+          pendingTopicStartRef.current = null;
+          pendingResumeSegmentRef.current = null;
+          setConversationStartStatus(
+            'error',
+            '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.',
+          );
+        }).catch(() => {
+          pendingTopicStartRef.current = null;
+          pendingResumeSegmentRef.current = null;
+          setConversationStartStatus(
+            'error',
+            '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.',
+          );
+        });
+      } else {
+        setConnecting(false);
       }
 
       const currentVoice = useStore.getState().voice;
       ws.send(JSON.stringify({ type: 'set_voice', voice: currentVoice }));
+
+      if (TEXT_ONLY_TEST_MODE) {
+        const pendingTopic = pendingTopicStartRef.current;
+        if (pendingTopic && !pendingTopic.sent) {
+          pendingTopic.sent = true;
+          ws.send(JSON.stringify({
+            type: 'start_conversation',
+            requestId: pendingTopic.requestId,
+            topicId: pendingTopic.topicId,
+          }));
+        }
+        const pendingSegmentId = pendingResumeSegmentRef.current;
+        if (pendingSegmentId) {
+          pendingResumeSegmentRef.current = null;
+          ws.send(JSON.stringify({
+            type: 'resume_conversation',
+            segmentId: pendingSegmentId,
+          }));
+        }
+      }
     };
 
     ws.onmessage = async (event) => {
@@ -1051,6 +1176,69 @@ export function useVoiceSocket() {
             break;
           }
           case 'kiosk_session_ready':
+            break;
+          case 'conversation_state':
+            if (data.learningSessionId && Array.isArray(data.segments)) {
+              setConversationState(
+                data.learningSessionId,
+                data.segments,
+                data.activeSegmentId ?? null,
+              );
+            }
+            break;
+          case 'conversation_started':
+            // A newly selected topic starts a fresh assistant generation. Clear
+            // the previous generation binding so its opening TTS is accepted,
+            // including when the learner switches topics without clearing history.
+            activeGenerationIdRef.current = null;
+            flushActiveTts();
+            if (
+              data.learningSessionId
+              && data.segmentId
+              && isTopicId(data.topicId)
+              && data.label
+              && data.mode
+              && data.aiRole
+              && data.userRole
+              && typeof data.sequence === 'number'
+              && typeof data.occurrence === 'number'
+              && data.status
+              && data.startedAt
+            ) {
+              upsertTopicSegment({
+                segmentId: data.segmentId,
+                topicId: data.topicId,
+                label: data.label,
+                mode: data.mode,
+                aiRole: data.aiRole,
+                userRole: data.userRole,
+                sequence: data.sequence,
+                occurrence: data.occurrence,
+                status: data.status,
+                startedAt: data.startedAt,
+                endedAt: data.endedAt,
+              }, data.learningSessionId);
+            }
+            pendingTopicStartRef.current = null;
+            setConversationStartStatus('opening');
+            break;
+          case 'conversation_start_error':
+            pendingTopicStartRef.current = null;
+            setConversationStartStatus(
+              'error',
+              data.content ?? '대화를 시작하지 못했습니다. 다시 시도해 주세요.',
+            );
+            break;
+          case 'conversation_resumed':
+            pendingResumeSegmentRef.current = null;
+            setConversationStartStatus('idle');
+            break;
+          case 'conversation_resume_error':
+            pendingResumeSegmentRef.current = null;
+            setConversationStartStatus(
+              'error',
+              data.content ?? '대화를 이어서 시작하지 못했습니다.',
+            );
             break;
           case 'tts_segment_start':
             handleSegmentStart(data);
@@ -1092,6 +1280,7 @@ export function useVoiceSocket() {
               data.content ?? '',
               clientTurnId,
               data.speechEvidence,
+              getMessageMetadata(data),
             );
             if (clientTurnId && abandonedEvaluationTurnIdsRef.current.has(clientTurnId)) {
               setTurnEvaluationSkipped(clientTurnId, 'mic_disconnected');
@@ -1141,14 +1330,23 @@ export function useVoiceSocket() {
             handleEvaluationBatchStatus(data);
             break;
           case 'stt_provider_status':
-            if (sttProviderRef.current === 'server' && data.content === 'ready') {
-              setSttReady(true);
-              setConnecting(false);
+            if (sttProviderRef.current === 'server') {
+              isServerSttReadyRef.current = data.content === 'ready';
+              const fullyReady = isSttInputReady(
+                'server',
+                isSttCaptureReadyRef.current,
+                isServerSttReadyRef.current,
+              );
+              setSttReady(fullyReady);
+              if (isSttCaptureReadyRef.current) {
+                setConnecting(!fullyReady);
+              }
             }
             console.info('STT provider status:', data.content);
             break;
           case 'stt_provider_error':
             if (sttProviderRef.current === 'server') {
+              isServerSttReadyRef.current = false;
               setSttReady(false);
               setConnecting(false);
             }
@@ -1172,11 +1370,18 @@ export function useVoiceSocket() {
 
     ws.onclose = () => {
       isConnecting.current = false;
+      isSttCaptureReadyRef.current = false;
+      isServerSttReadyRef.current = false;
       setConnecting(false);
       setConnected(false);
       setSttReady(false);
       setSocket(null);
       activeGenerationIdRef.current = null;
+      if (pendingTopicStartRef.current || pendingResumeSegmentRef.current) {
+        pendingTopicStartRef.current = null;
+        pendingResumeSegmentRef.current = null;
+        setConversationStartStatus('error', '서버 연결이 종료되었습니다. 다시 시도해 주세요.');
+      }
       useStore.getState().setLiveTranscript('');
       if (roleRef.current === 'controller') {
         discardPendingEvaluations();
@@ -1188,11 +1393,18 @@ export function useVoiceSocket() {
     ws.onerror = (error) => {
       console.error('Voice Socket Error:', error);
       isConnecting.current = false;
+      isSttCaptureReadyRef.current = false;
+      isServerSttReadyRef.current = false;
       setConnecting(false);
       setConnected(false);
       setSttReady(false);
       setSocket(null);
       activeGenerationIdRef.current = null;
+      if (pendingTopicStartRef.current || pendingResumeSegmentRef.current) {
+        pendingTopicStartRef.current = null;
+        pendingResumeSegmentRef.current = null;
+        setConversationStartStatus('error', '서버에 연결하지 못했습니다. 다시 시도해 주세요.');
+      }
       clearSupplementaryPolling();
       clearEvaluationBatchStatus();
     };
@@ -1214,6 +1426,7 @@ export function useVoiceSocket() {
     handleTtsChunk,
     handleSupplementaryHttpMessage,
     getGenerationId,
+    getMessageMetadata,
     getTurnId,
     isCurrentGeneration,
     queueLocalEvaluationBatchTurn,
@@ -1224,6 +1437,9 @@ export function useVoiceSocket() {
     setSocket,
     setThinking,
     setTurnEvaluationSkipped,
+    setConversationState,
+    setConversationStartStatus,
+    upsertTopicSegment,
     beginSessionReplay,
     finishSessionReplay,
     startSttInput,
@@ -1240,6 +1456,8 @@ export function useVoiceSocket() {
       discardPendingEvaluations();
     }
     flushActiveTts();
+    isSttCaptureReadyRef.current = false;
+    isServerSttReadyRef.current = false;
     setConnected(false);
     setSttReady(false);
     setSocket(null);
@@ -1256,10 +1474,104 @@ export function useVoiceSocket() {
     connect();
   }, [connect, startSttInput]);
 
+  const sendPendingTopicStart = useCallback(() => {
+    const pending = pendingTopicStartRef.current;
+    if (!pending || pending.sent) return;
+    if (socketRef.current?.readyState !== WebSocket.OPEN) return;
+    pending.sent = true;
+    socketRef.current.send(JSON.stringify({
+      type: 'start_conversation',
+      requestId: pending.requestId,
+      topicId: pending.topicId,
+    }));
+  }, []);
+
+  const startConversation = useCallback((topicId: TopicId) => {
+    pendingResumeSegmentRef.current = null;
+    pendingTopicStartRef.current = {
+      requestId: crypto.randomUUID(),
+      topicId,
+      sent: false,
+    };
+    setConversationStartStatus('preparing');
+    if (TEXT_ONLY_TEST_MODE) {
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        sendPendingTopicStart();
+      } else {
+        connect({ role: 'controller', startRecording: false });
+      }
+      return;
+    }
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      void startSttInput().then((started) => {
+        if (started !== false && useStore.getState().isSttReady) {
+          sendPendingTopicStart();
+        } else {
+          if (started !== false) return;
+          pendingTopicStartRef.current = null;
+          setConversationStartStatus('error', '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.');
+        }
+      }).catch(() => {
+        pendingTopicStartRef.current = null;
+        setConversationStartStatus('error', '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.');
+      });
+      return;
+    }
+    connect();
+  }, [connect, sendPendingTopicStart, setConversationStartStatus, startSttInput]);
+
+  const sendPendingResume = useCallback(() => {
+    const segmentId = pendingResumeSegmentRef.current;
+    if (!segmentId || socketRef.current?.readyState !== WebSocket.OPEN) return;
+    pendingResumeSegmentRef.current = null;
+    socketRef.current.send(JSON.stringify({
+      type: 'resume_conversation',
+      segmentId,
+    }));
+  }, []);
+
+  const resumeConversation = useCallback((segmentId: string) => {
+    pendingTopicStartRef.current = null;
+    pendingResumeSegmentRef.current = segmentId;
+    setConversationStartStatus('preparing');
+    if (TEXT_ONLY_TEST_MODE) {
+      if (socketRef.current?.readyState === WebSocket.OPEN) {
+        sendPendingResume();
+      } else {
+        connect({ role: 'controller', startRecording: false });
+      }
+      return;
+    }
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      void startSttInput().then((started) => {
+        if (started !== false && useStore.getState().isSttReady) {
+          sendPendingResume();
+        } else {
+          if (started !== false) return;
+          pendingResumeSegmentRef.current = null;
+          setConversationStartStatus('error', '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.');
+        }
+      }).catch(() => {
+        pendingResumeSegmentRef.current = null;
+        setConversationStartStatus('error', '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.');
+      });
+      return;
+    }
+    connect();
+  }, [connect, sendPendingResume, setConversationStartStatus, startSttInput]);
+
   const stopListening = useCallback(() => {
     useStore.getState().setLiveTranscript('');
+    isSttCaptureReadyRef.current = false;
+    setSttReady(false);
     void stopSttInput();
-  }, [stopSttInput]);
+  }, [setSttReady, stopSttInput]);
+
+  useEffect(() => {
+    if (!isConnected || (!isSttReady && !TEXT_ONLY_TEST_MODE)) return;
+    sendPendingTopicStart();
+    sendPendingResume();
+  }, [isConnected, isSttReady, sendPendingResume, sendPendingTopicStart]);
 
   useEffect(() => {
     disconnectRef.current = disconnect;
@@ -1308,14 +1620,17 @@ export function useVoiceSocket() {
     finalizedAssistantGenerationIdsRef.current.clear();
     abandonedEvaluationTurnIdsRef.current.clear();
     activeGenerationIdRef.current = null;
+    pendingTopicStartRef.current = null;
+    pendingResumeSegmentRef.current = null;
     useStore.getState().setPartialMessage('');
-    addMessage('assistant', '(시스템) 대화 내용이 초기화되었습니다.');
-  }, [addMessage, clearMessages, clearSupplementaryPolling]);
+  }, [clearMessages, clearSupplementaryPolling]);
 
   return {
     connect,
     disconnect,
     startListening,
+    startConversation,
+    resumeConversation,
     stopListening,
     isConnected,
     isSttReady,

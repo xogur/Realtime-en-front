@@ -12,6 +12,7 @@ import {
     speechEvidenceMatchesText,
 } from '@/lib/missionText';
 import type { SpeechEvidenceV1 } from '@/lib/stt';
+import type { TopicId, TopicSegment } from '@/lib/conversationTopics';
 
 export type TurnEvaluation = {
     rubricVersion: string;
@@ -150,7 +151,17 @@ export type ChatMessage = {
     pendingMissionCompletions?: MissionCompletion[];
     completedMissions?: MissionCompletion[];
     attemptedMission?: PracticeMission;
+    learningSessionId?: string;
+    segmentId?: string;
+    topicId?: TopicId;
+    createdAt?: string;
+    isOpening?: boolean;
 };
+
+export type ChatMessageMetadata = Pick<
+    ChatMessage,
+    'learningSessionId' | 'segmentId' | 'topicId' | 'createdAt' | 'isOpening'
+>;
 
 export type EvaluationBatchStatus = {
     pendingCount: number;
@@ -175,6 +186,11 @@ interface AppState {
     isPlaying: boolean;
     volume: number; // 0 to 1, for visualizer
     messages: ChatMessage[];
+    learningSessionId: string | null;
+    topicSegments: TopicSegment[];
+    activeSegmentId: string | null;
+    conversationStartStatus: 'idle' | 'preparing' | 'opening' | 'error';
+    conversationStartError: string | null;
     evaluationBatchStatus: EvaluationBatchStatus | null;
     activeMissions: PracticeMission[];
     missionQueue: PracticeMission[];
@@ -231,6 +247,7 @@ interface AppState {
         content: string,
         id?: string,
         speechEvidence?: SpeechEvidenceV1,
+        metadata?: ChatMessageMetadata,
     ) => void;
     syncMessages: (messages: ChatMessage[]) => void;
     appendToLastAssistantMessage: (content: string) => void;
@@ -262,6 +279,16 @@ interface AppState {
     setSocket: (socket: WebSocket | null) => void;
 
     clearMessages: () => void;
+    setConversationState: (
+        learningSessionId: string,
+        segments: TopicSegment[],
+        activeSegmentId: string | null,
+    ) => void;
+    upsertTopicSegment: (segment: TopicSegment, learningSessionId?: string) => void;
+    setConversationStartStatus: (
+        status: AppState['conversationStartStatus'],
+        error?: string | null,
+    ) => void;
     beginSessionReplay: () => void;
     reconcileSessionReplayPendingEvaluations: (replayedMessageKeys?: readonly string[]) => void;
     finishSessionReplay: () => void;
@@ -917,6 +944,11 @@ export const useStore = create<AppState>((set, get) => ({
     isPlaying: false,
     volume: 0,
     messages: [],
+    learningSessionId: null,
+    topicSegments: [],
+    activeSegmentId: null,
+    conversationStartStatus: 'idle',
+    conversationStartError: null,
     evaluationBatchStatus: null,
     activeMissions: [],
     missionQueue: [],
@@ -943,7 +975,7 @@ export const useStore = create<AppState>((set, get) => ({
     setRecording: (status) => set({ isRecording: status }),
     setPlaying: (status) => set({ isPlaying: status }),
     setVolume: (volume) => set({ volume }),
-    addMessage: (role, content, id, speechEvidence) =>
+    addMessage: (role, content, id, speechEvidence, metadata) =>
         set((state) => {
             const replayMessageKey = getSessionReplayMessageKey(role, id, content);
             const sessionReplayMessageKeys = state.isSessionReplay
@@ -958,6 +990,7 @@ export const useStore = create<AppState>((set, get) => ({
                         messages[existingIndex] = {
                             ...existingMessage,
                             content,
+                            ...metadata,
                         };
                         return { messages, sessionReplayMessageKeys };
                     }
@@ -969,6 +1002,7 @@ export const useStore = create<AppState>((set, get) => ({
                         speechEvidence: speechEvidence ?? existingMessage.speechEvidence,
                         correctionStatus: existingMessage.correctionStatus ?? 'pending',
                         evaluationStatus: existingMessage.evaluationStatus ?? 'pending',
+                        ...metadata,
                     };
                     return {
                         ...applyImmediateMissionCompletions(
@@ -992,6 +1026,7 @@ export const useStore = create<AppState>((set, get) => ({
                     role,
                     content,
                     speechEvidence,
+                    ...metadata,
                     correctionStatus: role === 'user' ? 'pending' as const : undefined,
                     evaluationStatus: role === 'user' ? 'pending' as const : undefined,
                     pendingMissionCompletions: replayedMissionState?.pendingMissionCompletions,
@@ -1519,6 +1554,11 @@ export const useStore = create<AppState>((set, get) => ({
     setLiveTranscript: (transcript) => set({ liveTranscript: transcript }),
     clearMessages: () => set({
         messages: [],
+        learningSessionId: null,
+        topicSegments: [],
+        activeSegmentId: null,
+        conversationStartStatus: 'idle',
+        conversationStartError: null,
         liveTranscript: '',
         evaluationBatchStatus: null,
         activeMissions: [],
@@ -1526,6 +1566,38 @@ export const useStore = create<AppState>((set, get) => ({
         missionReplaySnapshot: null,
         sessionReplayMessageKeys: [],
         isSessionReplay: false,
+    }),
+    setConversationState: (learningSessionId, topicSegments, activeSegmentId) => set({
+        learningSessionId,
+        topicSegments,
+        activeSegmentId,
+    }),
+    upsertTopicSegment: (segment, learningSessionId) => set((state) => {
+        const topicSegments = state.topicSegments.map((candidate) => (
+            segment.status === 'active'
+            && candidate.segmentId !== segment.segmentId
+            && candidate.status === 'active'
+                ? { ...candidate, status: 'ended' as const }
+                : candidate
+        ));
+        const existingIndex = topicSegments.findIndex(
+            (candidate) => candidate.segmentId === segment.segmentId,
+        );
+        if (existingIndex >= 0) {
+            topicSegments[existingIndex] = { ...topicSegments[existingIndex], ...segment };
+        } else {
+            topicSegments.push(segment);
+            topicSegments.sort((left, right) => left.sequence - right.sequence);
+        }
+        return {
+            learningSessionId: learningSessionId ?? state.learningSessionId,
+            topicSegments,
+            activeSegmentId: segment.status === 'active' ? segment.segmentId : state.activeSegmentId,
+        };
+    }),
+    setConversationStartStatus: (conversationStartStatus, conversationStartError = null) => set({
+        conversationStartStatus,
+        conversationStartError,
     }),
     beginSessionReplay: () => set((state) => {
         const missionReplaySnapshot: MissionReplaySnapshot = {};

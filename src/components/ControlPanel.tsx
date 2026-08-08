@@ -1,9 +1,12 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Mic, MicOff, Trash2, Loader2 } from 'lucide-react';
+import { Keyboard, Mic, MicOff, Trash2, Loader2 } from 'lucide-react';
 // import { Settings, MessageSquare } from 'lucide-react';
 import { useVoiceSocket } from '@/hooks/useVoiceSocket';
+import { TopicSelector } from '@/components/TopicSelector';
+import { getConversationTopic, type TopicId } from '@/lib/conversationTopics';
+import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
 // import { buildKioskUrl } from '@/lib/kioskIdentity';
 
 interface ControlPanelProps {
@@ -13,38 +16,104 @@ interface ControlPanelProps {
 // 설정 버튼 복원 시 onOpenSettings가 다시 사용됩니다.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
-    const { startListening, stopListening, isConnected, isSttReady, isRecording, sttProvider, clearHistory } = useVoiceSocket();
+    const {
+        startListening,
+        startConversation,
+        resumeConversation,
+        stopListening,
+        isConnected,
+        isSttReady,
+        isRecording,
+        sttProvider,
+        clearHistory,
+    } = useVoiceSocket();
     const isConnecting = useStore((state) => state.isConnecting);
+    const activeSegmentId = useStore((state) => state.activeSegmentId);
+    const topicSegments = useStore((state) => state.topicSegments);
+    const conversationStartStatus = useStore((state) => state.conversationStartStatus);
+    const conversationStartError = useStore((state) => state.conversationStartError);
     const [isProcessing, setIsProcessing] = useState(false);
+    const [isTopicSelectorOpen, setIsTopicSelectorOpen] = useState(false);
+    const activeSegment = topicSegments.find((segment) => segment.segmentId === activeSegmentId);
+    const activeTopic = getConversationTopic(activeSegment?.topicId);
     const isLive = isConnected && isSttReady && isRecording;
     const isPreparingStt = isConnecting;
-    const isSttUnavailable = isConnected && !isSttReady && !isConnecting;
+    const isTextTestActive = TEXT_ONLY_TEST_MODE && isConnected && Boolean(activeTopic);
+    const isSttUnavailable = isConnected
+        && !isSttReady
+        && !isConnecting
+        && conversationStartStatus === 'error';
+
+    useEffect(() => useStore.subscribe((state, previousState) => {
+        if (
+            state.conversationStartStatus === 'opening'
+            && previousState.conversationStartStatus !== 'opening'
+        ) {
+            setIsTopicSelectorOpen(false);
+        }
+    }), []);
 
     const handleToggleConnection = useCallback(() => {
         if (isProcessing || isConnecting) return;
 
-        setIsProcessing(true);
+        if (TEXT_ONLY_TEST_MODE) {
+            setIsTopicSelectorOpen(true);
+            return;
+        }
+
         if (isConnected && isRecording) {
+            setIsProcessing(true);
             stopListening();
+            setTimeout(() => setIsProcessing(false), 500);
+        } else {
+            setIsTopicSelectorOpen(true);
+        }
+    }, [isConnected, isRecording, stopListening, isProcessing, isConnecting]);
+
+    const handleSelectTopic = useCallback((topicId: TopicId) => {
+        startConversation(topicId);
+    }, [startConversation]);
+
+    const handleResume = useCallback(() => {
+        setIsTopicSelectorOpen(false);
+        if (activeSegment) {
+            resumeConversation(activeSegment.segmentId);
         } else {
             startListening();
         }
+    }, [activeSegment, resumeConversation, startListening]);
 
-        setTimeout(() => {
-            setIsProcessing(false);
-        }, 500);
-    }, [isConnected, isRecording, startListening, stopListening, isProcessing, isConnecting]);
+    const handleChangeTopic = useCallback(() => {
+        if (isRecording) {
+            stopListening();
+        }
+        setIsTopicSelectorOpen(true);
+    }, [isRecording, stopListening]);
 
     return (
+        <>
         <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.5, type: 'spring' }}
             className="fixed bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-4 p-4 rounded-3xl bg-white/10 backdrop-blur-xl border border-white/20 shadow-glass z-50"
         >
+            {activeTopic && (
+                <button
+                    type="button"
+                    onClick={handleChangeTopic}
+                    className="absolute -top-12 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-white/50 bg-white/85 px-4 py-2 text-sm font-extrabold text-zinc-800 shadow-lg backdrop-blur-md transition hover:bg-white"
+                    aria-label={`현재 주제 ${activeTopic.label}. 주제 변경`}
+                >
+                    {activeTopic.label}
+                    {activeSegment && activeSegment.occurrence > 1 ? ` ${activeSegment.occurrence}회차` : ''}
+                    <span className="ml-2 text-xs font-bold text-blue-600">주제 변경</span>
+                </button>
+            )}
             <button
                 onClick={() => {
                     if (window.confirm('Reset all conversation history? This cannot be undone.')) {
+                        setIsTopicSelectorOpen(false);
                         clearHistory();
                     }
                 }}
@@ -82,12 +151,14 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
                 disabled={isProcessing || isConnecting}
                 className={`relative flex items-center justify-center w-16 h-16 rounded-full transition-all duration-300 shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-950 disabled:cursor-not-allowed disabled:opacity-75 ${isConnecting || isProcessing
                     ? 'bg-blue-600 text-white shadow-blue-500/30'
-                    : isLive
+                    : isLive && !TEXT_ONLY_TEST_MODE
                         ? 'bg-red-500 hover:bg-red-600 text-white shadow-red-500/30'
-                        : 'bg-zinc-700 hover:bg-zinc-600 text-white shadow-black/35'
+                        : isTextTestActive
+                            ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/30'
+                            : 'bg-zinc-700 hover:bg-zinc-600 text-white shadow-black/35'
                     }`}
-                aria-label={isLive ? 'Turn microphone off' : 'Turn microphone on'}
-                title={isLive ? 'Turn microphone off' : 'Turn microphone on'}
+                aria-label={TEXT_ONLY_TEST_MODE ? 'Choose conversation topic' : isLive ? 'Turn microphone off' : 'Turn microphone on'}
+                title={TEXT_ONLY_TEST_MODE ? 'Choose conversation topic' : isLive ? 'Turn microphone off' : 'Turn microphone on'}
             >
                 <AnimatePresence mode="wait">
                     {isPreparingStt || isProcessing ? (
@@ -98,6 +169,15 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
                             exit={{ scale: 0, opacity: 0 }}
                         >
                             <Loader2 className="w-8 h-8 animate-spin" />
+                        </motion.div>
+                    ) : TEXT_ONLY_TEST_MODE ? (
+                        <motion.div
+                            key="text-test"
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            exit={{ scale: 0 }}
+                        >
+                            <Keyboard className="w-8 h-8" />
                         </motion.div>
                     ) : isLive ? (
                         <motion.div
@@ -125,11 +205,14 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
             <div className="flex flex-col items-start w-24">
                 <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${isPreparingStt ? 'bg-blue-500 animate-pulse' :
+                        isTextTestActive ? 'bg-blue-500 animate-pulse' :
                         isLive ? 'bg-green-500 animate-pulse' : isSttUnavailable ? 'bg-red-500' : isConnected ? 'bg-amber-500' : 'bg-zinc-300'
                         }`} />
                     <span className="text-xs font-semibold text-zinc-100">
                         {isPreparingStt
-                            ? 'Preparing STT'
+                            ? TEXT_ONLY_TEST_MODE ? 'Connecting' : 'Preparing STT'
+                            : isTextTestActive
+                                ? 'Text test mode'
                             : isLive
                                 ? sttProvider === 'browser' ? 'Web Speech' : 'Server STT'
                                 : isSttUnavailable ? 'STT unavailable' : isConnected ? 'Mic off' : 'Offline'}
@@ -137,5 +220,15 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
                 </div>
             </div>
         </motion.div>
+        <TopicSelector
+            isOpen={isTopicSelectorOpen}
+            currentTopicId={activeSegment?.topicId}
+            isBusy={conversationStartStatus === 'preparing'}
+            error={conversationStartError}
+            onSelect={handleSelectTopic}
+            onResume={activeSegment ? handleResume : undefined}
+            onClose={() => setIsTopicSelectorOpen(false)}
+        />
+        </>
     );
 }

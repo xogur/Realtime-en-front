@@ -11,7 +11,21 @@ import {
   isCurrentSupplementaryPoll,
   shouldIgnorePartialAssistantAnswer,
   shouldProcessEventSeq,
+  isSttInputReady,
 } from './useVoiceSocket';
+
+describe('STT readiness', () => {
+  it('requires both microphone capture and backend readiness for server STT', () => {
+    expect(isSttInputReady('server', false, true)).toBe(false);
+    expect(isSttInputReady('server', true, false)).toBe(false);
+    expect(isSttInputReady('server', true, true)).toBe(true);
+  });
+
+  it('uses capture readiness directly for browser STT', () => {
+    expect(isSttInputReady('browser', false, false)).toBe(false);
+    expect(isSttInputReady('browser', true, false)).toBe(true);
+  });
+});
 
 describe('final user request messages', () => {
   it('propagates browser speech evidence into the stored user message', () => {

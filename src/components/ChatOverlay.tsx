@@ -4,6 +4,7 @@ import { useStore } from '@/stores/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, MessageSquare, Send, ExternalLink, Languages } from 'lucide-react';
 import { buildKioskUrl, createClientCommandId, getChatSyncChannelName } from '@/lib/kioskIdentity';
+import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
 
 interface ChatOverlayProps {
     standalone?: boolean;
@@ -29,7 +30,7 @@ function splitAssistantMessage(content: string): { english: string; korean: stri
 
 export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
     const isChatOpenRaw = useStore((state) => state.isChatOpen);
-    const isChatOpen = standalone ? true : isChatOpenRaw;
+    const isChatOpen = standalone || TEXT_ONLY_TEST_MODE || isChatOpenRaw;
     const messages = useStore((state) => state.messages);
     const toggleChat = useStore((state) => state.toggleChat);
     const scrollRef = useRef<HTMLDivElement>(null);
