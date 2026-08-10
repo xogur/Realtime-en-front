@@ -9,7 +9,6 @@ import {
     Flag,
     Info,
     Minus,
-    MessagesSquare,
     Plus,
     Printer,
     RotateCcw,
@@ -29,7 +28,8 @@ import {
     getMetricScore,
     getMissionResultsFromCompletions,
 } from '@/lib/missionLp';
-import { calculateTierProgress, type TierProgress } from '@/lib/tierProgress';
+import { calculateTierProgress } from '@/lib/tierProgress';
+import { AssessmentPrintReport } from '@/components/AssessmentPrintReport';
 
 type EvaluatedTurn = {
     message: ChatMessage;
@@ -40,10 +40,6 @@ const subscribeClientReady = () => () => undefined;
 const getClientReadySnapshot = () => true;
 const getServerReadySnapshot = () => false;
 
-type ReportCorrection = EvaluatedTurn & {
-    assistantPrompt: string;
-};
-
 type MetricKey = 'grammar' | 'vocabulary' | 'relevance' | 'fluency' | 'interaction';
 type TierId = 'unranked' | 'bronze' | 'silver' | 'gold' | 'platinum' | 'diamond' | 'master';
 type AssessmentDetailTab = 'feedback' | 'evaluation';
@@ -53,6 +49,8 @@ type MetricSnapshot = { key: MetricKey; label: string; value: number };
 export type ReportErrorPattern = {
     code: string;
     label: string;
+    meaning: string;
+    advice: string;
     count: number;
     total: number;
     original: string;
@@ -62,22 +60,10 @@ export type ReportErrorPattern = {
 
 const MISSION_CELEBRATION_VISIBLE_MS = 2600;
 const TIER_PROMOTION_VISIBLE_MS = 2200;
-const PRINT_CORE_CORRECTION_LIMIT = 3;
-const PRINT_EXTRA_CORRECTION_LIMIT = 2;
-const PRINT_TOTAL_CORRECTION_LIMIT = PRINT_CORE_CORRECTION_LIMIT + PRINT_EXTRA_CORRECTION_LIMIT;
-const CONVERSATION_PRINT_PAGE_CAPACITY = 950;
-
-type PrintDocumentKind = 'assessment' | 'conversation';
-
-export type ConversationReviewTurn = {
-    sequence: number;
-    prompt: string;
-    learner: string;
-    assistant: string;
-};
-
 const ERROR_PATTERN_GUIDES: Record<string, {
     label: string;
+    meaning: string;
+    advice: string;
     question: string;
     success: string;
     modeling: string;
@@ -85,6 +71,8 @@ const ERROR_PATTERN_GUIDES: Record<string, {
 }> = {
     article: {
         label: '관사',
+        meaning: '명사 앞의 a, an, the가 빠지거나 상황과 다르게 사용됐습니다.',
+        advice: '처음 말하는 하나의 대상은 a/an, 이미 언급했거나 특정한 대상은 the를 씁니다.',
         question: 'Describe a place you visited recently.',
         success: '3문장 안에서 a, an, the 누락 1회 이하',
         modeling: '장소를 처음 말할 때와 다시 언급할 때의 관사 사용을 비교합니다.',
@@ -92,6 +80,8 @@ const ERROR_PATTERN_GUIDES: Record<string, {
     },
     verb_tense: {
         label: '동사 시제',
+        meaning: '말하는 시간과 동사의 형태가 서로 맞지 않았습니다.',
+        advice: 'yesterday·last week처럼 끝난 일을 말할 때는 동사를 과거형으로 바꿉니다.',
         question: 'Tell me what you did last weekend.',
         success: '3문장 안에서 과거 시제 오류 1회 이하',
         modeling: '핵심 동사의 현재형과 과거형을 나란히 보여줍니다.',
@@ -99,6 +89,8 @@ const ERROR_PATTERN_GUIDES: Record<string, {
     },
     subject_verb_agreement: {
         label: '주어-동사 일치',
+        meaning: '주어가 누구인지에 맞는 동사 형태를 사용하지 못했습니다.',
+        advice: '현재형에서 he/she/it 뒤의 일반동사에는 보통 -s 또는 -es를 붙입니다.',
         question: 'Tell me about someone in your family.',
         success: '3문장 안에서 주어-동사 일치 오류 1회 이하',
         modeling: 'I/you와 he/she 뒤의 동사 형태를 대조합니다.',
@@ -106,6 +98,8 @@ const ERROR_PATTERN_GUIDES: Record<string, {
     },
     preposition: {
         label: '전치사',
+        meaning: '시간·장소·동작과 함께 쓰는 전치사의 조합이 맞지 않았습니다.',
+        advice: '전치사는 단어 하나보다 at night, on Monday, interested in처럼 묶어서 익힙니다.',
         question: 'Tell me about your weekday routine.',
         success: '시간·장소 전치사 오류 1회 이하',
         modeling: '교정 문장의 전치사와 함께 쓰이는 표현을 묶어 보여줍니다.',
@@ -113,6 +107,8 @@ const ERROR_PATTERN_GUIDES: Record<string, {
     },
     word_order: {
         label: '어순',
+        meaning: '영어 문장에서 주어·동사·목적어 또는 수식어의 위치가 어긋났습니다.',
+        advice: '기본문장은 ‘주어 + 동사 + 목적어’ 순서로 먼저 만든 뒤 시간·장소를 붙입니다.',
         question: 'Explain how you usually spend your evening.',
         success: '3문장 모두 주어-동사-목적어 순서 유지',
         modeling: '교정 전후 문장에서 움직인 단어의 위치를 표시합니다.',
@@ -120,6 +116,8 @@ const ERROR_PATTERN_GUIDES: Record<string, {
     },
     sentence_fragment: {
         label: '불완전 문장',
+        meaning: '답변에 주어나 핵심 동사가 없어 하나의 완전한 문장이 되지 않았습니다.',
+        advice: '짧게 답하더라도 ‘누가 + 무엇을 한다/어떻다’가 드러나는지 확인합니다.',
         question: 'Tell me about your favorite activity in three sentences.',
         success: '주어와 동사가 있는 완전한 문장 3개',
         modeling: '짧은 구와 완전한 문장을 나란히 비교합니다.',
@@ -127,6 +125,8 @@ const ERROR_PATTERN_GUIDES: Record<string, {
     },
     plural: {
         label: '단수·복수',
+        meaning: '명사의 개수와 단수·복수 형태가 맞지 않았습니다.',
+        advice: '셀 수 있는 명사가 둘 이상이면 보통 복수형을 쓰고, 단수면 a/an도 확인합니다.',
         question: 'Tell me about things you use every day.',
         success: '셀 수 있는 명사의 단수·복수 오류 1회 이하',
         modeling: '수량 표현과 명사의 단수·복수 형태를 함께 보여줍니다.',
@@ -134,6 +134,8 @@ const ERROR_PATTERN_GUIDES: Record<string, {
     },
     pronoun: {
         label: '대명사',
+        meaning: 'it, they, he, she 등이 가리키는 대상이나 형태가 분명하지 않았습니다.',
+        advice: '대명사가 앞의 어떤 명사를 대신하는지, 단수·복수와 성별이 맞는지 확인합니다.',
         question: 'Tell me about a person who helped you.',
         success: '대명사의 대상이 모든 문장에서 명확함',
         modeling: '명사와 이를 대신하는 대명사를 선으로 연결합니다.',
@@ -141,6 +143,8 @@ const ERROR_PATTERN_GUIDES: Record<string, {
     },
     word_choice: {
         label: '단어 선택',
+        meaning: '뜻은 비슷하지만 현재 문맥에서는 잘 쓰지 않는 단어나 조합을 사용했습니다.',
+        advice: '단어를 따로 외우기보다 make a decision처럼 자연스럽게 함께 쓰는 표현으로 익힙니다.',
         question: 'Describe something you enjoyed recently.',
         success: '핵심 표현 2개를 문맥에 맞게 사용',
         modeling: '직역 표현과 자연스러운 영어 표현의 쓰임을 비교합니다.',
@@ -148,6 +152,8 @@ const ERROR_PATTERN_GUIDES: Record<string, {
     },
     connector: {
         label: '문장 연결',
+        meaning: '이유·결과·대조 관계에 맞지 않는 연결어를 사용했거나 필요한 연결이 빠졌습니다.',
+        advice: '이유는 because, 결과는 so, 대조는 but처럼 문장 사이의 관계에 맞춰 선택합니다.',
         question: 'What do you like, and why?',
         success: 'because, so, but 중 하나로 2문장 연결',
         modeling: '두 짧은 문장을 연결어 하나로 합치는 과정을 보여줍니다.',
@@ -456,192 +462,6 @@ function cleanAssistantPrompt(content: string): string {
     return content.split('\n\n한국어 해석:')[0]?.trim() ?? content.trim();
 }
 
-function compactReportText(text: string, maxLength = 180): string {
-    const normalized = text.replace(/\s+/g, ' ').trim();
-    if (normalized.length <= maxLength) return normalized;
-    return `${normalized.slice(0, maxLength - 1).trim()}…`;
-}
-
-function isMeaningfulConversationText(text: string): boolean {
-    const spokenText = text.replace(/[^\p{L}\p{N}]+/gu, '');
-    return spokenText.length >= 2;
-}
-
-const NON_CONTENT_EVALUATION_REASONS = new Set([
-    'empty_input',
-    'near_empty_input',
-    'no_linguistic_signal',
-    'non_speech_source',
-    'conversation_control',
-    'non_english_speech',
-]);
-
-const LOW_INFORMATION_UTTERANCES = new Set([
-    'hi',
-    'hello',
-    'hey',
-    'ok',
-    'okay',
-    'sure',
-    'thanks',
-    'thank you',
-    'bye',
-    'goodbye',
-    'got it',
-    'i see',
-]);
-
-function isMeaningfulLearnerMessage(message: ChatMessage): boolean {
-    const normalized = message.content
-        .normalize('NFKC')
-        .toLowerCase()
-        .replace(/[^\p{L}\p{N}']+/gu, ' ')
-        .trim();
-
-    if (!normalized) return false;
-    if (message.evaluationSkipReason && NON_CONTENT_EVALUATION_REASONS.has(message.evaluationSkipReason)) {
-        return false;
-    }
-    if (LOW_INFORMATION_UTTERANCES.has(normalized)) return false;
-
-    const hasReviewSignal = Boolean(
-        message.evaluation
-        || message.correction
-        || message.attemptedMission
-        || message.evaluationStatus === 'pending'
-        || message.evaluationStatus === 'unavailable',
-    );
-    if (hasReviewSignal) return true;
-
-    const wordCount = normalized.split(/\s+/).filter(Boolean).length;
-    const letterCount = normalized.replace(/[^\p{L}\p{N}]+/gu, '').length;
-    return wordCount >= 3 || letterCount >= 12;
-}
-
-function splitAssistantReportText(content: string): { english: string; korean: string } {
-    const normalized = content.trim();
-    const translationLabel = /(?:\r?\n\s*)+(?:한국어 해석:|Korean:)\s*/i;
-    const match = translationLabel.exec(normalized);
-
-    if (!match || match.index < 0) {
-        return { english: normalized, korean: '' };
-    }
-
-    return {
-        english: normalized.slice(0, match.index).trim(),
-        korean: normalized.slice(match.index + match[0].length).trim(),
-    };
-}
-
-export function buildConversationReviewTurns(messages: ChatMessage[]): ConversationReviewTurn[] {
-    const turns: ConversationReviewTurn[] = [];
-
-    messages.forEach((message, messageIndex) => {
-        if (message.role !== 'user' || !isMeaningfulLearnerMessage(message)) return;
-
-        let prompt = '';
-        for (let index = messageIndex - 1; index >= 0; index -= 1) {
-            if (messages[index].role !== 'assistant') continue;
-            if (!isMeaningfulConversationText(messages[index].content) || messages[index].content.startsWith('(시스템)')) continue;
-            prompt = splitAssistantReportText(messages[index].content).english;
-            break;
-        }
-
-        const assistantParts: Array<{ english: string; korean: string }> = [];
-        for (let index = messageIndex + 1; index < messages.length; index += 1) {
-            const candidate = messages[index];
-            if (candidate.role === 'user') break;
-            if (!isMeaningfulConversationText(candidate.content) || candidate.content.startsWith('(시스템)')) continue;
-            assistantParts.push(splitAssistantReportText(candidate.content));
-        }
-
-        turns.push({
-            sequence: turns.length + 1,
-            prompt: compactReportText(prompt, 140),
-            learner: compactReportText(message.content, 260),
-            assistant: compactReportText(
-                assistantParts.map((part) => part.english).filter(Boolean).join(' '),
-                320,
-            ),
-        });
-    });
-
-    return turns;
-}
-
-function normalizeConversationLine(text: string): string {
-    return text.replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
-function shouldShowConversationPrompt(turns: ConversationReviewTurn[], index: number): boolean {
-    const turn = turns[index];
-    if (!turn?.prompt) return false;
-    if (index === 0) return true;
-    return normalizeConversationLine(turn.prompt) !== normalizeConversationLine(turns[index - 1].assistant);
-}
-
-function estimateConversationLineCount(text: string, charactersPerLine: number): number {
-    if (!text) return 1;
-    return text.split(/\r?\n/).reduce(
-        (total, line) => total + Math.max(1, Math.ceil(line.trim().length / charactersPerLine)),
-        0,
-    );
-}
-
-function estimateConversationTurnHeight(
-    turns: ConversationReviewTurn[],
-    index: number,
-): number {
-    const turn = turns[index];
-    const learnerLines = estimateConversationLineCount(turn.learner, 48);
-    const assistantLines = estimateConversationLineCount(turn.assistant, 54);
-    const dialogueLineCount = Math.max(learnerLines, assistantLines);
-    const promptHeight = shouldShowConversationPrompt(turns, index)
-        ? 20 + ((estimateConversationLineCount(turn.prompt, 109) - 1) * 10)
-        : 0;
-
-    return 88 + ((dialogueLineCount - 1) * 18) + promptHeight;
-}
-
-export function paginateConversationReviewTurns(turns: ConversationReviewTurn[]): ConversationReviewTurn[][] {
-    if (turns.length === 0) return [];
-
-    const pages: ConversationReviewTurn[][] = [];
-    let currentPage: ConversationReviewTurn[] = [];
-    let currentHeight = 0;
-
-    turns.forEach((turn, index) => {
-        const turnHeight = estimateConversationTurnHeight(turns, index);
-        if (currentPage.length > 0 && currentHeight + turnHeight > CONVERSATION_PRINT_PAGE_CAPACITY) {
-            pages.push(currentPage);
-            currentPage = [];
-            currentHeight = 0;
-        }
-
-        currentPage.push(turn);
-        currentHeight += turnHeight;
-    });
-
-    if (currentPage.length > 0) {
-        pages.push(currentPage);
-    }
-
-    return pages;
-}
-
-function getAssistantPromptBeforeTurn(messages: ChatMessage[], turnId: string): string {
-    const sourceIndex = messages.findIndex((message) => message.role === 'user' && message.id === turnId);
-    if (sourceIndex < 0) return '';
-
-    for (let index = sourceIndex - 1; index >= 0; index -= 1) {
-        const message = messages[index];
-        if (message.role === 'assistant') {
-            return compactReportText(cleanAssistantPrompt(message.content));
-        }
-    }
-
-    return '';
-}
 
 function getLatestAssistantPrompt(messages: ChatMessage[]): string {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -2112,33 +1932,23 @@ export function CorrectionCoachCard({
     );
 }
 
-function getReportCorrections(turns: EvaluatedTurn[], messages: ChatMessage[]): ReportCorrection[] {
-    const correctionTurns = turns.filter((turn) => {
-        const original = turn.evaluation.correction.original.trim() || turn.message.content.trim();
-        const suggested = turn.evaluation.correction.suggested.trim();
-        return suggested.length > 0 && suggested.toLowerCase() !== original.toLowerCase();
-    });
-
-    return (correctionTurns.length > 0 ? correctionTurns : turns)
-        .slice(-PRINT_TOTAL_CORRECTION_LIMIT)
-        .reverse()
-        .map((turn) => ({
-            ...turn,
-            assistantPrompt: getAssistantPromptBeforeTurn(messages, turn.message.id ?? turn.evaluation.turnId),
-        }));
-}
-
 function getReportHighlights(turns: EvaluatedTurn[], metricAverages: MetricSnapshot[]) {
     const latestTurn = turns[turns.length - 1] ?? null;
-    const strongest = metricAverages.reduce((best, metric) => (metric.value > best.value ? metric : best), metricAverages[0]);
+    const strongest = metricAverages.reduce(
+        (best, metric) => (metric.value > best.value ? metric : best),
+        metricAverages[0],
+    );
     const weakest = getWeakestMetric(metricAverages);
 
     return {
         strongest,
         weakest,
-        strength: latestTurn?.evaluation.feedback.strength || latestTurn?.evaluation.evidence[strongest?.key] || '꾸준히 말하기를 시도한 점이 좋습니다.',
-        improvement: latestTurn?.evaluation.feedback.improvement || latestTurn?.evaluation.evidence[weakest?.key] || '각 답변에 이유나 예시를 한 문장 더 붙여보세요.',
-        nextPractice: latestTurn?.evaluation.feedback.nextPractice || 'because, so, for example 중 하나를 사용해 2-3문장으로 답해보세요.',
+        strength: latestTurn?.evaluation.feedback.strength
+            || latestTurn?.evaluation.evidence[strongest?.key]
+            || '꾸준히 영어로 답변한 점이 좋습니다.',
+        improvement: latestTurn?.evaluation.feedback.improvement
+            || latestTurn?.evaluation.evidence[weakest?.key]
+            || '문맥에 맞는 어휘와 문장 구조를 조금 더 정확하게 다듬어 보세요.',
     };
 }
 
@@ -2147,15 +1957,13 @@ export function getRepeatedErrorPatterns(turns: EvaluatedTurn[]): ReportErrorPat
     const patterns = new Map<string, ReportErrorPattern>();
 
     eligibleTurns.forEach((turn) => {
-        const uniqueTags = new Set(turn.evaluation.errorTags ?? []);
-        uniqueTags.forEach((code) => {
+        new Set(turn.evaluation.errorTags ?? []).forEach((code) => {
             const guide = ERROR_PATTERN_GUIDES[code];
             if (!guide) return;
-
             const existing = patterns.get(code);
             const original = turn.evaluation.correction.original.trim() || turn.message.content.trim();
             const suggested = turn.evaluation.correction.suggested.trim();
-            const hasUsefulExample = suggested.length > 0 && suggested.toLowerCase() !== original.toLowerCase();
+            const hasUsefulExample = Boolean(suggested && suggested.toLowerCase() !== original.toLowerCase());
 
             if (existing) {
                 existing.count += 1;
@@ -2170,6 +1978,8 @@ export function getRepeatedErrorPatterns(turns: EvaluatedTurn[]): ReportErrorPat
             patterns.set(code, {
                 code,
                 label: guide.label,
+                meaning: guide.meaning,
+                advice: guide.advice,
                 count: 1,
                 total: eligibleTurns.length,
                 original: hasUsefulExample ? original : '',
@@ -2185,448 +1995,6 @@ export function getRepeatedErrorPatterns(turns: EvaluatedTurn[]): ReportErrorPat
         .slice(0, 2);
 }
 
-function getReportConfidenceLabel(confidence?: string): string {
-    if (confidence?.toLowerCase() === 'high') return '높음';
-    if (confidence?.toLowerCase() === 'medium') return '중간';
-    if (confidence?.toLowerCase() === 'low') return '낮음';
-    return '확인 필요';
-}
-
-function getReportConversationTurnCount(messages: ChatMessage[]): number {
-    return messages.filter((message) => (
-        (message.role === 'user' || message.role === 'assistant')
-        && message.content.trim().length > 0
-    )).length;
-}
-
-function getInstructorPlan(
-    patterns: ReportErrorPattern[],
-    highlights: ReturnType<typeof getReportHighlights>,
-) {
-    const primaryPattern = patterns[0] ?? null;
-    const guide = primaryPattern ? ERROR_PATTERN_GUIDES[primaryPattern.code] : null;
-
-    if (primaryPattern && guide) {
-        return {
-            diagnosis: `강점 영역은 ${highlights.strongest?.label ?? '질문 이해'}이고, ${primaryPattern.label} 오류가 ${primaryPattern.count}개 응답에서 반복됩니다.`,
-            question: guide.question,
-            success: guide.success,
-            modeling: guide.modeling,
-            practice: guide.practice,
-            reassessment: `새 질문에 3문장으로 답하고 ${primaryPattern.label} 오류가 성공 기준 이내인지 확인합니다.`,
-        };
-    }
-
-    const weakestLabel = highlights.weakest?.label ?? '문장 구성';
-    return {
-        diagnosis: `강점 영역은 ${highlights.strongest?.label ?? '응답'}입니다. 아직 확정된 반복 오류는 없으며 ${weakestLabel}을 우선 확인하는 것이 좋습니다.`,
-        question: 'Tell me about something you enjoyed recently.',
-        success: '질문에 맞는 완전한 문장 3개로 답하기',
-        modeling: '핵심 교정 한 문장을 짧게 설명하고 자연스러운 답변 예시를 보여줍니다.',
-        practice: '시간·장소·이유를 하나씩 바꾸어 같은 문장 구조를 반복합니다.',
-        reassessment: '새 질문에 3문장으로 답하고 같은 교정이 다시 필요한지 확인합니다.',
-    };
-}
-
-function PrintScoreRing({ score }: { score: number | null }) {
-    const value = score ?? 0;
-    const radius = 42;
-    const circumference = 2 * Math.PI * radius;
-    const dash = (clampScore(value) / 100) * circumference;
-
-    return (
-        <div className="relative flex h-[118px] w-[118px] shrink-0 items-center justify-center">
-            <svg viewBox="0 0 112 112" className="h-full w-full" aria-label={`종합 점수 ${score ?? 0}점`}>
-                <circle cx="56" cy="56" r={radius} fill="none" stroke="#efe5d8" strokeWidth="10" />
-                <circle
-                    cx="56"
-                    cy="56"
-                    r={radius}
-                    fill="none"
-                    stroke="#2f6f4f"
-                    strokeLinecap="round"
-                    strokeWidth="10"
-                    strokeDasharray={`${dash} ${circumference - dash}`}
-                    transform="rotate(-90 56 56)"
-                />
-            </svg>
-            <div className="absolute text-center">
-                <p className="text-[30px] font-black leading-none text-[#2f261e]">{score ?? '--'}</p>
-                <p className="mt-1 text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">점수</p>
-            </div>
-        </div>
-    );
-}
-
-function PrintMetricBar({ label, value }: { label: string; value: number }) {
-    return (
-        <div className="grid grid-cols-[76px_1fr_34px] items-center gap-2 text-[11px]">
-            <span className="font-bold text-[#514337]">{label}</span>
-            <div className="h-2.5 overflow-hidden rounded-full bg-[#efe5d8]">
-                <div className="h-full rounded-full bg-[#2f6f4f]" style={{ width: `${clampScore(value)}%` }} />
-            </div>
-            <span className="text-right font-black text-[#2f261e]">{value}</span>
-        </div>
-    );
-}
-
-function PrintInsightCard({ title, value, tone = 'neutral' }: { title: string; value: string; tone?: 'neutral' | 'good' | 'focus' }) {
-    const toneClass = tone === 'good'
-        ? 'border-[#2f6f4f]/25 bg-[#edf5ed] text-[#29452c]'
-        : tone === 'focus'
-            ? 'border-[#b77f1e]/25 bg-[#fff7e8] text-[#6b4f20]'
-            : 'border-[#6b5a4a]/15 bg-[#f8f1ea] text-[#514337]';
-
-    return (
-        <div className={`rounded-md border px-3 py-2 ${toneClass}`}>
-            <p className="text-[10px] font-black uppercase tracking-normal opacity-70">{title}</p>
-            <p className="mt-1 text-[12px] font-bold leading-snug">{value}</p>
-        </div>
-    );
-}
-
-function PrintReport({
-    messages,
-    turns,
-    tier,
-    sessionScore,
-    metricAverages,
-}: {
-    messages: ChatMessage[];
-    turns: EvaluatedTurn[];
-    tier: TierProgress<TierConfig>;
-    sessionScore: number | null;
-    metricAverages: MetricSnapshot[];
-}) {
-    const correctionTurns = getReportCorrections(turns, messages);
-    const reportCorrections = correctionTurns.slice(0, PRINT_CORE_CORRECTION_LIMIT);
-    const latestTurn = turns[turns.length - 1] ?? null;
-    const highlights = getReportHighlights(turns, metricAverages);
-    const repeatedPatterns = getRepeatedErrorPatterns(turns);
-    const instructorPlan = getInstructorPlan(repeatedPatterns, highlights);
-    const conversationTurnCount = getReportConversationTurnCount(messages);
-    const reliableTurnCount = turns.filter((turn) => turn.evaluation.confidence.toLowerCase() !== 'low').length;
-    const reportConfidence = turns.some((turn) => turn.evaluation.confidence.toLowerCase() === 'low')
-        ? 'low'
-        : turns.length >= 3 && turns.every((turn) => turn.evaluation.confidence.toLowerCase() === 'high')
-            ? 'high'
-            : 'medium';
-    const reportDate = new Intl.DateTimeFormat('ko-KR', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-    }).format(new Date());
-
-    return (
-        <section className="print-document assessment-print-document hidden bg-white text-[#2f261e]">
-            <div className="mx-auto max-w-[184mm]">
-                <article className="print-page break-after-page flex flex-col">
-                    <div className="flex-1">
-                        <header className="flex items-start justify-between border-b-4 border-[#6b5a4a] pb-4">
-                            <div>
-                                <p className="text-[10px] font-bold uppercase tracking-normal text-[#8a6f5a]">영어 말하기 평가</p>
-                                <h1 className="mt-1 text-[28px] font-black tracking-normal text-[#2f261e]">영어 코치 리포트</h1>
-                                <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-bold text-[#6b5a4a]">
-                                    <span className="rounded-full bg-[#f8f1ea] px-2 py-1">대화 {conversationTurnCount}턴</span>
-                                    <span className="rounded-full bg-[#f8f1ea] px-2 py-1">평가 가능 응답 {turns.length}개</span>
-                                    <span className="rounded-full bg-[#f8f1ea] px-2 py-1">{reportDate}</span>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2.5 text-right">
-                                <TierBadge tier={tier.tier} size={52} />
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">현재 티어</p>
-                                    <p className="mt-1 text-[22px] font-black leading-none" style={{ color: tier.tier.text }}>{tier.tier.label}</p>
-                                    <p className="mt-1 text-[10px] font-bold text-[#6b5a4a]">{tier.totalLp} LP</p>
-                                </div>
-                            </div>
-                        </header>
-
-                        <div className="mt-3 flex items-start gap-2 rounded-md border border-[#2f6f4f]/20 bg-[#edf5ed] px-3 py-2 text-[10px] font-semibold leading-snug text-[#29452c]">
-                            <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#2f6f4f]" />
-                            <p>
-                                <span className="font-black">평가 범위: </span>
-                                STT로 변환된 응답의 문법·어휘·응답 구성을 평가했습니다. 발음·말하기 속도·휴지는 점수에 포함하지 않았습니다.
-                            </p>
-                        </div>
-
-                        <section className="mt-4">
-                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">강사 코칭 브리핑</p>
-                            <div className="mt-2 grid grid-cols-[1.35fr_1fr] gap-3">
-                                <div className="rounded-md bg-[#2f261e] px-4 py-3 text-white">
-                                    <p className="text-[10px] font-black text-[#d9cbbd]">한 줄 진단</p>
-                                    <p className="mt-1 text-[14px] font-black leading-snug">{instructorPlan.diagnosis}</p>
-                                </div>
-                                <div className="grid gap-2">
-                                    <div className="rounded-md border border-[#6b5a4a]/15 px-3 py-2">
-                                        <p className="text-[9px] font-black text-[#8a6f5a]">첫 진단 질문</p>
-                                        <p className="mt-1 text-[11px] font-black leading-snug text-[#2f261e]">“{instructorPlan.question}”</p>
-                                    </div>
-                                    <div className="rounded-md border border-[#6b5a4a]/15 px-3 py-2">
-                                        <p className="text-[9px] font-black text-[#8a6f5a]">오늘의 성공 기준</p>
-                                        <p className="mt-1 text-[11px] font-black leading-snug text-[#2f261e]">{instructorPlan.success}</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </section>
-
-                        <section className="mt-4">
-                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">현재 수준</p>
-                            <div className="mt-2 grid grid-cols-[150px_1fr] gap-4">
-                                <div className="flex flex-col items-center rounded-md bg-[#f8f1ea] p-3">
-                                    <PrintScoreRing score={sessionScore} />
-                                    <p className="mt-1 text-center text-[11px] font-bold text-[#6b5a4a]">
-                                        CEFR 추정 {latestTurn?.evaluation.cefrEstimate.level ?? '--'}
-                                    </p>
-                                </div>
-                                <div className="rounded-md border border-[#6b5a4a]/15 p-4">
-                                    <div className="space-y-2.5">
-                                        {metricAverages.map((metric) => (
-                                            <PrintMetricBar key={metric.key} label={metric.label} value={metric.value} />
-                                        ))}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="mt-3 grid grid-cols-3 gap-3">
-                                <PrintInsightCard title="강점" value={highlights.strength} tone="good" />
-                                <PrintInsightCard title="집중 영역" value={`${highlights.weakest?.label ?? '연습'}: ${highlights.improvement}`} tone="focus" />
-                                <PrintInsightCard title="다음 연습" value={highlights.nextPractice} />
-                            </div>
-                        </section>
-
-                        <section className="mt-4">
-                            <div className="flex items-end justify-between">
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">우선 교정 패턴</p>
-                                    <h2 className="mt-0.5 text-[18px] font-black text-[#2f261e]">반복된 실수부터 코칭하세요</h2>
-                                </div>
-                                <p className="text-[9px] font-bold text-[#6b5a4a]">신뢰 응답 {reliableTurnCount}개 기준</p>
-                            </div>
-                            <div className="mt-2 grid gap-2">
-                                {repeatedPatterns.map((pattern) => (
-                                    <article key={pattern.code} className="grid grid-cols-[105px_1fr] overflow-hidden rounded-md border border-[#6b5a4a]/15">
-                                        <div className="flex flex-col justify-center bg-[#f8f1ea] px-3 py-2">
-                                            <p className="text-[11px] font-black text-[#514337]">{pattern.label}</p>
-                                            <p className="mt-1 text-[16px] font-black text-[#2f6f4f]">{pattern.count} / {pattern.total}개</p>
-                                        </div>
-                                        <div className="grid grid-cols-[1fr_18px_1fr] items-center gap-2 px-3 py-2">
-                                            <div>
-                                                <p className="text-[9px] font-black text-[#8a6f5a]">학습자 문장</p>
-                                                <p className="line-clamp-2 mt-0.5 text-[11px] font-bold leading-snug text-[#6b5a4a]">{pattern.original || '대표 문장은 상세 교정에서 확인하세요.'}</p>
-                                            </div>
-                                            <span className="text-center text-[15px] font-black text-[#b77f1e]">→</span>
-                                            <div>
-                                                <p className="text-[9px] font-black text-[#8a6f5a]">권장 표현</p>
-                                                <p className="line-clamp-2 mt-0.5 text-[11px] font-black leading-snug text-[#29452c]">{pattern.suggested || '강사 확인 필요'}</p>
-                                            </div>
-                                        </div>
-                                    </article>
-                                ))}
-                                {repeatedPatterns.length === 0 && (
-                                    <div className="rounded-md border border-dashed border-[#6b5a4a]/25 bg-[#f8f1ea] px-4 py-3">
-                                        <p className="text-[12px] font-black text-[#514337]">확인된 반복 패턴이 아직 없습니다.</p>
-                                        <p className="mt-1 text-[10px] font-semibold leading-snug text-[#6b5a4a]">
-                                            같은 오류 태그가 신뢰할 수 있는 서로 다른 응답에서 2회 이상 확인될 때 표시합니다.
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
-                        </section>
-                    </div>
-                    <footer className="mt-3 flex justify-between border-t border-[#6b5a4a]/15 pt-2 text-[9px] font-semibold text-[#6b5a4a]">
-                        <span>전체 대화가 아닌 핵심 교정 근거만 담았습니다.</span>
-                        <span>1 / 2</span>
-                    </footer>
-                </article>
-
-                <article className="print-page flex flex-col">
-                    <div className="flex-1">
-                        <header className="flex items-start justify-between border-b-4 border-[#6b5a4a] pb-4">
-                            <div>
-                                <p className="text-[10px] font-bold uppercase tracking-normal text-[#8a6f5a]">상담 참고자료</p>
-                                <h2 className="mt-1 text-[24px] font-black text-[#2f261e]">코칭 근거와 실행 계획</h2>
-                            </div>
-                            <div className="text-right">
-                                <p className="text-[10px] font-black text-[#8a6f5a]">평가 가능 응답</p>
-                                <p className="mt-1 text-[20px] font-black text-[#2f261e]">{turns.length}개</p>
-                                <p className="text-[9px] font-bold text-[#6b5a4a]">총 대화 {conversationTurnCount}턴</p>
-                            </div>
-                        </header>
-
-                        <section className="mt-4">
-                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">평가 근거</p>
-                            <div className="mt-2 grid grid-cols-2 gap-3">
-                                <div className="rounded-md border border-[#6b5a4a]/15 p-3">
-                                    <p className="text-[9px] font-black text-[#8a6f5a]">최근 평가 CEFR 추정</p>
-                                    <p className="mt-1 text-[20px] font-black text-[#2f261e]">{latestTurn?.evaluation.cefrEstimate.level ?? '--'}</p>
-                                    <p className="line-clamp-2 mt-1 text-[11px] font-semibold leading-snug text-[#514337]">
-                                        {latestTurn?.evaluation.cefrEstimate.reason ?? '아직 레벨 근거가 충분하지 않습니다.'}
-                                    </p>
-                                </div>
-                                <div className="rounded-md border border-[#6b5a4a]/15 p-3">
-                                    <p className="text-[9px] font-black text-[#8a6f5a]">평가 신뢰도</p>
-                                    <p className="mt-1 text-[20px] font-black text-[#2f261e]">{getReportConfidenceLabel(reportConfidence)}</p>
-                                    <p className="mt-1 text-[11px] font-semibold leading-snug text-[#514337]">
-                                        반복 패턴은 낮은 신뢰도 응답을 제외한 {reliableTurnCount}개를 사용했습니다. 최종 레벨은 전문가 확인을 권장합니다.
-                                    </p>
-                                </div>
-                            </div>
-                        </section>
-
-                        <section className="mt-4">
-                            <div className="flex items-end justify-between">
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">핵심 교정</p>
-                                    <h2 className="mt-0.5 text-[18px] font-black text-[#2f261e]">같은 규칙으로 묶어 설명하세요</h2>
-                                </div>
-                                <p className="text-[9px] font-bold text-[#6b5a4a]">최대 {Math.min(correctionTurns.length, PRINT_CORE_CORRECTION_LIMIT)}개</p>
-                            </div>
-                            <div className="mt-2 grid gap-2">
-                                {reportCorrections.map((turn, index) => (
-                                    <article key={`${turn.evaluation.turnId}:report`} className="rounded-md border-l-4 border-[#b77f1e] bg-[#fff7e8] px-3 py-2">
-                                        {turn.assistantPrompt && (
-                                            <p className="line-clamp-2 text-[9px] font-semibold leading-snug text-[#6b5a4a]">
-                                                <span className="font-black text-[#b77f1e]">질문: </span>{turn.assistantPrompt}
-                                            </p>
-                                        )}
-                                        <div className="mt-1 grid grid-cols-[24px_1fr_1fr_1.15fr] gap-2 text-[10px] leading-snug">
-                                            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#b77f1e] font-black text-white">{index + 1}</span>
-                                            <div>
-                                                <p className="font-black text-[#8a6f5a]">학습자 문장</p>
-                                                <p className="line-clamp-2 mt-0.5 font-bold text-[#6b5a4a]">{turn.evaluation.correction.original || turn.message.content}</p>
-                                            </div>
-                                            <div>
-                                                <p className="font-black text-[#8a6f5a]">권장 표현</p>
-                                                <p className="line-clamp-2 mt-0.5 font-black text-[#29452c]">{turn.evaluation.correction.suggested || turn.message.content}</p>
-                                            </div>
-                                            <div>
-                                                <p className="font-black text-[#8a6f5a]">코칭 포인트</p>
-                                                <p className="line-clamp-2 mt-0.5 font-semibold text-[#514337]">{turn.evaluation.correction.reason || turn.evaluation.evidence.overall}</p>
-                                            </div>
-                                        </div>
-                                    </article>
-                                ))}
-                                {reportCorrections.length === 0 && (
-                                    <p className="rounded-md bg-[#f8f1ea] px-3 py-2 text-[11px] font-semibold text-[#514337]">
-                                        표시할 교정 문장이 없습니다. 새 답변으로 평가 근거를 더 확보하세요.
-                                    </p>
-                                )}
-                            </div>
-                        </section>
-
-                        <section className="mt-4">
-                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">추천 코칭 방향</p>
-                            <h2 className="mt-0.5 text-[18px] font-black text-[#2f261e]">20분 원투원 진행 예시</h2>
-                            <div className="mt-2 grid grid-cols-4 gap-2">
-                                {[
-                                    ['진단', `“${instructorPlan.question}”로 현재 사용을 확인합니다.`, '3분'],
-                                    ['모델링', instructorPlan.modeling, '5분'],
-                                    ['변형 연습', instructorPlan.practice, '7분'],
-                                    ['재평가', instructorPlan.reassessment, '5분'],
-                                ].map(([title, value, time]) => (
-                                    <div key={title} className="relative rounded-md border border-[#6b5a4a]/15 p-3">
-                                        <p className="text-[11px] font-black text-[#2f6f4f]">{title}</p>
-                                        <p className="mt-1 text-[10px] font-semibold leading-snug text-[#514337]">{value}</p>
-                                        <p className="mt-2 text-[9px] font-black text-[#b77f1e]">{time}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        </section>
-
-                        <section className="mt-4">
-                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">7일 연습 계획</p>
-                            <div className="mt-2 grid grid-cols-3 gap-3">
-                                <PrintInsightCard title="1-2일차" value="핵심 교정 문장을 자연스럽게 말할 수 있을 때까지 소리 내어 반복하세요." />
-                                <PrintInsightCard title="3-5일차" value={instructorPlan.practice} tone="focus" />
-                                <PrintInsightCard title="6-7일차" value={instructorPlan.reassessment} tone="good" />
-                            </div>
-                        </section>
-
-                        <section className="mt-4">
-                            <p className="text-[10px] font-black uppercase tracking-normal text-[#8a6f5a]">강사 메모</p>
-                            <div className="mt-2 h-[52px] rounded-md border border-dashed border-[#6b5a4a]/30 px-3 py-2 text-[10px] font-semibold text-[#9a8b7d]">
-                                수업 중 확인한 추가 관찰과 다음 상담 목표를 기록하세요.
-                            </div>
-                        </section>
-                    </div>
-                    <footer className="mt-3 flex justify-between border-t border-[#6b5a4a]/15 pt-2 text-[9px] font-semibold text-[#6b5a4a]">
-                        <span>자동평가 결과는 코칭을 돕는 참고자료이며 전문가 판단을 대체하지 않습니다.</span>
-                        <span>2 / 2</span>
-                    </footer>
-                </article>
-            </div>
-        </section>
-    );
-}
-
-function ConversationHistoryReport({ messages }: { messages: ChatMessage[] }) {
-    const reviewTurns = buildConversationReviewTurns(messages);
-    const pages = paginateConversationReviewTurns(reviewTurns);
-    const reportDate = new Intl.DateTimeFormat('ko-KR', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-    }).format(new Date());
-
-    return (
-        <section className="print-document hidden bg-white text-[#24312c]">
-            <div className="mx-auto">
-                {pages.map((pageTurns, pageIndex) => (
-                    <article
-                        key={`conversation-page-${pageIndex + 1}`}
-                        className={`print-page flex flex-col ${pageIndex < pages.length - 1 ? 'break-after-page' : ''}`}
-                    >
-                        <header className="flex items-end justify-between border-b-2 border-[#244d40] pb-2">
-                            <h1 className="text-[20px] font-black leading-none text-[#1f302a]">대화 내역</h1>
-                            <p className="text-[8px] font-bold text-[#66756f]">{reportDate} · {reviewTurns.length} turns</p>
-                        </header>
-
-                        <section className="mt-2 flex-1 space-y-1.5">
-                            {pageTurns.map((turn) => {
-                                const showPrompt = shouldShowConversationPrompt(reviewTurns, turn.sequence - 1);
-
-                                return (
-                                    <article key={`conversation-turn-${turn.sequence}`} className="print-card overflow-hidden rounded-md border border-[#244d40]/15 bg-white">
-                                        <div className="border-b border-[#244d40]/10 bg-[#f7f3ec] px-2 py-1 text-[7px] font-black text-[#66756f]">
-                                            {String(turn.sequence).padStart(2, '0')}
-                                        </div>
-
-                                        {showPrompt && (
-                                            <div className="flex gap-2 border-b border-[#244d40]/10 px-2 py-1 text-[13px] leading-[1.35]">
-                                                <span className="w-7 shrink-0 font-black text-[#a86e29]">AI</span>
-                                                <span className="font-semibold text-[#3c332a]">{turn.prompt}</span>
-                                            </div>
-                                        )}
-
-                                        <div className="grid grid-cols-[0.95fr_1.05fr] gap-1.5 px-2 py-1.5">
-                                            <div className="border-l-[3px] border-[#3e7a63] bg-[#edf5f0] px-2 py-1.5">
-                                                <p className="text-[8px] font-black uppercase tracking-[0.1em] text-[#3e7a63]">User</p>
-                                                <p className="mt-0.5 text-[13px] font-bold leading-[1.35] text-[#20332b]">{turn.learner}</p>
-                                            </div>
-                                            {turn.assistant && (
-                                                <div className="border-l-[3px] border-[#c98b3c] bg-[#fbf6ee] px-2 py-1.5">
-                                                <p className="text-[8px] font-black uppercase tracking-[0.1em] text-[#a86e29]">AI</p>
-                                                <p className="mt-0.5 text-[13px] font-semibold leading-[1.35] text-[#3c332a]">
-                                                    {turn.assistant}
-                                                </p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </article>
-                                );
-                            })}
-                        </section>
-
-                        <footer className="mt-2 border-t border-[#244d40]/15 pt-1.5 text-right text-[7px] font-black text-[#66756f]">
-                            {pageIndex + 1} / {pages.length}
-                        </footer>
-                    </article>
-                ))}
-            </div>
-        </section>
-    );
-}
-
 export function AssessmentPanel() {
     const isClientReady = useSyncExternalStore(
         subscribeClientReady,
@@ -2635,6 +2003,7 @@ export function AssessmentPanel() {
     );
     const printRoot = isClientReady ? document.body : null;
     const messages = useStore((state) => state.messages);
+    const topicSegments = useStore((state) => state.topicSegments);
     const evaluationBatchStatus = useStore((state) => state.evaluationBatchStatus);
     const activeMissions = useStore((state) => state.activeMissions);
     const addMissionCandidates = useStore((state) => state.addMissionCandidates);
@@ -2642,7 +2011,7 @@ export function AssessmentPanel() {
     const [developerLpDeltas, setDeveloperLpDeltas] = useState<number[]>([]);
     const [developerControlsOpen, setDeveloperControlsOpen] = useState(false);
     const [detailTab, setDetailTab] = useState<AssessmentDetailTab>('feedback');
-    const [printDocumentKind, setPrintDocumentKind] = useState<PrintDocumentKind | null>(null);
+    const [printReportOpen, setPrintReportOpen] = useState(false);
     const [printNoticeOpen, setPrintNoticeOpen] = useState(false);
     const prefersReducedMotion = usePrefersReducedMotion();
 
@@ -2679,10 +2048,6 @@ export function AssessmentPanel() {
     }, [messages]);
 
     const { userMessages, turns, latestTurn, sessionScore, metricAverages, pendingCount, skippedCount, unavailableMessages } = assessment;
-    const conversationReviewTurnCount = useMemo(
-        () => buildConversationReviewTurns(messages).length,
-        [messages],
-    );
     const nowEpochMs = useCountdownClock(pendingCount > 0);
     const previousTurns = turns.slice(0, -1).reverse();
     const previousEvaluatedTurn = turns[turns.length - 2] ?? null;
@@ -2749,6 +2114,7 @@ export function AssessmentPanel() {
         [latestMissionMessage],
     );
     const latestMissionBonus = latestMissionResults.reduce((sum, mission) => sum + mission.bonus, 0);
+    const reportHighlights = getReportHighlights(turns, metricAverages);
     useEffect(() => {
         const audio = new MissionSuccessAudio(missionSuccessSoundEnabled);
         audio.bindInteractionUnlock();
@@ -2807,7 +2173,7 @@ export function AssessmentPanel() {
     }, [showDeveloperLpControls]);
 
     useEffect(() => {
-        const clearPrintedDocument = () => setPrintDocumentKind(null);
+        const clearPrintedDocument = () => setPrintReportOpen(false);
         window.addEventListener('afterprint', clearPrintedDocument);
         return () => window.removeEventListener('afterprint', clearPrintedDocument);
     }, []);
@@ -2823,11 +2189,15 @@ export function AssessmentPanel() {
         }
     }, []);
 
-    const handlePrintDocument = useCallback((kind: PrintDocumentKind) => {
+    const handlePrintDocument = useCallback(() => {
         flushSync(() => {
-            setPrintDocumentKind(kind);
+            setPrintReportOpen(true);
             setPrintNoticeOpen(true);
         });
+    }, []);
+
+    const handlePrintLayoutReady = useCallback(() => {
+        if (printTimeoutRef.current !== null) return;
         printTimeoutRef.current = window.setTimeout(() => {
             printTimeoutRef.current = null;
             window.print();
@@ -2837,12 +2207,20 @@ export function AssessmentPanel() {
     return (
         <aside className="relative isolate flex h-full min-h-0 flex-col overflow-hidden border-t border-[#483c2d]/10 bg-[#eee5dc]/95 text-[#3b3028] shadow-[-16px_0_48px_rgba(72,60,45,0.12)] backdrop-blur-xl print:border-0 print:bg-white lg:border-l lg:border-t-0">
             <MissionSuccessCelebration presentation={missionCelebration.current} />
-            {printRoot && printDocumentKind === 'assessment' ? createPortal(
-                <PrintReport messages={messages} turns={turns} tier={tier} sessionScore={sessionScore} metricAverages={metricAverages} />,
-                printRoot,
-            ) : null}
-            {printRoot && printDocumentKind === 'conversation' ? createPortal(
-                <ConversationHistoryReport messages={messages} />,
+            {printRoot && printReportOpen ? createPortal(
+                <AssessmentPrintReport
+                    messages={messages}
+                    topicSegments={topicSegments}
+                    assessableAnswerCount={turns.length}
+                    sessionScore={sessionScore}
+                    metrics={metricAverages}
+                    tier={{ label: tier.tier.label, textColor: tier.tier.text, totalLp: tier.totalLp }}
+                    cefrLevel={latestTurn?.evaluation.cefrEstimate.level ?? '--'}
+                    cefrReason={latestTurn?.evaluation.cefrEstimate.reason ?? ''}
+                    strength={reportHighlights.strength}
+                    improvement={reportHighlights.improvement}
+                    onLayoutReady={handlePrintLayoutReady}
+                />,
                 printRoot,
             ) : null}
             {printRoot && printNoticeOpen ? createPortal(
@@ -2892,7 +2270,7 @@ export function AssessmentPanel() {
                     )} */}
                     <button
                         type="button"
-                        onClick={() => handlePrintDocument('assessment')}
+                        onClick={handlePrintDocument}
                         disabled={turns.length === 0}
                         className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-[#3b3028] px-3.5 py-2.5 text-white shadow-[0_5px_14px_rgba(59,48,40,0.18)] transition-all hover:-translate-y-0.5 hover:bg-[#2d251f] hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#8b6741]/35 disabled:cursor-not-allowed disabled:bg-[#d5cbc2] disabled:text-[#796c62] disabled:shadow-none disabled:hover:translate-y-0"
                         title={turns.length === 0 ? '출력할 평가가 없습니다' : '평가 리포트 출력'}
@@ -2900,17 +2278,6 @@ export function AssessmentPanel() {
                     >
                         <Printer className="h-5 w-5 shrink-0" strokeWidth={2.3} />
                         <span className="whitespace-nowrap text-[13px] font-black">결과지 인쇄</span>
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => handlePrintDocument('conversation')}
-                        disabled={conversationReviewTurnCount === 0}
-                        className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-[#5f7353] px-3.5 py-2.5 text-white shadow-[0_5px_14px_rgba(82,104,73,0.22)] transition-all hover:-translate-y-0.5 hover:bg-[#4f6247] hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#71805f]/35 disabled:cursor-not-allowed disabled:bg-[#d5cbc2] disabled:text-[#796c62] disabled:shadow-none disabled:hover:translate-y-0"
-                        title={conversationReviewTurnCount === 0 ? '출력할 대화가 없습니다' : '교수 검토용 대화 기록 출력'}
-                        aria-label="대화 기록 출력"
-                    >
-                        <MessagesSquare className="h-5 w-5 shrink-0" strokeWidth={2.3} />
-                        <span className="whitespace-nowrap text-[13px] font-black">대화 기록 인쇄</span>
                     </button>
                 </div>
             </div>

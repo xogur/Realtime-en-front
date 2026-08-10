@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { createElement } from 'react';
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { animateMock, stopMock } = vi.hoisted(() => {
@@ -25,12 +25,10 @@ import {
     AssessmentPanel,
     CorrectionCoachCard,
     TierProgressBar,
-    buildConversationReviewTurns,
     getBatchCountdown,
     getEvaluationReliabilityNotice,
     getPracticeMissionCandidates,
     getRepeatedErrorPatterns,
-    paginateConversationReviewTurns,
     shouldShowCoachContent,
     useCountdownClock,
 } from './AssessmentPanel';
@@ -152,6 +150,8 @@ describe('getRepeatedErrorPatterns', () => {
             total: 3,
             original: 'Original turn-1',
             suggested: 'Corrected turn-1',
+            meaning: '말하는 시간과 동사의 형태가 서로 맞지 않았습니다.',
+            advice: 'yesterday·last week처럼 끝난 일을 말할 때는 동사를 과거형으로 바꿉니다.',
         });
     });
 
@@ -163,139 +163,50 @@ describe('getRepeatedErrorPatterns', () => {
     });
 });
 
-describe('buildConversationReviewTurns', () => {
-    it('pairs meaningful learner speech with the English AI response', () => {
-        const messages: ChatMessage[] = [
-            { role: 'assistant', content: 'What do you usually do after work?' },
-            { role: 'user', content: 'I usually study English because I want to travel.' },
-            { role: 'assistant', content: 'That is a great goal. Where would you like to travel?\n\n한국어 해석: 좋은 목표네요. 어디로 여행하고 싶나요?' },
-            { role: 'user', content: '...' },
-            { role: 'assistant', content: 'Take your time.' },
-        ];
-
-        expect(buildConversationReviewTurns(messages)).toEqual([
-            expect.objectContaining({
-                sequence: 1,
-                prompt: 'What do you usually do after work?',
-                learner: 'I usually study English because I want to travel.',
-                assistant: 'That is a great goal. Where would you like to travel?',
-            }),
-        ]);
-    });
-
-    it('does not put evaluation or correction metadata into conversation history', () => {
+describe('assessment print report', () => {
+    it('offers only the result report and omits practice-plan sections', async () => {
+        const content = 'I go there yesterday.';
         const evaluation: TurnEvaluation = {
             rubricVersion: 'speaking-v2',
-            turnId: 'turn-1',
+            turnId: 'print-turn',
             provider: 'test',
             model: 'test',
-            createdAt: '2026-08-03T00:00:00.000Z',
-            scores: { overall: 72, grammar: 68, vocabulary: 73, relevance: 76, fluency: 70, interaction: 72 },
+            createdAt: '2026-08-10T00:00:00.000Z',
+            scores: { overall: 70, grammar: 60, vocabulary: 70, relevance: 80, fluency: 70, interaction: 70 },
             evidence: { overall: '', grammar: '', vocabulary: '', relevance: '', fluency: '', interaction: '' },
-            feedback: { summary: '', strength: '', improvement: '', nextPractice: '' },
-            cefrEstimate: { level: 'A2', reason: '' },
+            feedback: { summary: '', strength: '질문에 맞게 답했습니다.', improvement: '과거 시제를 연습하세요.', nextPractice: '제거 대상' },
+            cefrEstimate: { level: 'A2', reason: '간단한 경험을 전달했습니다.' },
             correction: {
-                original: 'I go there yesterday.',
+                original: content,
                 suggested: 'I went there yesterday.',
-                reason: '과거 시제를 사용합니다.',
+                reason: 'yesterday에 맞춰 과거 시제를 사용합니다.',
+                category: 'grammar',
+                contextFit: 'appropriate',
+                reportEligible: true,
+                reportPriority: 'medium',
+                meaningPreserved: true,
             },
+            errorTags: ['verb_tense'],
             capabilities: { pronunciation: 'not_available' },
             confidence: 'high',
             confidenceReasons: [],
         };
-
-        const [turn] = buildConversationReviewTurns([
-            { role: 'user', content: 'I go there yesterday.', evaluation },
-            { role: 'assistant', content: 'What did you do there?' },
-        ]);
-
-        expect(turn).toEqual({
-            sequence: 1,
-            prompt: '',
-            learner: 'I go there yesterday.',
-            assistant: 'What did you do there?',
-        });
-    });
-
-    it('extracts learning exchanges while excluding greetings, controls, and system notices', () => {
-        const turns = buildConversationReviewTurns([
-            { role: 'user', content: 'Hello!', evaluationStatus: 'pending' },
-            { role: 'assistant', content: 'Hi! How are you?' },
-            { role: 'user', content: 'Stop', evaluationStatus: 'skipped', evaluationSkipReason: 'conversation_control' },
-            { role: 'assistant', content: '(시스템) 대화 내용이 초기화되었습니다.' },
-            { role: 'user', content: 'Yes, I do.' },
-            { role: 'assistant', content: 'Why do you enjoy it?' },
-            { role: 'user', content: 'I enjoy it because it helps me relax after work.' },
-            { role: 'assistant', content: 'That is a clear explanation.' },
-        ]);
-
-        expect(turns).toHaveLength(2);
-        expect(turns.map((turn) => turn.learner)).toEqual([
-            'Yes, I do.',
-            'I enjoy it because it helps me relax after work.',
-        ]);
-        expect(turns[0].prompt).toBe('Hi! How are you?');
-        expect(turns[0].assistant).toBe('Why do you enjoy it?');
-    });
-
-    it('keeps every meaningful exchange instead of sampling a long conversation', () => {
-        const messages: ChatMessage[] = Array.from({ length: 24 }, (_, index) => (
-            index % 2 === 0
-                ? { role: 'user', content: `I am explaining meaningful answer number ${index / 2 + 1}.` }
-                : { role: 'assistant', content: `Please tell me more about answer ${(index + 1) / 2}.` }
-        ));
-
-        expect(buildConversationReviewTurns(messages)).toHaveLength(12);
-    });
-
-    it('fills a page with additional short exchanges instead of stopping at eight', () => {
-        const messages: ChatMessage[] = [
-            { role: 'assistant', content: 'Tell me about your day.' },
-            ...Array.from({ length: 30 }, (_, index) => (
-                index % 2 === 0
-                    ? { role: 'user' as const, content: `I am sharing useful answer number ${index / 2 + 1}.` }
-                    : { role: 'assistant' as const, content: `Thanks for sharing answer ${(index + 1) / 2}.` }
-            )),
-        ];
-        const turns = buildConversationReviewTurns(messages);
-        const pages = paginateConversationReviewTurns(turns);
-
-        expect(turns).toHaveLength(15);
-        expect(pages[0].length).toBeGreaterThan(8);
-        expect(pages.flat()).toEqual(turns);
-    });
-});
-
-describe('conversation history print report', () => {
-    it('prints only the plain conversation transcript from the conversation button', async () => {
         useStore.setState({
             messages: [
-                { role: 'assistant', content: 'How do you usually spend your evening?' },
-                { role: 'user', content: 'I usually read a book after dinner.' },
-                { role: 'assistant', content: 'That sounds relaxing. What kind of books do you enjoy?\n\n한국어 해석: 편안해 보이네요. 어떤 책을 좋아하세요?' },
+                { role: 'assistant', content: 'What did you do yesterday?' },
+                { id: 'print-turn', role: 'user', content, evaluation },
             ],
         });
 
         render(createElement(AssessmentPanel));
-        fireEvent.click(screen.getByRole('button', { name: '대화 기록 출력' }));
 
-        expect(screen.getByText('인쇄 중입니다')).toBeTruthy();
-        expect(screen.getByText(/프린터로 이동해 주세요/)).toBeTruthy();
+        expect(screen.queryByRole('button', { name: '대화 기록 출력' })).toBeNull();
+        fireEvent.click(screen.getByRole('button', { name: '평가 리포트 출력' }));
+        expect(screen.getByRole('heading', { name: '영어 코치 리포트' })).toBeTruthy();
+        expect(screen.queryByText('20분 원투원 진행 예시')).toBeNull();
+        expect(screen.queryByText('7일 연습 계획')).toBeNull();
+        expect(screen.queryByText('강사 메모')).toBeNull();
         await waitFor(() => expect(window.print).toHaveBeenCalledOnce());
-        const reportHeading = screen.getByRole('heading', { name: '대화 내역' });
-        const report = reportHeading.closest('.print-document') as HTMLElement;
-        expect(report).toBeTruthy();
-        expect(screen.getByText('I usually read a book after dinner.')).toBeTruthy();
-        expect(screen.getByText('That sounds relaxing. What kind of books do you enjoy?')).toBeTruthy();
-        expect(screen.queryByText('편안해 보이네요. 어떤 책을 좋아하세요?')).toBeNull();
-        expect(within(report).queryByText(/자동 평가|세션 점수|CEFR|교정 없음|교수 조정/)).toBeNull();
-        expect(screen.queryByRole('heading', { name: '영어 코치 리포트' })).toBeNull();
-
-        fireEvent.click(screen.getByRole('button', { name: '인쇄 안내 닫기' }));
-        expect(screen.queryByText('인쇄 중입니다')).toBeNull();
-
-        act(() => window.dispatchEvent(new Event('afterprint')));
-        await waitFor(() => expect(screen.queryByRole('heading', { name: '대화 내역' })).toBeNull());
     });
 });
 

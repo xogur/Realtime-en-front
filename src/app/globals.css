@@ -87,6 +87,37 @@ nextjs-portal {
   display: none !important;
 }
 
+/* 인쇄 전 실제 A4 폭으로 내용을 재어 페이지를 안정적으로 나눈다. */
+.assessment-print-document {
+  position: fixed;
+  top: 0;
+  left: -220mm;
+  width: 210mm;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.assessment-print-document .report-measurement {
+  box-sizing: border-box;
+  width: 190mm;
+}
+
+.assessment-print-document .report-usable-height {
+  height: 277mm;
+}
+
+.assessment-print-document [class~="text-[8px]"] {
+  font-size: 9px;
+}
+
+.assessment-print-document [class~="text-[8.5px]"] {
+  font-size: 9.5px;
+}
+
+.assessment-print-document [class~="text-[9px]"] {
+  font-size: 10px;
+}
+
 @page {
   size: A4 portrait;
   /* 브라우저가 URL/날짜를 넣을 여백을 만들지 않고 문서가 자체 여백을 관리합니다. */
@@ -125,6 +156,7 @@ nextjs-portal {
   .print-document {
     position: static !important;
     display: block !important;
+    visibility: visible !important;
     width: 100% !important;
     min-height: auto !important;
     margin: 0 !important;
@@ -162,23 +194,20 @@ nextjs-portal {
   }
 
   .print-document article article,
-  .print-document .print-card {
+  .print-document .report-correction {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  .print-document .report-measurement {
+    display: none !important;
   }
 
   .print-document .line-clamp-2 {
     display: -webkit-box !important;
     -webkit-box-orient: vertical !important;
     -webkit-line-clamp: 2 !important;
-    overflow: hidden !important;
+    overflow: visible !important;
   }
 
-  .assessment-print-document [class~="text-[9px]"] {
-    font-size: 10px !important;
-  }
-
-  .assessment-print-document [class~="text-[10px]"] {
-    font-size: 11px !important;
-  }
 }

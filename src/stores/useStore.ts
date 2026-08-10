@@ -50,6 +50,14 @@ export type TurnEvaluation = {
         original: string;
         suggested: string;
         reason: string;
+        problem?: string;
+        usageGuide?: string;
+        category?: 'grammar' | 'vocabulary' | 'naturalness' | 'meaning_clarity' | 'comprehension';
+        contextFit?: 'appropriate' | 'partial' | 'off_topic' | 'unknown';
+        contextReason?: string;
+        reportEligible?: boolean;
+        reportPriority?: 'high' | 'medium' | 'low' | 'none';
+        meaningPreserved?: boolean;
     };
     errorTags?: string[];
     learningTier?: {
