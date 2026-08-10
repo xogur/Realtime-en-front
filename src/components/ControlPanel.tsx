@@ -6,6 +6,7 @@ import { Keyboard, Mic, MicOff, Trash2, Loader2 } from 'lucide-react';
 import { useVoiceSocket } from '@/hooks/useVoiceSocket';
 import { TopicSelector } from '@/components/TopicSelector';
 import { getConversationTopic, type TopicId } from '@/lib/conversationTopics';
+import { getConversationDifficulty, type DifficultyId } from '@/lib/conversationDifficulties';
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
 // import { buildKioskUrl } from '@/lib/kioskIdentity';
 
@@ -36,6 +37,7 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
     const [isTopicSelectorOpen, setIsTopicSelectorOpen] = useState(false);
     const activeSegment = topicSegments.find((segment) => segment.segmentId === activeSegmentId);
     const activeTopic = getConversationTopic(activeSegment?.topicId);
+    const activeDifficulty = getConversationDifficulty(activeSegment?.difficultyId);
     const isLive = isConnected && isSttReady && isRecording;
     const isPreparingStt = isConnecting;
     const isTextTestActive = TEXT_ONLY_TEST_MODE && isConnected && Boolean(activeTopic);
@@ -70,8 +72,8 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
         }
     }, [isConnected, isRecording, stopListening, isProcessing, isConnecting]);
 
-    const handleSelectTopic = useCallback((topicId: TopicId) => {
-        startConversation(topicId);
+    const handleSelectTopic = useCallback((topicId: TopicId, difficultyId: DifficultyId) => {
+        startConversation(topicId, difficultyId);
     }, [startConversation]);
 
     const handleResume = useCallback(() => {
@@ -105,7 +107,7 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
                     className="absolute -top-12 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-white/50 bg-white/85 px-4 py-2 text-sm font-extrabold text-zinc-800 shadow-lg backdrop-blur-md transition hover:bg-white"
                     aria-label={`현재 주제 ${activeTopic.label}. 주제 변경`}
                 >
-                    {activeTopic.label}
+                    {activeTopic.label}{activeDifficulty ? ` · ${activeDifficulty.label}` : ''}
                     {activeSegment && activeSegment.occurrence > 1 ? ` ${activeSegment.occurrence}회차` : ''}
                     <span className="ml-2 text-xs font-bold text-blue-600">주제 변경</span>
                 </button>
@@ -223,6 +225,7 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
         <TopicSelector
             isOpen={isTopicSelectorOpen}
             currentTopicId={activeSegment?.topicId}
+            currentDifficultyId={activeSegment?.difficultyId}
             isBusy={conversationStartStatus === 'preparing'}
             error={conversationStartError}
             onSelect={handleSelectTopic}

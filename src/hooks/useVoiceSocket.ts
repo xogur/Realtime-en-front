@@ -17,6 +17,11 @@ import {
   type SpeechEvidenceV1,
 } from '@/lib/stt';
 import { isTopicId, type TopicId, type TopicSegment } from '@/lib/conversationTopics';
+import { isDifficultyId, type DifficultyId } from '@/lib/conversationDifficulties';
+import {
+  buildStartConversationMessage,
+  type PendingConversationStart,
+} from '@/lib/conversationSocketMessages';
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
@@ -92,6 +97,9 @@ type SocketMessage = {
   scenarioId?: string;
   scenarioTitle?: string;
   openingLine?: string;
+  difficultyId?: DifficultyId;
+  difficultyLabel?: string;
+  difficultyPolicyVersion?: number;
   sequence?: number;
   occurrence?: number;
   status?: TopicSegment['status'];
@@ -405,11 +413,7 @@ export function useVoiceSocket() {
   const sttProviderRef = useRef<'browser' | 'server'>('browser');
   const isSttCaptureReadyRef = useRef(false);
   const isServerSttReadyRef = useRef(false);
-  const pendingTopicStartRef = useRef<{
-    requestId: string;
-    topicId: TopicId;
-    sent: boolean;
-  } | null>(null);
+  const pendingTopicStartRef = useRef<PendingConversationStart | null>(null);
   const pendingResumeSegmentRef = useRef<string | null>(null);
 
   const setConnecting = useStore((state) => state.setConnecting);
@@ -1125,11 +1129,7 @@ export function useVoiceSocket() {
         const pendingTopic = pendingTopicStartRef.current;
         if (pendingTopic && !pendingTopic.sent) {
           pendingTopic.sent = true;
-          ws.send(JSON.stringify({
-            type: 'start_conversation',
-            requestId: pendingTopic.requestId,
-            topicId: pendingTopic.topicId,
-          }));
+          ws.send(JSON.stringify(buildStartConversationMessage(pendingTopic)));
         }
         const pendingSegmentId = pendingResumeSegmentRef.current;
         if (pendingSegmentId) {
@@ -1206,6 +1206,9 @@ export function useVoiceSocket() {
               && data.scenarioId
               && data.scenarioTitle
               && data.openingLine
+              && isDifficultyId(data.difficultyId)
+              && data.difficultyLabel
+              && typeof data.difficultyPolicyVersion === 'number'
               && typeof data.sequence === 'number'
               && typeof data.occurrence === 'number'
               && data.status
@@ -1221,6 +1224,9 @@ export function useVoiceSocket() {
                 scenarioId: data.scenarioId,
                 scenarioTitle: data.scenarioTitle,
                 openingLine: data.openingLine,
+                difficultyId: data.difficultyId,
+                difficultyLabel: data.difficultyLabel,
+                difficultyPolicyVersion: data.difficultyPolicyVersion,
                 sequence: data.sequence,
                 occurrence: data.occurrence,
                 status: data.status,
@@ -1488,18 +1494,15 @@ export function useVoiceSocket() {
     if (!pending || pending.sent) return;
     if (socketRef.current?.readyState !== WebSocket.OPEN) return;
     pending.sent = true;
-    socketRef.current.send(JSON.stringify({
-      type: 'start_conversation',
-      requestId: pending.requestId,
-      topicId: pending.topicId,
-    }));
+    socketRef.current.send(JSON.stringify(buildStartConversationMessage(pending)));
   }, []);
 
-  const startConversation = useCallback((topicId: TopicId) => {
+  const startConversation = useCallback((topicId: TopicId, difficultyId: DifficultyId) => {
     pendingResumeSegmentRef.current = null;
     pendingTopicStartRef.current = {
       requestId: crypto.randomUUID(),
       topicId,
+      difficultyId,
       sent: false,
     };
     setConversationStartStatus('preparing');

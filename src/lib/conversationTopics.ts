@@ -1,3 +1,5 @@
+import type { DifficultyId } from '@/lib/conversationDifficulties';
+
 export const CONVERSATION_TOPICS = [
   { id: 'travel', label: '여행', description: '여행 경험에 관해 대화해요', modeLabel: '자유 대화' },
   { id: 'restaurant', label: '음식점', description: '직원과 손님 상황극', modeLabel: '역할극' },
@@ -20,6 +22,9 @@ export type TopicSegment = {
   scenarioId: string;
   scenarioTitle: string;
   openingLine: string;
+  difficultyId?: DifficultyId;
+  difficultyLabel?: string;
+  difficultyPolicyVersion?: number;
   sequence: number;
   occurrence: number;
   status: 'active' | 'paused' | 'ended' | 'failed';
