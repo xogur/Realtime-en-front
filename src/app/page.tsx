@@ -6,16 +6,58 @@ import { ControlPanel } from '@/components/ControlPanel';
 import { SettingsModal } from '@/components/SettingsModal';
 import { ChatOverlay } from '@/components/ChatOverlay';
 import { CopyrightAttribution } from '@/components/CopyrightAttribution';
+import { TranslatorOverlay } from '@/components/TranslatorOverlay';
 import { motion } from 'framer-motion';
 import { useChatSync } from '@/hooks/useChatSync';
 import { buildKioskUrl } from '@/lib/kioskIdentity';
+import {
+  isTranslatorWindowMessage,
+  TRANSLATOR_WINDOW_MESSAGE,
+  type TranslatorWindowMessage,
+} from '@/lib/translator';
 
 export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
   const chatWindowRef = useRef<Window | null>(null);
+  const translatorChannelRef = useRef<BroadcastChannel | null>(null);
 
   // 멀티 윈도우 채팅창 동기화 (메인 창)
   useChatSync(true);
+
+  useEffect(() => {
+    const handleTranslatorMessage = (event: MessageEvent) => {
+      if (event.origin && event.origin !== window.location.origin) return;
+      if (!isTranslatorWindowMessage(event.data)) return;
+      setIsTranslatorOpen(event.data.action === 'open');
+    };
+    window.addEventListener('message', handleTranslatorMessage);
+
+    if ('BroadcastChannel' in window) {
+      const channel = new BroadcastChannel(TRANSLATOR_WINDOW_MESSAGE);
+      channel.addEventListener('message', handleTranslatorMessage);
+      translatorChannelRef.current = channel;
+    }
+
+    return () => {
+      window.removeEventListener('message', handleTranslatorMessage);
+      translatorChannelRef.current?.close();
+      translatorChannelRef.current = null;
+    };
+  }, []);
+
+  const handleCloseTranslator = () => {
+    const message: TranslatorWindowMessage = {
+      channel: TRANSLATOR_WINDOW_MESSAGE,
+      action: 'close',
+    };
+    setIsTranslatorOpen(false);
+    translatorChannelRef.current?.postMessage(message);
+
+    if (chatWindowRef.current && !chatWindowRef.current.closed) {
+      chatWindowRef.current.postMessage(message, window.location.origin);
+    }
+  };
 
   // 페이지 로드 시 자동으로 채팅창을 서브 모니터(우측)에 풀스크린으로 띄움
   useEffect(() => {
@@ -62,7 +104,12 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="relative h-screen w-full overflow-hidden text-zinc-900 flex flex-col">
+    <>
+    <main
+      className="relative h-screen w-full overflow-hidden text-zinc-900 flex flex-col"
+      inert={isTranslatorOpen ? true : undefined}
+      aria-hidden={isTranslatorOpen ? true : undefined}
+    >
       <div
         aria-hidden="true"
         className="pointer-events-none absolute -inset-3 bg-cover bg-center blur-[7px] saturate-[0.9]"
@@ -102,7 +149,9 @@ export default function Home() {
 
       {/* Control Panel (Fixed Bottom) */}
       <div className="relative z-30">
-        <ControlPanel onOpenSettings={() => setIsSettingsOpen(true)} />
+        <ControlPanel
+          onOpenSettings={() => setIsSettingsOpen(true)}
+        />
       </div>
 
       {/* Chat History Overlay */}
@@ -117,5 +166,10 @@ export default function Home() {
       <CopyrightAttribution />
 
     </main>
+    <TranslatorOverlay
+      isOpen={isTranslatorOpen}
+      onClose={handleCloseTranslator}
+    />
+    </>
   );
 }

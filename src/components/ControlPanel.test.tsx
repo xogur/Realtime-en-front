@@ -117,4 +117,14 @@ describe('ControlPanel microphone toggle', () => {
         rerender(<ControlPanel onOpenSettings={vi.fn()} />);
         expect(screen.getByText('Server STT')).toBeTruthy();
     });
+
+    it('disconnects the English project when the result window opens the translator', () => {
+        render(<ControlPanel onOpenSettings={vi.fn()} />);
+        window.dispatchEvent(new MessageEvent('message', {
+            origin: window.location.origin,
+            data: { channel: 'realtime-en:translator', action: 'open' },
+        }));
+        expect(controls.disconnect).toHaveBeenCalledOnce();
+        expect(screen.queryByRole('button', { name: '번역기 열기' })).toBeNull();
+    });
 });

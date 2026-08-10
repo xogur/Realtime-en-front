@@ -176,6 +176,17 @@ describe('useBrowserStt restart handling', () => {
     expect(audioTrack.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('uses a caller-provided recognition language', async () => {
+    const options = makeOptions();
+    const { result } = renderHook(() => useBrowserStt({ ...options, language: 'ko-KR' }));
+
+    await act(async () => {
+      expect(await result.current.start()).toBe(true);
+    });
+
+    expect(FakeSpeechRecognition.instances.at(-1)?.lang).toBe('ko-KR');
+  });
+
   it('serializes simultaneous start calls onto one recognizer', async () => {
     const options = makeOptions();
     const { result } = renderHook(() => useBrowserStt(options));

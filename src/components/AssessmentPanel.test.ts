@@ -164,6 +164,30 @@ describe('getRepeatedErrorPatterns', () => {
 });
 
 describe('assessment print report', () => {
+    it('places a clearly labeled translator beside the print action', () => {
+        const onOpenTranslator = vi.fn();
+        render(createElement(AssessmentPanel, { onOpenTranslator }));
+
+        const translatorButton = screen.getByRole('button', { name: '한영 번역기 열기' });
+        const printButton = screen.getByRole('button', { name: '평가 리포트 출력' });
+        expect(translatorButton.parentElement).toBe(printButton.parentElement);
+
+        fireEvent.click(translatorButton);
+        expect(onOpenTranslator).toHaveBeenCalledOnce();
+    });
+
+    it('shows translator state and keeps the launcher usable for recovery', () => {
+        const onOpenTranslator = vi.fn();
+        render(createElement(AssessmentPanel, { isTranslatorOpen: true, onOpenTranslator }));
+
+        const translatorButton = screen.getByRole('button', { name: '한영 번역기 사용 중' });
+        expect(translatorButton.getAttribute('aria-pressed')).toBe('true');
+        expect(screen.getByText('번역기 사용 중')).toBeTruthy();
+
+        fireEvent.click(translatorButton);
+        expect(onOpenTranslator).toHaveBeenCalledOnce();
+    });
+
     it('offers only the result report and omits practice-plan sections', async () => {
         const content = 'I go there yesterday.';
         const evaluation: TurnEvaluation = {

@@ -8,6 +8,7 @@ import {
     Clock,
     Flag,
     Info,
+    Languages,
     Minus,
     Plus,
     Printer,
@@ -1995,7 +1996,13 @@ export function getRepeatedErrorPatterns(turns: EvaluatedTurn[]): ReportErrorPat
         .slice(0, 2);
 }
 
-export function AssessmentPanel() {
+export function AssessmentPanel({
+    isTranslatorOpen = false,
+    onOpenTranslator,
+}: {
+    isTranslatorOpen?: boolean;
+    onOpenTranslator?: () => void;
+}) {
     const isClientReady = useSyncExternalStore(
         subscribeClientReady,
         getClientReadySnapshot,
@@ -2268,6 +2275,28 @@ export function AssessmentPanel() {
                             <SlidersHorizontal className="h-4 w-4" />
                         </button>
                     )} */}
+                    {onOpenTranslator && (
+                        <button
+                            type="button"
+                            onClick={onOpenTranslator}
+                            className={`inline-flex min-h-12 items-center gap-2 rounded-xl border px-3.5 py-2.5 shadow-[0_4px_12px_rgba(59,48,40,0.10)] transition-all hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#8b6741]/35 ${isTranslatorOpen
+                                ? 'border-emerald-500/40 bg-emerald-50 text-emerald-800'
+                                : 'border-[#8b6741]/25 bg-[#fffaf5] text-[#4a382b] hover:border-[#8b6741]/45 hover:bg-white'
+                            }`}
+                            title={isTranslatorOpen ? '번역기가 열려 있습니다. 다시 누르면 번역기 화면을 엽니다.' : '한국어와 영어를 번역합니다'}
+                            aria-label={isTranslatorOpen ? '한영 번역기 사용 중' : '한영 번역기 열기'}
+                            aria-pressed={isTranslatorOpen}
+                        >
+                            <Languages className="h-5 w-5 shrink-0" strokeWidth={2.3} />
+                            <span className="whitespace-nowrap text-[13px] font-black">
+                                {isTranslatorOpen ? '번역기 사용 중' : '번역기 열기'}
+                            </span>
+                            <span
+                                aria-hidden="true"
+                                className={`h-2.5 w-2.5 rounded-full ${isTranslatorOpen ? 'bg-emerald-500' : 'bg-[#8b6741]'}`}
+                            />
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={handlePrintDocument}

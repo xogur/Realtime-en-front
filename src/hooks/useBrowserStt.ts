@@ -48,6 +48,7 @@ type BrowserSpeechWindow = Window & {
 };
 
 type BrowserSttOptions = {
+  language?: string;
   onFinalTranscript: (transcript: BrowserFinalTranscript) => void;
   onInterimTranscript: (transcript: string) => void;
   onReadyChange: (ready: boolean) => void;
@@ -327,7 +328,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
       0,
     );
     let restartIsFailure = false;
-    recognition.lang = CONFIG.language;
+    recognition.lang = optionsRef.current.language ?? CONFIG.language;
     recognition.continuous = CONFIG.continuous;
     recognition.interimResults = CONFIG.interimResults;
     recognition.maxAlternatives = CONFIG.maxAlternatives;

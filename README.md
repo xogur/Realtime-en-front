@@ -88,3 +88,16 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# Translator overlay
+
+The main control panel includes a Korean-English translator button. Opening it
+disconnects the English conversation socket, stops microphone capture and TTS,
+and places a modal overlay above the application. The conversation stays paused
+until the overlay is closed and the user starts it again.
+
+- Voice input: the existing browser Web Speech API (`ko-KR` or `en-US`)
+- Translation: backend `POST /api/translate` using Argos Translate
+- Listen button: browser `speechSynthesis`
+
+The translator derives its HTTP endpoint from `NEXT_PUBLIC_WS_URL`. Set
+`NEXT_PUBLIC_API_URL` only when the HTTP backend uses a different host.

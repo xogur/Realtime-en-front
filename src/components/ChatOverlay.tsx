@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, MessageSquare, Send, ExternalLink, Languages } from 'lucide-react';
+import { X, MessageSquare, Send, ExternalLink } from 'lucide-react';
 import { buildKioskUrl, createClientCommandId, getChatSyncChannelName } from '@/lib/kioskIdentity';
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
 
@@ -112,18 +112,34 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
                             <h2 className="text-[#483c2d] font-bold tracking-tight">Conversation</h2>
                         </div>
                         <div className="flex items-center gap-2">
-                            {/* Text Sizing Controls */}
+                            {/* Korean interpretation toggle */}
                             <button
+                                type="button"
+                                role="switch"
+                                aria-checked={showKoreanInterpretation}
+                                aria-label={`한국어 해석 ${showKoreanInterpretation ? '켜짐' : '꺼짐'}`}
                                 onClick={toggleKoreanInterpretation}
-                                className={`p-1.5 rounded-full transition-colors ${showKoreanInterpretation
-                                    ? 'bg-[#483c2d]/15 text-[#483c2d]'
-                                    : 'hover:bg-[#483c2d]/10 text-[#6b5a4a]/50'
+                                className={`inline-flex min-h-9 items-center gap-2 rounded-full border px-2.5 py-1.5 transition-all focus:outline-none focus:ring-2 focus:ring-[#6b5a4a]/30 ${showKoreanInterpretation
+                                    ? 'border-[#5f7353]/35 bg-[#edf1e8] text-[#40513a] shadow-sm'
+                                    : 'border-[#8b7a6d]/20 bg-white/45 text-[#77695f] hover:bg-white/70'
                                     }`}
-                                title={showKoreanInterpretation ? 'Hide Korean interpretation' : 'Show Korean interpretation'}
-                                aria-pressed={showKoreanInterpretation}
+                                title={showKoreanInterpretation ? '한국어 해석 숨기기' : '한국어 해석 보이기'}
                             >
-                                <Languages className="w-4 h-4" />
+                                <span className="whitespace-nowrap text-xs font-black">해석</span>
+                                <span
+                                    aria-hidden="true"
+                                    className={`relative h-5 w-9 rounded-full transition-colors ${showKoreanInterpretation ? 'bg-[#5f7353]' : 'bg-[#b7aaa0]'}`}
+                                >
+                                    <span
+                                        data-testid="korean-interpretation-thumb"
+                                        className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${showKoreanInterpretation ? 'translate-x-4' : 'translate-x-0'}`}
+                                    />
+                                </span>
+                                <span className="w-7 text-left text-[11px] font-black">
+                                    {showKoreanInterpretation ? 'ON' : 'OFF'}
+                                </span>
                             </button>
+                            {/* Text Sizing Controls */}
                             <div className="flex items-center bg-[#483c2d]/10 rounded-full px-2 py-1 mr-2 gap-1">
                                 <button
                                     onClick={() => setTextScale(Math.max(0.5, textScale - 0.1))}

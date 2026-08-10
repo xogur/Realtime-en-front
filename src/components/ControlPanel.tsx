@@ -22,6 +22,7 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
         startConversation,
         resumeConversation,
         stopListening,
+        disconnect,
         isConnected,
         isSttReady,
         isRecording,
@@ -91,6 +92,20 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
         }
         setIsTopicSelectorOpen(true);
     }, [isRecording, stopListening]);
+
+    useEffect(() => {
+        const handleTranslatorMessage = (event: MessageEvent) => {
+            if (event.origin !== window.location.origin) return;
+            if (
+                event.data?.channel !== 'realtime-en:translator'
+                || event.data?.action !== 'open'
+            ) return;
+            setIsTopicSelectorOpen(false);
+            disconnect();
+        };
+        window.addEventListener('message', handleTranslatorMessage);
+        return () => window.removeEventListener('message', handleTranslatorMessage);
+    }, [disconnect]);
 
     return (
         <>
