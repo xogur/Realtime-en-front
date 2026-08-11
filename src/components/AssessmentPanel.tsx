@@ -31,6 +31,12 @@ import {
 } from '@/lib/missionLp';
 import { calculateTierProgress } from '@/lib/tierProgress';
 import { AssessmentPrintReport } from '@/components/AssessmentPrintReport';
+import {
+    CORE_ASSESSMENT_METRICS,
+    getFriendlySpeakingLevel,
+    getMetricPresentation,
+    getSessionReportSummary,
+} from '@/lib/assessmentPresentation';
 
 type EvaluatedTurn = {
     message: ChatMessage;
@@ -185,13 +191,7 @@ type TierPromotionPresentation = {
     nextTierRemainingLp: number;
 };
 
-const METRICS: Array<{ key: MetricKey; label: string }> = [
-    { key: 'grammar', label: '문법' },
-    { key: 'vocabulary', label: '어휘' },
-    { key: 'relevance', label: '응답 적합도' },
-    { key: 'fluency', label: '문장 완성도' },
-    { key: 'interaction', label: '상호작용' },
-];
+const METRICS: Array<{ key: MetricKey; label: string }> = [...CORE_ASSESSMENT_METRICS];
 
 const TIERS: TierConfig[] = [
     {
@@ -292,25 +292,6 @@ export function getEvaluationReliabilityNotice(confidence: string): string | nul
     return confidence.toLowerCase() === 'low'
         ? 'AI 응답이 불안정해 임시 기준으로 평가했습니다.'
         : null;
-}
-
-function calculateWeightedSessionScore(turns: EvaluatedTurn[]): number | null {
-    if (turns.length === 0) return null;
-
-    const recentTurns = turns.slice(-8);
-    let weightedTotal = 0;
-    let totalWeight = 0;
-
-    recentTurns.forEach((turn, index) => {
-        const weight = index + 1;
-        const overall = getMetricScore(turn.evaluation, 'overall');
-        const relevance = getMetricScore(turn.evaluation, 'relevance');
-        const interaction = getMetricScore(turn.evaluation, 'interaction');
-        weightedTotal += (overall * 0.72 + relevance * 0.16 + interaction * 0.12) * weight;
-        totalWeight += weight;
-    });
-
-    return clampScore(weightedTotal / totalWeight);
 }
 
 function getTurnWeakestMetric(evaluation: TurnEvaluation): MetricSnapshot {
@@ -1297,7 +1278,9 @@ function MiniTierBadge({ tier }: { tier: TierConfig }) {
     return (
         <div className="flex min-w-0 flex-col items-center justify-start gap-1" title={tier.label}>
             <TierBadge tier={tier} size={28} />
-            <span className="flex h-3 w-full items-center justify-center whitespace-nowrap text-center text-[8px] font-bold leading-[1.2] text-[#7a695b] xl:text-[9px]">{tier.label}</span>
+            <span className="block w-full whitespace-nowrap text-center text-[7px] font-bold leading-tight tracking-[-0.02em] text-[#7a695b] xl:text-[8px]">
+                {tier.label}
+            </span>
         </div>
     );
 }
@@ -1516,46 +1499,40 @@ export function TierProgressBar({
 
 function MetricBar({ label, value, highlight = false }: { label: string; value: number; highlight?: boolean }) {
     const prefersReducedMotion = usePrefersReducedMotion();
+    const presentation = getMetricPresentation(value);
+    const displayValue = Math.round(Math.max(0, Math.min(100, value)));
 
     return (
-        <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs font-semibold text-[#665448]">
-                <span>{label}</span>
+        <div className="min-w-0">
+            <div className="flex min-w-0 items-baseline justify-between gap-3">
+                <p className="shrink-0 text-xs font-black text-[#3b3028]">{label}</p>
                 <motion.span
-                    className="font-mono font-black tabular-nums text-[#3c3028]"
+                    className="truncate text-[10px] font-black text-[#496348]"
                     animate={prefersReducedMotion ? undefined : {
-                        scale: highlight ? [1, 1.18, 1] : 1,
-                        color: highlight ? ['#3c3028', '#4f6a40', '#3c3028'] : '#3c3028',
+                        scale: highlight ? [1, 1.06, 1] : 1,
                     }}
-                    transition={{ duration: highlight ? 0.7 : 0.2, ease: 'easeOut' }}
+                    transition={{ duration: highlight ? 0.55 : 0.2, ease: 'easeOut' }}
                 >
-                    {value}
+                    {presentation.label}
                 </motion.span>
             </div>
-            <motion.div
-                className="h-2 overflow-hidden rounded-full bg-[#483c2d]/10"
-                animate={prefersReducedMotion ? undefined : {
-                    boxShadow: highlight
-                        ? ['0 0 0 rgba(113,128,95,0)', '0 0 14px rgba(113,128,95,0.35)', '0 0 0 rgba(113,128,95,0)']
-                        : '0 0 0 rgba(113,128,95,0)',
-                }}
-                transition={{ duration: highlight ? 0.9 : 0.2, ease: 'easeOut' }}
+            <div
+                className="mt-1.5 flex items-center gap-2.5"
+                role="img"
+                aria-label={`${label}: ${presentation.label}, ${displayValue}점`}
             >
-                <motion.div
-                    className="h-full rounded-full bg-[#7b8b67]"
-                    initial={prefersReducedMotion ? false : { width: 0 }}
-                    animate={{
-                        width: `${clampScore(value)}%`,
-                        backgroundColor: highlight ? ['#7b8b67', '#a8c27f', '#7b8b67'] : '#7b8b67',
-                    }}
-                    transition={prefersReducedMotion
-                        ? { duration: 0.01 }
-                        : {
-                            width: { duration: 0.75, ease: [0.22, 1, 0.36, 1] },
-                            backgroundColor: { duration: 0.9, ease: 'easeOut' },
-                        }}
-                />
-            </motion.div>
+                <div className="h-2.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[#ded6ce]" aria-hidden="true">
+                    <motion.span
+                        className="block h-full rounded-full bg-[#71805f]"
+                        initial={prefersReducedMotion ? false : { width: 0 }}
+                        animate={{ width: `${displayValue}%` }}
+                        transition={{ duration: prefersReducedMotion ? 0.01 : 0.45, ease: 'easeOut' }}
+                    />
+                </div>
+                <span className="w-9 shrink-0 text-right font-mono text-xs font-black tabular-nums text-[#3b3028]">
+                    {displayValue}점
+                </span>
+            </div>
         </div>
     );
 }
@@ -1933,26 +1910,6 @@ export function CorrectionCoachCard({
     );
 }
 
-function getReportHighlights(turns: EvaluatedTurn[], metricAverages: MetricSnapshot[]) {
-    const latestTurn = turns[turns.length - 1] ?? null;
-    const strongest = metricAverages.reduce(
-        (best, metric) => (metric.value > best.value ? metric : best),
-        metricAverages[0],
-    );
-    const weakest = getWeakestMetric(metricAverages);
-
-    return {
-        strongest,
-        weakest,
-        strength: latestTurn?.evaluation.feedback.strength
-            || latestTurn?.evaluation.evidence[strongest?.key]
-            || '꾸준히 영어로 답변한 점이 좋습니다.',
-        improvement: latestTurn?.evaluation.feedback.improvement
-            || latestTurn?.evaluation.evidence[weakest?.key]
-            || '문맥에 맞는 어휘와 문장 구조를 조금 더 정확하게 다듬어 보세요.',
-    };
-}
-
 export function getRepeatedErrorPatterns(turns: EvaluatedTurn[]): ReportErrorPattern[] {
     const eligibleTurns = turns.filter((turn) => turn.evaluation.confidence.toLowerCase() !== 'low');
     const patterns = new Map<string, ReportErrorPattern>();
@@ -2034,7 +1991,6 @@ export function AssessmentPanel({
             .filter((message): message is ChatMessage & { evaluation: TurnEvaluation } => Boolean(message.evaluation))
             .map((message) => ({ message, evaluation: message.evaluation }));
         const latestTurn = turns[turns.length - 1] ?? null;
-        const sessionScore = calculateWeightedSessionScore(turns);
         const metricAverages = METRICS.map(({ key, label }) => ({
             key,
             label,
@@ -2046,7 +2002,6 @@ export function AssessmentPanel({
             turns,
             latestTurn,
             latestAssistantPrompt: getLatestAssistantPrompt(messages),
-            sessionScore,
             metricAverages,
             pendingCount: userMessages.filter((message) => message.evaluationStatus === 'pending').length,
             skippedCount: userMessages.filter((message) => message.evaluationStatus === 'skipped').length,
@@ -2054,7 +2009,7 @@ export function AssessmentPanel({
         };
     }, [messages]);
 
-    const { userMessages, turns, latestTurn, sessionScore, metricAverages, pendingCount, skippedCount, unavailableMessages } = assessment;
+    const { userMessages, turns, latestTurn, metricAverages, pendingCount, skippedCount, unavailableMessages } = assessment;
     const nowEpochMs = useCountdownClock(pendingCount > 0);
     const previousTurns = turns.slice(0, -1).reverse();
     const previousEvaluatedTurn = turns[turns.length - 2] ?? null;
@@ -2121,7 +2076,8 @@ export function AssessmentPanel({
         [latestMissionMessage],
     );
     const latestMissionBonus = latestMissionResults.reduce((sum, mission) => sum + mission.bonus, 0);
-    const reportHighlights = getReportHighlights(turns, metricAverages);
+    const reportSummary = getSessionReportSummary(turns.map((turn) => turn.evaluation));
+    const speakingLevel = getFriendlySpeakingLevel(latestTurn?.evaluation.cefrEstimate.level);
     useEffect(() => {
         const audio = new MissionSuccessAudio(missionSuccessSoundEnabled);
         audio.bindInteractionUnlock();
@@ -2219,13 +2175,18 @@ export function AssessmentPanel({
                     messages={messages}
                     topicSegments={topicSegments}
                     assessableAnswerCount={turns.length}
-                    sessionScore={sessionScore}
-                    metrics={metricAverages}
-                    tier={{ label: tier.tier.label, textColor: tier.tier.text, totalLp: tier.totalLp }}
-                    cefrLevel={latestTurn?.evaluation.cefrEstimate.level ?? '--'}
-                    cefrReason={latestTurn?.evaluation.cefrEstimate.reason ?? ''}
-                    strength={reportHighlights.strength}
-                    improvement={reportHighlights.improvement}
+                    reliableAnswerCount={reportSummary.reliableTurnCount}
+                    metrics={reportSummary.metricAverages}
+                    tier={{
+                        label: tier.tier.label,
+                        textColor: tier.tier.text,
+                        totalLp: tier.totalLp,
+                        asset: <TierBadge tier={tier.tier} size={70} />,
+                    }}
+                    cefrLevel={reportSummary.cefrLevel}
+                    cefrReason={reportSummary.cefrReason}
+                    strength={reportSummary.strength}
+                    improvement={reportSummary.improvement}
                     onLayoutReady={handlePrintLayoutReady}
                 />,
                 printRoot,
@@ -2370,17 +2331,17 @@ export function AssessmentPanel({
                                                 ? `+${tier.latestDelta} LP`
                                                 : tier.latestDelta < 0
                                                     ? `${tier.latestDelta} LP`
-                                                    : '— LP'}
+                                                    : '변동 없음'}
                                         </div>
                                     </div>
                                     <div className="relative flex items-center gap-3">
                                         <TierBadge tier={tier.tier} size={58} />
                                         <div className="min-w-0 flex-1">
-                                            <div className="flex min-w-0 items-end gap-2">
-                                                <span className="min-w-0 truncate text-2xl font-black leading-none text-[#3b3028]">
+                                            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+                                                <span className="whitespace-nowrap text-xl font-black leading-tight tracking-tight text-[#3b3028] xl:text-2xl">
                                                     {tier.tier.label}
                                                 </span>
-                                                <span className="text-xs font-bold text-[#7a695b]">{tier.lp} LP</span>
+                                                <span className="shrink-0 text-xs font-bold text-[#7a695b]">{tier.lp} LP</span>
                                             </div>
                                             <TierProgressBar
                                                 value={tier.progress}
@@ -2500,7 +2461,7 @@ export function AssessmentPanel({
 
                             <section className="hidden rounded-lg border border-white/50 bg-white/70 p-4 shadow-sm">
                                 <h3 className="mb-3 text-sm font-bold text-[#483c2d]">영역별 평균</h3>
-                                <div className="space-y-3">
+                                                            <div className="grid grid-cols-3 divide-x divide-[#483c2d]/10">
                                     {metricAverages.map((metric) => (
                                         <MetricBar
                                             key={`${metric.key}-${latestTurn?.evaluation.turnId ?? 'empty'}`}
@@ -2676,36 +2637,43 @@ export function AssessmentPanel({
                                                 transition={{ duration: 0.2, ease: 'easeOut' }}
                                             >
                                                 <div className="h-full min-h-0 overflow-y-auto pr-1">
-                                                    <div className="grid gap-3 lg:grid-cols-[minmax(220px,0.8fr)_minmax(320px,1.2fr)]">
-                                                        <div className="rounded-lg border border-[#483c2d]/10 bg-[#f8f1ea] p-3">
-                                                            <div className="grid grid-cols-3 gap-2">
-                                                                <div className="rounded-lg border border-[#483c2d]/10 bg-[#fffaf5] px-3 py-2">
-                                                                    <p className="text-[10px] font-bold text-[#8a796b]">누적 응답</p>
-                                                                    <p className="mt-1 font-mono text-xl font-black leading-none text-[#3b3028]">{turns.length}</p>
-                                                                </div>
-                                                                <div className="rounded-lg border border-[#71805f]/15 bg-[#edf1e8] px-3 py-2">
-                                                                    <p className="text-[10px] font-bold text-[#71805f]">최근 점수</p>
-                                                                    <p className="mt-1 font-mono text-xl font-black leading-none text-[#496348]">
-                                                                        {latestTurn ? getMetricScore(latestTurn.evaluation, 'overall') : '--'}
-                                                                    </p>
-                                                                </div>
-                                                                <div className="rounded-lg border border-[#c59b55]/15 bg-[#fff6e5] px-3 py-2">
-                                                                    <p className="text-[10px] font-bold text-[#9a7a44]">우선 연습</p>
-                                                                    <p className="mt-1 truncate text-sm font-black text-[#6b4f20]" title={weakestMetric?.label}>
-                                                                        {weakestMetric?.label ?? '--'}
+                                                    <div className="grid gap-3 lg:grid-cols-[minmax(300px,0.9fr)_minmax(420px,1.1fr)]">
+                                                        <section
+                                                            className="rounded-xl border border-[#71805f]/20 bg-[#edf1e8] p-4"
+                                                            aria-labelledby="speaking-level-heading"
+                                                        >
+                                                            <div className="flex min-w-0 items-start gap-3.5">
+                                                                <TierBadge tier={tier.tier} size={78} />
+                                                                <div className="min-w-0">
+                                                                    <p id="speaking-level-heading" className="text-[11px] font-black text-[#5f7353]">현재 말하기 수준</p>
+                                                                    <h3 className="mt-1 break-keep text-lg font-black leading-tight tracking-tight text-[#2f3c2d] xl:text-xl">{speakingLevel.label}</h3>
+                                                                    <p className="mt-1 break-words text-[11px] font-bold leading-snug" style={{ color: tier.tier.text }}>
+                                                                        {tier.tier.label} 티어, 총 {tier.totalLp} LP
                                                                     </p>
                                                                 </div>
                                                             </div>
-                                                            <p className="mt-3 text-xs leading-relaxed text-[#7a695b]">
-                                                                평가는 교정 문장이나 미션 상태와 분리되어 누적 점수 기준으로 표시됩니다.
+                                                            <p className="mt-3 text-xs font-semibold leading-relaxed text-[#52604c]">
+                                                                {speakingLevel.description}
                                                             </p>
-                                                        </div>
+                                                            {latestTurn?.evaluation.cefrEstimate.reason && (
+                                                                <p className="mt-2 border-l-2 border-[#71805f] pl-2 text-[11px] leading-relaxed text-[#66715f]">
+                                                                    {latestTurn.evaluation.cefrEstimate.reason}
+                                                                </p>
+                                                            )}
+                                                        </section>
 
-                                                        <div className="rounded-lg border border-[#483c2d]/10 bg-[#fffaf5] p-3">
-                                                            <div className="mb-3 flex items-center justify-between">
-                                                                <h3 className="text-sm font-black text-[#3b3028]">영역별 평균</h3>
+                                                        <section
+                                                            className="rounded-xl border border-[#483c2d]/10 bg-[#fffaf5] p-4"
+                                                            aria-labelledby="core-metrics-heading"
+                                                        >
+                                                            <div className="mb-2 flex items-end justify-between gap-3">
+                                                                <div>
+                                                                    <h3 id="core-metrics-heading" className="text-sm font-black text-[#3b3028]">핵심 역량</h3>
+                                                                    <p className="mt-0.5 text-[10px] font-semibold text-[#7a695b]">최근 답변을 모아 세 가지 역량의 흐름을 보여드려요.</p>
+                                                                </div>
+                                                                <p className="shrink-0 text-[10px] font-bold text-[#7a695b]">응답 {turns.length}개 기준</p>
                                                             </div>
-                                                            <div className="space-y-3">
+                                                            <div className="grid gap-2.5">
                                                                 {metricAverages.map((metric) => (
                                                                     <MetricBar
                                                                         key={`${metric.key}-${latestTurn?.evaluation.turnId ?? 'empty'}`}
@@ -2716,7 +2684,7 @@ export function AssessmentPanel({
                                                                     />
                                                                 ))}
                                                             </div>
-                                                        </div>
+                                                        </section>
                                                     </div>
                                                 </div>
                                             </motion.div>

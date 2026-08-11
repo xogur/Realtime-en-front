@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 import {
   assembleBrowserSpeechEvent,
@@ -49,6 +49,7 @@ type BrowserSpeechWindow = Window & {
 
 type BrowserSttOptions = {
   language?: string;
+  publishRecordingState?: boolean;
   onFinalTranscript: (transcript: BrowserFinalTranscript) => void;
   onInterimTranscript: (transcript: string) => void;
   onReadyChange: (ready: boolean) => void;
@@ -134,8 +135,15 @@ export function useBrowserStt(options: BrowserSttOptions) {
   const speechStartedRef = useRef(false);
   const startRecognitionRef = useRef<() => Promise<boolean>>(async () => false);
   const optionsRef = useRef(options);
-  const isRecording = useStore((state) => state.isRecording);
-  const setRecording = useStore((state) => state.setRecording);
+  const [isRecording, setLocalRecording] = useState(false);
+  const setStoreRecording = useStore((state) => state.setRecording);
+
+  const setRecording = useCallback((status: boolean) => {
+    setLocalRecording(status);
+    if (optionsRef.current.publishRecordingState !== false) {
+      setStoreRecording(status);
+    }
+  }, [setStoreRecording]);
 
   useEffect(() => {
     optionsRef.current = options;

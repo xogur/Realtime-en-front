@@ -49,7 +49,7 @@ describe('useChatSync', () => {
         MockBroadcastChannel.instances = [];
         vi.stubGlobal('BroadcastChannel', MockBroadcastChannel);
         useStore.getState().clearMessages();
-        useStore.setState({ socket: null });
+        useStore.setState({ socket: null, showReplySuggestions: true });
     });
 
     afterEach(() => {
@@ -137,6 +137,30 @@ describe('useChatSync', () => {
             type: 'SYNC_LIVE_TRANSCRIPT',
             payload: 'Can you help',
         });
+    });
+
+    it('broadcasts reply suggestion visibility changes from the main window', () => {
+        renderHook(() => useChatSync(true));
+        const channel = MockBroadcastChannel.instances[0];
+
+        act(() => useStore.getState().setShowReplySuggestions(false));
+
+        expect(channel.posted).toContainEqual({
+            type: 'SYNC_REPLY_SUGGESTIONS_VISIBILITY',
+            payload: false,
+        });
+    });
+
+    it('applies reply suggestion visibility from the main window even with a viewer socket', () => {
+        useStore.setState({ socket: { readyState: WebSocket.OPEN } as WebSocket });
+        renderHook(() => useChatSync(false));
+        const channel = MockBroadcastChannel.instances[0];
+
+        act(() => {
+            channel.emit({ type: 'SYNC_REPLY_SUGGESTIONS_VISIBILITY', payload: false });
+        });
+
+        expect(useStore.getState().showReplySuggestions).toBe(false);
     });
 
     it('merges richer evaluated messages from the main window while the viewer socket is open', () => {

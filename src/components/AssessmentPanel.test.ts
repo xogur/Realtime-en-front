@@ -225,6 +225,18 @@ describe('assessment print report', () => {
         render(createElement(AssessmentPanel));
 
         expect(screen.queryByRole('button', { name: '대화 기록 출력' })).toBeNull();
+        fireEvent.click(screen.getByRole('tab', { name: '평가' }));
+        await waitFor(() => expect(screen.getByRole('heading', { name: '기초 회화' })).toBeTruthy());
+        expect(screen.getByRole('region', { name: '현재 말하기 수준' }).querySelector('[aria-label$="티어 배지"]')).toBeTruthy();
+        const coreMetrics = screen.getByRole('region', { name: '핵심 역량' });
+        expect(coreMetrics.querySelector('[aria-label^="문장 정확성: 성장 중"]')).toBeTruthy();
+        expect(coreMetrics.querySelector('[aria-label^="어휘 선택: 안정적"]')).toBeTruthy();
+        expect(coreMetrics.querySelector('[aria-label^="질문·문맥 대응: 안정적"]')).toBeTruthy();
+        expect(coreMetrics.textContent).toContain('60점');
+        expect(coreMetrics.textContent).toContain('70점');
+        expect(coreMetrics.textContent).toContain('80점');
+        expect(screen.queryByText('문장 완성도')).toBeNull();
+        expect(screen.queryByText('상호작용')).toBeNull();
         fireEvent.click(screen.getByRole('button', { name: '평가 리포트 출력' }));
         expect(screen.getByRole('heading', { name: '영어 코치 리포트' })).toBeTruthy();
         expect(screen.queryByText('20분 원투원 진행 예시')).toBeNull();

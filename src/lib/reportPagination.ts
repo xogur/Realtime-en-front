@@ -37,5 +37,18 @@ export function packMeasuredCorrections(
   });
 
   if (pages.length > 1 && pages[0].length === 0) pages.shift();
+  if (pages.length > 1 && pages[pages.length - 1].length === 1) {
+    const previous = pages[pages.length - 2];
+    const last = pages[pages.length - 1];
+    if (previous.length > 2) {
+      const heights = new Map(measurements.map((item) => [item.id, Math.max(0, item.height)]));
+      const candidate = previous[previous.length - 1];
+      const balancedHeight = (heights.get(candidate) ?? 0) + gap + (heights.get(last[0]) ?? 0);
+      if (balancedHeight <= safeFollowingCapacity) {
+        previous.pop();
+        last.unshift(candidate);
+      }
+    }
+  }
   return pages;
 }

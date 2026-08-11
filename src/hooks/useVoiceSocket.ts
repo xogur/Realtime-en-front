@@ -385,12 +385,41 @@ function formatAssistantDisplayMessage(englishText: string, koreanText?: string)
   return `${english}\n\n${KOREAN_INTERPRETATION_LABEL} ${korean}`;
 }
 
-function normalizeReplySuggestions(data: SocketMessage): string[] {
-  const rawSuggestions = Array.isArray(data.suggestions) ? data.suggestions : [];
-  return rawSuggestions
-    .map((suggestion) => sanitizeModelText(String(suggestion)))
-    .filter((suggestion) => suggestion.length > 0)
-    .slice(0, 3);
+function unwrapReplySuggestion(value: unknown, depth = 0): string[] {
+  if (depth > 2) return [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => unwrapReplySuggestion(item, depth + 1));
+  }
+  if (typeof value !== 'string') return [];
+
+  const sanitized = sanitizeModelText(value).trim();
+  if (!sanitized) return [];
+  try {
+    const decoded: unknown = JSON.parse(sanitized);
+    if (decoded !== sanitized) {
+      const unwrapped = unwrapReplySuggestion(decoded, depth + 1);
+      if (unwrapped.length > 0) return unwrapped;
+    }
+  } catch {
+    // A normal sentence is not JSON and should be displayed unchanged.
+  }
+  return [sanitized];
+}
+
+export function normalizeReplySuggestions(data: SocketMessage): string[] {
+  const rawSuggestions: unknown[] = Array.isArray(data.suggestions) ? data.suggestions : [];
+  const seen = new Set<string>();
+  const suggestions: string[] = [];
+  for (const rawSuggestion of rawSuggestions) {
+    for (const suggestion of unwrapReplySuggestion(rawSuggestion)) {
+      const key = suggestion.replace(/\s+/g, ' ').trim().toLocaleLowerCase('en');
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      suggestions.push(suggestion.replace(/\s+/g, ' ').trim());
+      if (suggestions.length >= 3) return suggestions;
+    }
+  }
+  return suggestions;
 }
 
 export function useVoiceSocket() {

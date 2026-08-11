@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import type { TopicSegment } from '@/lib/conversationTopics';
 import {
   ABSOLUTE_CORRECTION_MAX,
+  buildReportContent,
   buildReportCorrections,
+  buildReportHighlights,
   getReportSampleStatus,
   paginateReportCorrections,
   TARGET_CORRECTION_MAX,
+  TARGET_CORRECTION_MIN,
 } from '@/lib/reportCorrections';
 import type { ChatMessage, TurnEvaluation } from '@/stores/useStore';
 
@@ -111,6 +114,53 @@ describe('buildReportCorrections', () => {
     expect(corrections[0].suggested).toBe('I go.');
   });
 
+  it('rejects explicit style-only and politeness upgrades', () => {
+    const examples = [
+      evaluation('thanks', 'Thank you for the menu.', { suggested: 'Thank you for the menu. It looks great.', category: 'naturalness' }),
+      evaluation('water', 'I want some water, please.', { suggested: 'Could I have some water, please?', category: 'naturalness' }),
+      evaluation('chicken', 'Can I have some chicken?', { suggested: 'Could I have some chicken, please?', category: 'naturalness' }),
+      evaluation('choice', 'I want chicken.', { suggested: 'I would like the chicken.', category: 'grammar' }),
+      evaluation('choice-please', 'I want chicken with mashed potatoes.', { suggested: 'I would like the chicken with mashed potatoes, please.', category: 'grammar' }),
+      evaluation('table', "No, I don't have a table.", { suggested: "No, we don't have a table reserved.", category: 'grammar' }),
+    ].map((item) => ({ ...item, errorTags: [] }));
+
+    const messages = examples.flatMap((item) => [
+      { role: 'assistant' as const, content: 'What would you like?' },
+      { id: item.turnId, role: 'user' as const, content: item.correction.original, evaluation: item },
+    ]);
+
+    expect(buildReportCorrections(messages, [])).toEqual([]);
+  });
+
+  it('rejects a reportEligible correction that adds unstated meaning', () => {
+    const item = evaluation('invented', 'That sounds good.', {
+      suggested: "That sounds good. I'll have the chicken, please.",
+      category: 'meaning_clarity',
+      decision: 'confirmed_error',
+    });
+
+    expect(buildReportCorrections([
+      { role: 'assistant', content: 'The chicken is popular.' },
+      { id: 'invented', role: 'user', content: 'That sounds good.', evaluation: { ...item, errorTags: [] } },
+    ], [])).toEqual([]);
+  });
+
+  it('keeps a confirmed error with an exact observable span', () => {
+    const item = evaluation('exact', 'I go there yesterday.', {
+      suggested: 'I went there yesterday.',
+      decision: 'confirmed_error',
+      issueCode: 'verb_tense',
+      errorSpan: 'go',
+      correctedSpan: 'went',
+    });
+    const [correction] = buildReportCorrections([
+      { role: 'assistant', content: 'Where did you go yesterday?' },
+      { id: 'exact', role: 'user', content: item.correction.original, evaluation: { ...item, errorTags: [] } },
+    ], []);
+
+    expect(correction.issueCode).toBe('verb_tense');
+  });
+
   it('uses the previous assistant question from the same topic segment', () => {
     const answer = 'I go there yesterday.';
     const messages: ChatMessage[] = [
@@ -126,6 +176,24 @@ describe('buildReportCorrections', () => {
       topic: '여행',
       difficulty: '중급',
     });
+  });
+
+  it('falls back to the nearest assistant response when segment metadata is missing', () => {
+    const answer = 'I go there yesterday.';
+    const messages: ChatMessage[] = [
+      { role: 'assistant', content: 'Where did you go yesterday?' },
+      {
+        id: 'answer-with-segment',
+        role: 'user',
+        content: answer,
+        segmentId: 'segment-travel',
+        evaluation: evaluation('answer-with-segment', answer, { suggested: 'I went there yesterday.' }),
+      },
+    ];
+
+    const [correction] = buildReportCorrections(messages, [segment()]);
+
+    expect(correction.assistantPrompt).toBe('Where did you go yesterday?');
   });
 
   it('keeps structured learner-friendly explanations for the printed report', () => {
@@ -184,6 +252,121 @@ describe('short conversation report status', () => {
     expect(getReportSampleStatus(2).kind).toBe('provisional');
     expect(getReportSampleStatus(5).kind).toBe('limited');
     expect(getReportSampleStatus(8).kind).toBe('standard');
+  });
+});
+
+describe('buildReportHighlights', () => {
+  it('fills an empty correction report with 13 to 15 real conversation highlights', () => {
+    const messages: ChatMessage[] = Array.from({ length: 16 }, (_, index) => ({
+      id: `good-turn-${index + 1}`,
+      role: 'user',
+      content: `I shared a clear idea about topic number ${index + 1}.`,
+    }));
+
+    const highlights = buildReportHighlights(messages, []);
+
+    expect(highlights).toHaveLength(TARGET_CORRECTION_MAX);
+    expect(highlights.every((item) => item.original === item.suggested)).toBe(true);
+    expect(highlights.every((item) => item.errorTags.includes('report_highlight'))).toBe(true);
+    expect(new Set(highlights.map((item) => item.original))).toHaveLength(TARGET_CORRECTION_MAX);
+  });
+
+  it('uses available conversation sentences without inventing filler when fewer than 13 exist', () => {
+    const messages: ChatMessage[] = Array.from({ length: 5 }, (_, index) => ({
+      id: `short-turn-${index + 1}`,
+      role: 'user',
+      content: `This is my useful sentence number ${index + 1}.`,
+    }));
+
+    expect(buildReportHighlights(messages, [])).toHaveLength(5);
+  });
+
+  it('keeps highlights tied to learner answers instead of filling the report with assistant-only expressions', () => {
+    const messages: ChatMessage[] = Array.from({ length: 10 }, (_, index) => ([
+      { role: 'assistant' as const, content: `How would you answer practice question ${index + 1}?` },
+      { id: `learner-${index + 1}`, role: 'user' as const, content: `My clear answer is number ${index + 1}.` },
+    ])).flat();
+
+    const highlights = buildReportHighlights(messages, []);
+
+    expect(highlights).toHaveLength(10);
+    expect(highlights.every((item) => item.errorTags.includes('learner_sentence'))).toBe(true);
+    expect(highlights.every((item) => !item.errorTags.includes('conversation_expression'))).toBe(true);
+    expect(highlights[0]).toMatchObject({
+      assistantPrompt: 'How would you answer practice question 1?',
+      original: 'My clear answer is number 1.',
+    });
+  });
+
+  it('does not praise an assistant-only transcript when the learner never answered', () => {
+    const messages: ChatMessage[] = Array.from({ length: 15 }, (_, index) => ({
+      role: 'assistant',
+      content: `This is assistant prompt number ${index + 1}.`,
+    }));
+
+    expect(buildReportHighlights(messages, [])).toEqual([]);
+  });
+
+  it('does not praise low-confidence, off-topic, or explicitly corrected learner sentences', () => {
+    const lowConfidence = evaluation('low', 'I shared a clear idea.', { suggested: '' });
+    const offTopic = evaluation('off-topic', 'I answered something unrelated.', {
+      suggested: '',
+      contextFit: 'off_topic',
+    });
+    const corrected = evaluation('corrected', 'I go yesterday.', {
+      suggested: 'I went yesterday.',
+      decision: 'confirmed_error',
+    });
+    const messages: ChatMessage[] = [
+      { id: 'safe', role: 'user', content: 'I explained my plan clearly.' },
+      { id: 'low', role: 'user', content: lowConfidence.correction.original, evaluation: { ...lowConfidence, confidence: 'low' } },
+      { id: 'off-topic', role: 'user', content: offTopic.correction.original, evaluation: offTopic },
+      { id: 'corrected', role: 'user', content: corrected.correction.original, evaluation: corrected },
+    ];
+
+    expect(buildReportHighlights(messages, []).map((item) => item.id)).toEqual(['highlight:safe']);
+  });
+});
+
+describe('buildReportContent', () => {
+  it('keeps real corrections and fills the remaining report with distinct conversation highlights', () => {
+    const corrections = correctionMessages(3);
+    const highlights: ChatMessage[] = Array.from({ length: 10 }, (_, index) => ({
+      id: `good-${index + 1}`,
+      role: 'user',
+      content: `I explained useful idea number ${index + 1} clearly.`,
+    }));
+
+    const content = buildReportContent([...corrections, ...highlights], [segment()]);
+
+    expect(content.corrections).toHaveLength(3);
+    expect(content.highlights).toHaveLength(10);
+    expect(content.items).toHaveLength(TARGET_CORRECTION_MIN);
+    expect(new Set(content.items.map((item) => item.id)).size).toBe(content.items.length);
+    expect(content.highlights.every((item) => !content.corrections.some(
+      (correction) => correction.conversationIndex === item.conversationIndex,
+    ))).toBe(true);
+  });
+
+  it('caps supplemented reports at the normal 15-item maximum', () => {
+    const messages: ChatMessage[] = [
+      ...correctionMessages(3),
+      ...Array.from({ length: 20 }, (_, index) => ({
+        id: `extra-good-${index + 1}`,
+        role: 'user' as const,
+        content: `I shared another useful idea number ${index + 1}.`,
+      })),
+    ];
+
+    expect(buildReportContent(messages, [segment()]).items).toHaveLength(TARGET_CORRECTION_MAX);
+  });
+
+  it('does not add highlights when enough real corrections already exist', () => {
+    const content = buildReportContent(correctionMessages(TARGET_CORRECTION_MIN), [segment()]);
+
+    expect(content.corrections).toHaveLength(TARGET_CORRECTION_MIN);
+    expect(content.highlights).toEqual([]);
+    expect(content.items).toEqual(content.corrections);
   });
 });
 

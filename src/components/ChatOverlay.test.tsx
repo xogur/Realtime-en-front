@@ -10,6 +10,7 @@ beforeEach(() => {
     useStore.setState({
         messages: [],
         showKoreanInterpretation: true,
+        showReplySuggestions: true,
         textScale: 1,
         socket: null,
         isThinking: false,
@@ -19,6 +20,33 @@ beforeEach(() => {
 });
 
 afterEach(cleanup);
+
+describe('ChatOverlay reply suggestion toggle', () => {
+    it('defaults reply suggestions to ON', () => {
+        expect(useStore.getInitialState().showReplySuggestions).toBe(true);
+    });
+
+    it('hides and restores existing suggestions without deleting message data', () => {
+        useStore.setState({
+            messages: [{
+                role: 'assistant',
+                content: 'Would you like anything else?',
+                suggestions: ['No, thank you.'],
+            }],
+        });
+        render(<ChatOverlay standalone />);
+
+        expect(screen.getByRole('button', { name: 'No, thank you.' })).toBeTruthy();
+        fireEvent.click(screen.getByRole('switch', { name: '추천 문장 켜짐' }));
+
+        expect(screen.queryByRole('button', { name: 'No, thank you.' })).toBeNull();
+        expect(useStore.getState().messages[0].suggestions).toEqual(['No, thank you.']);
+        expect(screen.getByRole('switch', { name: '추천 문장 꺼짐' }).textContent).toContain('OFF');
+
+        fireEvent.click(screen.getByRole('switch', { name: '추천 문장 꺼짐' }));
+        expect(screen.getByRole('button', { name: 'No, thank you.' })).toBeTruthy();
+    });
+});
 
 describe('ChatOverlay interpretation toggle', () => {
     it('defaults Korean interpretation to ON', () => {

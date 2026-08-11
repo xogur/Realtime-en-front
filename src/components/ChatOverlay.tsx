@@ -44,6 +44,8 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
     const setTextScale = useStore((state) => state.setTextScale);
     const showKoreanInterpretation = useStore((state) => state.showKoreanInterpretation);
     const toggleKoreanInterpretation = useStore((state) => state.toggleKoreanInterpretation);
+    const showReplySuggestions = useStore((state) => state.showReplySuggestions);
+    const setShowReplySuggestions = useStore((state) => state.setShowReplySuggestions);
 
     // Auto-scroll to bottom of messages
     useEffect(() => {
@@ -89,6 +91,36 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
     const handleSuggestionClick = (suggestion: string) => {
         setInputValue(suggestion);
         inputRef.current?.focus();
+    };
+
+    const handleReplySuggestionsToggle = () => {
+        const scrollContainer = scrollRef.current;
+        const distanceFromBottom = scrollContainer
+            ? scrollContainer.scrollHeight - scrollContainer.scrollTop - scrollContainer.clientHeight
+            : 0;
+        const nextValue = !showReplySuggestions;
+        setShowReplySuggestions(nextValue);
+
+        if (standalone) {
+            const channel = new BroadcastChannel(getChatSyncChannelName());
+            channel.postMessage({
+                type: 'SET_REPLY_SUGGESTIONS_VISIBILITY',
+                payload: nextValue,
+            });
+            channel.close();
+        }
+
+        requestAnimationFrame(() => {
+            if (!scrollContainer) return;
+            if (distanceFromBottom <= 80) {
+                scrollContainer.scrollTop = scrollContainer.scrollHeight;
+                return;
+            }
+            scrollContainer.scrollTop = Math.max(
+                0,
+                scrollContainer.scrollHeight - scrollContainer.clientHeight - distanceFromBottom,
+            );
+        });
     };
 
     return (
@@ -221,7 +253,7 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
                                                             <span className="font-semibold">한국어 해석:</span> {assistantParts.korean}
                                                         </div>
                                                     )}
-                                                    {msg.suggestions && msg.suggestions.length > 0 && (
+                                                    {showReplySuggestions && msg.suggestions && msg.suggestions.length > 0 && (
                                                         <div className="mt-3 flex flex-wrap gap-2">
                                                             {msg.suggestions.map((suggestion) => (
                                                                 <button
@@ -300,6 +332,34 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
 
                     {/* Input Area */}
                     <div className="p-4 border-t border-[#483c2d]/10 bg-[#f4ece4]/80 backdrop-blur-md">
+                        <div className="mb-2.5 flex items-center justify-between gap-3 px-1">
+                            <span className="text-xs font-semibold text-[#6b5a4a]">추천 문장 표시</span>
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={showReplySuggestions}
+                                aria-label={`추천 문장 ${showReplySuggestions ? '켜짐' : '꺼짐'}`}
+                                onClick={handleReplySuggestionsToggle}
+                                className={`inline-flex min-h-8 items-center gap-2 rounded-full border px-2.5 py-1 transition-colors focus:outline-none focus:ring-2 focus:ring-[#6b5a4a]/30 ${showReplySuggestions
+                                    ? 'border-[#5f7353]/35 bg-[#edf1e8] text-[#40513a]'
+                                    : 'border-[#8b7a6d]/20 bg-white/45 text-[#77695f] hover:bg-white/70'
+                                    }`}
+                                title={showReplySuggestions ? '추천 문장 숨기기' : '추천 문장 보이기'}
+                            >
+                                <span
+                                    aria-hidden="true"
+                                    className={`relative h-5 w-9 rounded-full transition-colors ${showReplySuggestions ? 'bg-[#5f7353]' : 'bg-[#b7aaa0]'}`}
+                                >
+                                    <span
+                                        data-testid="reply-suggestions-thumb"
+                                        className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform ${showReplySuggestions ? 'translate-x-4' : 'translate-x-0'}`}
+                                    />
+                                </span>
+                                <span className="w-7 text-left text-[11px] font-black">
+                                    {showReplySuggestions ? 'ON' : 'OFF'}
+                                </span>
+                            </button>
+                        </div>
                         <div className="flex items-center gap-3">
                             <input
                                 ref={inputRef}

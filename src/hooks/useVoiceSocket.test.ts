@@ -9,10 +9,40 @@ import {
   getSupplementaryPollDelayMs,
   isEvaluationBatchIdle,
   isCurrentSupplementaryPoll,
+  normalizeReplySuggestions,
   shouldIgnorePartialAssistantAnswer,
   shouldProcessEventSeq,
   isSttInputReady,
 } from './useVoiceSocket';
+
+describe('reply suggestion normalization', () => {
+  it('unwraps the malformed singleton arrays seen in production logs', () => {
+    const input = {
+      suggestions: [
+        '["No, thank you for everything."]',
+        '["Just the food is fine now."]',
+        '["That is all I need."]',
+      ],
+    } as Parameters<typeof normalizeReplySuggestions>[0];
+
+    expect(normalizeReplySuggestions(input)).toEqual([
+      'No, thank you for everything.',
+      'Just the food is fine now.',
+      'That is all I need.',
+    ]);
+  });
+
+  it('keeps natural bracketed text and discards structural non-strings', () => {
+    const input = {
+      suggestions: ['I ordered [two] drinks.', ['Tea, please.'], { text: 'ignore' }],
+    } as unknown as Parameters<typeof normalizeReplySuggestions>[0];
+
+    expect(normalizeReplySuggestions(input)).toEqual([
+      'I ordered [two] drinks.',
+      'Tea, please.',
+    ]);
+  });
+});
 
 describe('STT readiness', () => {
   it('requires both microphone capture and backend readiness for server STT', () => {

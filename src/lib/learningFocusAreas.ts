@@ -12,7 +12,7 @@ export type LearningFocusArea = {
   id: LearningFocusAreaId;
   label: string;
   description: string;
-  statusLabel: '관찰 필요' | '우선 보완';
+  statusLabel: '잠정 관찰' | '근거 있음';
   averageScore: number;
   sampleCount: number;
   evidenceCount: number;
@@ -97,11 +97,10 @@ function getReliableMessages(messages: ChatMessage[]): Array<ChatMessage & { eva
 }
 
 function correctionMatches(definition: FocusDefinition, correction: ReportCorrectionItem): boolean {
-  if (definition.correctionCategories.has(correction.category)) return true;
+  if ((correction.errorTags ?? []).some((tag) => definition.tags.has(tag))) return true;
   if (definition.id !== 'context_response') return false;
-  const evaluationContext = correction.contextReason.toLowerCase();
-  return correction.category === 'meaning_clarity'
-    || /질문|문맥|의도|핵심/.test(evaluationContext);
+  return definition.correctionCategories.has(correction.category)
+    && correction.contextReason.trim().length > 0;
 }
 
 export function buildLearningFocusAreas(
@@ -119,22 +118,35 @@ export function buildLearningFocusAreas(
     const averageScore = Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
     const evidenceTurnIds = new Set<string>();
     const evidence: string[] = [];
+    const issueCounts = new Map<string, number>();
 
     reliableMessages.forEach((message) => {
       const evaluation = message.evaluation;
       const turnId = message.id ?? evaluation.turnId;
-      const hasTag = (evaluation.errorTags ?? []).some((tag) => definition.tags.has(tag));
       const matchingCorrection = corrections.find((correction) => (
         correction.id === turnId && correctionMatches(definition, correction)
       ));
+      const hasTag = Boolean(matchingCorrection)
+        && (evaluation.errorTags ?? []).some((tag) => definition.tags.has(tag));
       const contextMismatch = definition.id === 'context_response'
         && (evaluation.correction.contextFit === 'partial' || evaluation.correction.contextFit === 'off_topic');
-      const lowMetricWithReason = evaluation.scores[definition.metric] <= 65
+      const lowMetricWithReason = Boolean(matchingCorrection)
+        && evaluation.scores[definition.metric] <= 65
         && Boolean(cleanEvidence(evaluation.evidence[definition.metric]));
 
       if (hasTag || matchingCorrection || contextMismatch || lowMetricWithReason) {
         evidenceTurnIds.add(turnId);
       }
+
+      const turnIssueCodes = new Set(
+        matchingCorrection
+          ? (evaluation.errorTags ?? []).filter((tag) => definition.tags.has(tag))
+          : [],
+      );
+      if (matchingCorrection) turnIssueCodes.add(matchingCorrection.issueCode || matchingCorrection.issueKey);
+      turnIssueCodes.forEach((code) => {
+        issueCounts.set(code, (issueCounts.get(code) ?? 0) + 1);
+      });
 
       const metricEvidence = cleanEvidence(evaluation.evidence[definition.metric]);
       if ((hasTag || contextMismatch || lowMetricWithReason) && metricEvidence && evidence.length < 2) {
@@ -150,7 +162,8 @@ export function buildLearningFocusAreas(
       .map((correction) => correctionNumberById.get(correction.id))
       .filter((value): value is number => typeof value === 'number');
     const evidenceCount = evidenceTurnIds.size;
-    const qualifies = evidenceCount >= 2 && (averageScore < 72 || correctionNumbers.length >= 2);
+    const repeatedIssueCount = Math.max(0, ...issueCounts.values());
+    const qualifies = repeatedIssueCount >= 2 && (averageScore < 72 || correctionNumbers.length >= 2);
     const severity = Math.max(0, 72 - averageScore) + evidenceCount * 3 + correctionNumbers.length * 2;
 
     return {
@@ -170,11 +183,11 @@ export function buildLearningFocusAreas(
       id: definition.id,
       label: definition.label,
       description: definition.description,
-      statusLabel: sampleCount >= 8 ? '우선 보완' : '관찰 필요',
+      statusLabel: sampleCount >= 8 ? '근거 있음' : '잠정 관찰',
       averageScore,
       sampleCount,
       evidenceCount,
-      explanation: `${sampleCount}개 신뢰 응답의 ${definition.metricLabel} 평균은 ${averageScore}점이며, 관련 신호가 ${evidenceCount}개 응답에서 확인되었습니다.`,
+      explanation: `${sampleCount}개 신뢰 응답 중 같은 문제가 ${evidenceCount}개 답변에서 반복되었습니다. ${definition.metricLabel} 평균은 ${averageScore}점입니다.`,
       evidence,
       correctionNumbers,
     }));

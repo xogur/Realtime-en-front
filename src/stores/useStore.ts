@@ -58,6 +58,10 @@ export type TurnEvaluation = {
         reportEligible?: boolean;
         reportPriority?: 'high' | 'medium' | 'low' | 'none';
         meaningPreserved?: boolean;
+        decision?: 'confirmed_error' | 'not_an_error' | 'optional_upgrade' | 'transcript_uncertain';
+        issueCode?: string;
+        errorSpan?: string;
+        correctedSpan?: string;
     };
     errorTags?: string[];
     learningTier?: {
@@ -242,6 +246,7 @@ interface AppState {
     speed: number;
     textScale: number;
     showKoreanInterpretation: boolean;
+    showReplySuggestions: boolean;
     avatarName: 'model' | 'avatar';
 
     setConnecting: (status: boolean) => void;
@@ -281,6 +286,8 @@ interface AppState {
     setSpeed: (speed: number) => void;
     setTextScale: (scale: number) => void;
     toggleKoreanInterpretation: () => void;
+    setShowReplySuggestions: (visible: boolean) => void;
+    toggleReplySuggestions: () => void;
     setAvatarName: (name: 'model' | 'avatar') => void;
 
     socket: WebSocket | null;
@@ -970,6 +977,7 @@ export const useStore = create<AppState>((set, get) => ({
     speed: 0.8,
     textScale: 1.0,
     showKoreanInterpretation: true,
+    showReplySuggestions: true,
     avatarName: 'avatar',
     currentAvatarId: DEFAULT_AVATAR_ID,
     lipSyncMode: 'heuristic',
@@ -1670,6 +1678,9 @@ export const useStore = create<AppState>((set, get) => ({
     setTextScale: (textScale) => set({ textScale }),
     toggleKoreanInterpretation: () =>
         set((state) => ({ showKoreanInterpretation: !state.showKoreanInterpretation })),
+    setShowReplySuggestions: (showReplySuggestions) => set({ showReplySuggestions }),
+    toggleReplySuggestions: () =>
+        set((state) => ({ showReplySuggestions: !state.showReplySuggestions })),
     setAvatarName: (name) => set({ avatarName: name }),
     setCurrentAvatar: (id) => {
         const voiceId = AVATAR_VOICE_MAP[id] || DEFAULT_VOICE_ID;

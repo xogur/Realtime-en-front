@@ -46,6 +46,12 @@ export function useChatSync(isMainWindow: boolean) {
                         payload: getBatchStatusSyncPayload(),
                     });
                 }
+                if (state.showReplySuggestions !== prevState.showReplySuggestions) {
+                    channel.postMessage({
+                        type: 'SYNC_REPLY_SUGGESTIONS_VISIBILITY',
+                        payload: state.showReplySuggestions,
+                    });
+                }
             });
 
             // Listen for messages from popout window
@@ -62,6 +68,8 @@ export function useChatSync(isMainWindow: boolean) {
                             interruptPolicy: 'hard',
                         }));
                     }
+                } else if (event.data.type === 'SET_REPLY_SUGGESTIONS_VISIBILITY') {
+                    useStore.getState().setShowReplySuggestions(Boolean(event.data.payload));
                 } else if (event.data.type === 'REQUEST_INITIAL_STATE') {
                     // Send initial state to newly opened window
                     channel.postMessage({ type: 'SYNC_MESSAGES', payload: useStore.getState().messages, reason: 'initial' });
@@ -69,6 +77,10 @@ export function useChatSync(isMainWindow: boolean) {
                     channel.postMessage({ type: 'SYNC_LIVE_TRANSCRIPT', payload: useStore.getState().liveTranscript });
                     channel.postMessage({ type: 'SYNC_THINKING', payload: useStore.getState().isThinking });
                     channel.postMessage({ type: 'SYNC_EMOTION', payload: useStore.getState().emotion });
+                    channel.postMessage({
+                        type: 'SYNC_REPLY_SUGGESTIONS_VISIBILITY',
+                        payload: useStore.getState().showReplySuggestions,
+                    });
                     channel.postMessage({
                         type: 'SYNC_EVALUATION_BATCH_STATUS',
                         payload: getBatchStatusSyncPayload(),
@@ -112,6 +124,8 @@ export function useChatSync(isMainWindow: boolean) {
                     }
                 } else if (type === 'SYNC_LIVE_TRANSCRIPT') {
                     useStore.getState().setLiveTranscript(typeof payload === 'string' ? payload : '');
+                } else if (type === 'SYNC_REPLY_SUGGESTIONS_VISIBILITY') {
+                    useStore.getState().setShowReplySuggestions(Boolean(payload));
                 } else if (useStore.getState().socket?.readyState === WebSocket.OPEN) {
                     // The viewer socket owns ephemeral streaming state. Durable
                     // message/evaluation state still merges monotonically above.

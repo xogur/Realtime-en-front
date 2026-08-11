@@ -24,4 +24,11 @@ describe('packMeasuredCorrections', () => {
   it('keeps an empty report to one page', () => {
     expect(packMeasuredCorrections([], 200, 700)).toEqual([[]]);
   });
+
+  it('avoids leaving a single correction alone on the last page', () => {
+    expect(packMeasuredCorrections([
+      { id: '1', height: 100 }, { id: '2', height: 100 },
+      { id: '3', height: 100 }, { id: '4', height: 100 },
+    ], 320, 320, 10)).toEqual([['1', '2'], ['3', '4']]);
+  });
 });

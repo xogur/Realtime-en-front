@@ -31,6 +31,7 @@ function message(id: string, overrides: Partial<TurnEvaluation> = {}): ChatMessa
 }
 
 function correction(id: string, category: ReportCorrectionItem['category']): ReportCorrectionItem {
+  const errorTags = category === 'grammar' ? ['verb_tense'] : category === 'vocabulary' ? ['word_choice'] : [];
   return {
     id,
     conversationIndex: 0,
@@ -44,10 +45,12 @@ function correction(id: string, category: ReportCorrectionItem['category']): Rep
     reason: '교정 이유',
     problem: '',
     usageGuide: '',
-    contextReason: '',
+    contextReason: category === 'comprehension' || category === 'meaning_clarity' ? '질문의 핵심 조건에 맞추기 위한 교정입니다.' : '',
     priority: 'high',
     score: 80,
     issueKey: id,
+    issueCode: category === 'comprehension' ? 'question_misunderstanding' : errorTags[0] ?? category,
+    errorTags,
   };
 }
 
@@ -70,6 +73,16 @@ describe('buildLearningFocusAreas', () => {
     expect(buildLearningFocusAreas(messages, [correction('1', 'vocabulary')])).toEqual([]);
   });
 
+  it('does not turn rejected raw error tags into a repeated weakness', () => {
+    const messages = Array.from({ length: 8 }, (_, index) => message(String(index + 1), index < 5 ? {
+      scores: { ...evaluation('tagged').scores, grammar: 55 },
+      errorTags: ['verb_tense'],
+      evidence: { ...evaluation('tagged').evidence, grammar: '모델이 남긴 원시 태그입니다.' },
+    } : {}));
+
+    expect(buildLearningFocusAreas(messages, [])).toEqual([]);
+  });
+
   it('maps repeated vocabulary evidence and correction numbers to one clear area', () => {
     const messages = Array.from({ length: 8 }, (_, index) => message(String(index + 1), index < 2 ? {
       scores: { ...evaluation('vocab').scores, vocabulary: 55 },
@@ -81,7 +94,7 @@ describe('buildLearningFocusAreas', () => {
     expect(areas[0]).toMatchObject({
       id: 'vocabulary_use',
       label: '어휘 선택과 활용',
-      statusLabel: '우선 보완',
+      statusLabel: '근거 있음',
       sampleCount: 8,
       evidenceCount: 2,
       correctionNumbers: [1, 2],
@@ -104,7 +117,7 @@ describe('buildLearningFocusAreas', () => {
     expect(areas[0]).toMatchObject({
       id: 'context_response',
       label: '질문 이해와 문맥 대응',
-      statusLabel: '관찰 필요',
+      statusLabel: '잠정 관찰',
     });
   });
 

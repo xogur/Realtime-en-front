@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Keyboard, Mic, MicOff, Trash2, Loader2 } from 'lucide-react';
@@ -8,6 +8,7 @@ import { TopicSelector } from '@/components/TopicSelector';
 import { getConversationTopic, type TopicId } from '@/lib/conversationTopics';
 import { getConversationDifficulty, type DifficultyId } from '@/lib/conversationDifficulties';
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
+import { isTranslatorWindowMessage, TRANSLATOR_WINDOW_MESSAGE } from '@/lib/translator';
 // import { buildKioskUrl } from '@/lib/kioskIdentity';
 
 interface ControlPanelProps {
@@ -22,7 +23,6 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
         startConversation,
         resumeConversation,
         stopListening,
-        disconnect,
         isConnected,
         isSttReady,
         isRecording,
@@ -36,6 +36,8 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
     const conversationStartError = useStore((state) => state.conversationStartError);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isTopicSelectorOpen, setIsTopicSelectorOpen] = useState(false);
+    const isTranslatorOpenRef = useRef(false);
+    const resumeAfterTranslatorRef = useRef(false);
     const activeSegment = topicSegments.find((segment) => segment.segmentId === activeSegmentId);
     const activeTopic = getConversationTopic(activeSegment?.topicId);
     const activeDifficulty = getConversationDifficulty(activeSegment?.difficultyId);
@@ -95,17 +97,38 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
 
     useEffect(() => {
         const handleTranslatorMessage = (event: MessageEvent) => {
-            if (event.origin !== window.location.origin) return;
-            if (
-                event.data?.channel !== 'realtime-en:translator'
-                || event.data?.action !== 'open'
-            ) return;
-            setIsTopicSelectorOpen(false);
-            disconnect();
+            if (event.origin && event.origin !== window.location.origin) return;
+            if (!isTranslatorWindowMessage(event.data)) return;
+
+            const nextOpen = event.data.action === 'open';
+            if (isTranslatorOpenRef.current === nextOpen) return;
+            isTranslatorOpenRef.current = nextOpen;
+
+            if (nextOpen) {
+                setIsTopicSelectorOpen(false);
+                resumeAfterTranslatorRef.current = isRecording;
+                if (isRecording) stopListening();
+                return;
+            }
+
+            if (resumeAfterTranslatorRef.current) {
+                resumeAfterTranslatorRef.current = false;
+                startListening();
+            }
         };
         window.addEventListener('message', handleTranslatorMessage);
-        return () => window.removeEventListener('message', handleTranslatorMessage);
-    }, [disconnect]);
+
+        const channel = 'BroadcastChannel' in window
+            ? new BroadcastChannel(TRANSLATOR_WINDOW_MESSAGE)
+            : null;
+        channel?.addEventListener('message', handleTranslatorMessage);
+
+        return () => {
+            window.removeEventListener('message', handleTranslatorMessage);
+            channel?.removeEventListener('message', handleTranslatorMessage);
+            channel?.close();
+        };
+    }, [isRecording, startListening, stopListening]);
 
     return (
         <>

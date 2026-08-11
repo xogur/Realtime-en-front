@@ -4,6 +4,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useBrowserStt } from './useBrowserStt';
 import type { BrowserSpeechResultEvent } from '@/lib/stt';
+import { useStore } from '@/stores/useStore';
 
 type RecognitionHandlers = {
   onstart: (() => void) | null;
@@ -121,6 +122,7 @@ describe('useBrowserStt restart handling', () => {
       value: { getUserMedia },
     });
     vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    useStore.setState({ isRecording: false });
   });
 
   afterEach(() => {
@@ -174,6 +176,32 @@ describe('useBrowserStt restart handling', () => {
       await result.current.stop();
     });
     expect(audioTrack.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not let an isolated translator recorder clear the conversation recording state', async () => {
+    const conversationOptions = makeOptions();
+    const translatorOptions = makeOptions();
+    const tracks = [new FakeAudioTrack(), new FakeAudioTrack()];
+    getUserMedia.mockImplementation(async () => makeMediaStream(tracks.shift()!));
+
+    const { result } = renderHook(() => ({
+      conversation: useBrowserStt(conversationOptions),
+      translator: useBrowserStt({
+        ...translatorOptions,
+        publishRecordingState: false,
+      }),
+    }));
+
+    await act(async () => {
+      expect(await result.current.translator.start()).toBe(true);
+      await result.current.translator.stop();
+      expect(await result.current.conversation.start()).toBe(true);
+      await result.current.translator.stop();
+    });
+
+    expect(result.current.conversation.isRecording).toBe(true);
+    expect(result.current.translator.isRecording).toBe(false);
+    expect(useStore.getState().isRecording).toBe(true);
   });
 
   it('uses a caller-provided recognition language', async () => {

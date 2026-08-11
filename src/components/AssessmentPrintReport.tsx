@@ -1,15 +1,16 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { TopicSegment } from '@/lib/conversationTopics';
 import { buildLearningFocusAreas, type LearningFocusArea } from '@/lib/learningFocusAreas';
 import {
-  buildReportCorrections,
+  buildReportContent,
   getReportSampleStatus,
   paginateReportCorrections,
   type ReportCorrectionItem,
 } from '@/lib/reportCorrections';
 import { packMeasuredCorrections } from '@/lib/reportPagination';
+import { getFriendlySpeakingLevel, getMetricPresentation } from '@/lib/assessmentPresentation';
 import type { ChatMessage } from '@/stores/useStore';
 
 type Metric = { key: string; label: string; value: number };
@@ -18,9 +19,9 @@ type AssessmentPrintReportProps = {
   messages: ChatMessage[];
   topicSegments: TopicSegment[];
   assessableAnswerCount: number;
-  sessionScore: number | null;
+  reliableAnswerCount: number;
   metrics: Metric[];
-  tier: { label: string; textColor: string; totalLp: number };
+  tier: { label: string; textColor: string; totalLp: number; asset?: ReactNode };
   cefrLevel: string;
   cefrReason: string;
   strength: string;
@@ -41,10 +42,12 @@ function ReportHeader({
   reportDate,
   sampleLabel,
   assessableAnswerCount,
+  reliableAnswerCount,
 }: {
   reportDate: string;
   sampleLabel: string;
   assessableAnswerCount: number;
+  reliableAnswerCount: number;
 }) {
   return (
     <header className="report-main-header flex items-end justify-between border-b-2 border-[#183c2c] pb-2">
@@ -54,7 +57,7 @@ function ReportHeader({
       </div>
       <dl className="grid grid-cols-[auto_auto] gap-x-2 gap-y-0.5 text-right text-[8px] leading-tight text-[#625e58]">
         <dt>평가 기준</dt><dd className="font-bold text-[#273a31]">{sampleLabel}</dd>
-        <dt>응답</dt><dd className="font-mono font-bold text-[#273a31]">{assessableAnswerCount}개</dd>
+        <dt>신뢰 응답</dt><dd className="font-mono font-bold text-[#273a31]">{reliableAnswerCount} / {assessableAnswerCount}개</dd>
         <dt>작성일</dt><dd className="font-mono font-bold text-[#273a31]">{reportDate}</dd>
       </dl>
     </header>
@@ -64,48 +67,69 @@ function ReportHeader({
 function LearningFocusSection({
   areas,
   assessableAnswerCount,
+  isHighlightReport,
+  strength,
   improvement,
 }: {
   areas: LearningFocusArea[];
   assessableAnswerCount: number;
+  isHighlightReport: boolean;
+  strength: string;
   improvement: string;
 }) {
+  const isProvisional = assessableAnswerCount < 4;
   return (
     <section className="report-focus-section mt-3">
       <div className="flex items-baseline justify-between border-b border-[#183c2c]/30 pb-1">
-        <h2 className="text-[13px] font-black text-[#17251f]">이번 대화의 집중 학습 영역</h2>
-        <p className="text-[8px] font-semibold text-[#625e58]">반복 신호와 영역별 점수를 함께 분석</p>
+        <h2 className="text-[13px] font-black text-[#17251f]">이번 대화에서 잘한 점과 보완할 점</h2>
+        <p className="text-[8px] font-semibold text-[#625e58]">신뢰 응답의 점수와 반복 근거를 함께 분석</p>
       </div>
-      {areas.length > 0 ? (
-        <div className={`grid ${areas.length > 1 ? 'grid-cols-2' : 'grid-cols-1'} gap-x-4`}>
-          {areas.map((area) => (
-            <article key={area.id} className="py-2">
-              <div className="flex items-baseline justify-between gap-2">
-                <h3 className="text-[11px] font-black text-[#183c2c]">{area.label}</h3>
-                <p className="shrink-0 text-[8px] font-black text-[#8a5a12]">{area.statusLabel}</p>
-              </div>
-              <p className="mt-0.5 text-[9px] font-semibold leading-[1.35] text-[#474a46]">{area.description}</p>
-              <p className="mt-1 text-[8.5px] font-bold leading-[1.35] text-[#273a31]">{area.explanation}</p>
-              {area.evidence[0] && (
-                <p className="mt-1 border-l-2 border-[#2f6f4f] pl-1.5 text-[8.5px] font-semibold leading-[1.35] text-[#55514c]">
-                  근거: {area.evidence[0]}
-                </p>
-              )}
-              {area.correctionNumbers.length > 0 && (
-                <p className="mt-1 text-[8px] font-bold text-[#2f6f4f]">
-                  관련 교정 {area.correctionNumbers.map((number) => `#${String(number).padStart(2, '0')}`).join(', ')}
-                </p>
-              )}
-            </article>
-          ))}
-        </div>
-      ) : (
-        <p className="py-2 text-[9px] font-semibold leading-[1.4] text-[#55514c]">
-          {assessableAnswerCount < 4
-            ? '대화 표본이 적어 집중 학습 영역을 단정하지 않았습니다. 아래 주요 교정만 복습해 주세요.'
-            : `두 번 이상 뚜렷하게 확인된 집중 영역은 없습니다. 현재 개선 포인트: ${improvement}`}
-        </p>
-      )}
+      <div className="grid grid-cols-2 gap-4 py-2">
+        <article className="border-l-2 border-[#2f6f4f] bg-[#f2f7f3] px-2.5 py-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="text-[10px] font-black text-[#2f6f4f]">{isProvisional ? '잠정 강점' : '강점'}</h3>
+            <p className="text-[7.5px] font-bold text-[#526057]">계속 유지해 보세요</p>
+          </div>
+          <p className="mt-1 text-[9.5px] font-black leading-[1.4] text-[#273a31]">{strength}</p>
+          <p className="mt-1 text-[8.5px] font-semibold leading-[1.35] text-[#526057]">
+            {isHighlightReport
+              ? '이번 대화에서 잘한 문장과 다시 활용하기 좋은 표현을 아래에 모았습니다.'
+              : '안정적으로 사용한 방식은 다음 대화에서도 같은 흐름으로 이어가면 좋습니다.'}
+          </p>
+        </article>
+
+        <article className="border-l-2 border-[#b77f1e] bg-[#fff8ea] px-2.5 py-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="text-[10px] font-black text-[#8a5a12]">{isProvisional ? '잠정 보완점' : '보완할 점'}</h3>
+            <p className="text-[7.5px] font-bold text-[#765c2d]">다음 연습의 우선순위</p>
+          </div>
+          <p className="mt-1 text-[9.5px] font-black leading-[1.4] text-[#3f382e]">{improvement}</p>
+          {areas.length > 0 ? (
+            <div className="mt-1.5 space-y-1.5">
+              {areas.map((area) => (
+                <div key={area.id} className="border-t border-[#b77f1e]/20 pt-1.5 first:border-t-0 first:pt-0">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="text-[8.5px] font-black text-[#6f501c]">{area.label}</p>
+                    <p className="shrink-0 text-[7.5px] font-bold text-[#765c2d]">{area.statusLabel}</p>
+                  </div>
+                  <p className="mt-0.5 text-[8px] font-semibold leading-[1.3] text-[#5e5549]">{area.explanation}</p>
+                  {area.correctionNumbers.length > 0 && (
+                    <p className="mt-0.5 text-[7.5px] font-black text-[#8a5a12]">
+                      관련 교정 {area.correctionNumbers.map((number) => `#${String(number).padStart(2, '0')}`).join(', ')}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-1 text-[8.5px] font-semibold leading-[1.35] text-[#765c2d]">
+              {isProvisional
+                ? '대화 표본이 적어 약점으로 단정하지 않고 다음 대화에서 더 관찰합니다.'
+                : '같은 문제가 여러 답변에서 반복되지는 않았습니다. 가장 낮은 역량부터 가볍게 연습해 보세요.'}
+            </p>
+          )}
+        </article>
+      </div>
     </section>
   );
 }
@@ -114,7 +138,7 @@ function ReportSummary({
   reportDate,
   sampleStatus,
   assessableAnswerCount,
-  sessionScore,
+  reliableAnswerCount,
   metrics,
   tier,
   cefrLevel,
@@ -122,11 +146,12 @@ function ReportSummary({
   strength,
   improvement,
   focusAreas,
+  isHighlightReport,
 }: {
   reportDate: string;
   sampleStatus: ReturnType<typeof getReportSampleStatus>;
   assessableAnswerCount: number;
-  sessionScore: number | null;
+  reliableAnswerCount: number;
   metrics: Metric[];
   tier: AssessmentPrintReportProps['tier'];
   cefrLevel: string;
@@ -134,14 +159,17 @@ function ReportSummary({
   strength: string;
   improvement: string;
   focusAreas: LearningFocusArea[];
+  isHighlightReport: boolean;
 }) {
   const levelPrefix = assessableAnswerCount <= 7 ? '예상' : '현재';
+  const speakingLevel = getFriendlySpeakingLevel(cefrLevel);
   return (
     <div className="report-summary">
       <ReportHeader
         reportDate={reportDate}
         sampleLabel={sampleStatus.label}
         assessableAnswerCount={assessableAnswerCount}
+        reliableAnswerCount={reliableAnswerCount}
       />
       {sampleStatus.notice && (
         <p className="mt-2 border-l-2 border-[#b77f1e] bg-[#fff8ea] px-2 py-1.5 text-[8.5px] font-bold leading-[1.35] text-[#654d24]">
@@ -149,40 +177,60 @@ function ReportSummary({
         </p>
       )}
 
-      <section className="mt-3 grid grid-cols-[0.8fr_0.8fr_1.2fr] border-y border-[#183c2c]/30 py-2">
-        <div className="border-r border-[#183c2c]/15 pr-3">
-          <p className="text-[8px] font-bold text-[#625e58]">종합 점수</p>
-          <p className="mt-0.5 font-mono text-[24px] font-black leading-none text-[#183c2c]">{sessionScore ?? '--'}</p>
-          <p className="mt-1 text-[8px] font-bold text-[#625e58]">100점 기준</p>
-        </div>
-        <div className="border-r border-[#183c2c]/15 px-3">
-          <p className="text-[8px] font-bold text-[#625e58]">{levelPrefix} 수준</p>
-          <p className="mt-0.5 text-[18px] font-black leading-none text-[#17251f]">CEFR {cefrLevel || '--'}</p>
-          <p className="mt-1 text-[8px] font-bold" style={{ color: tier.textColor }}>{tier.label} · {tier.totalLp} LP</p>
+      <section className="mt-2 grid grid-cols-[112px_1fr] border-y border-[#183c2c]/30 py-2">
+        <div className="flex items-center gap-2 border-r border-[#183c2c]/15 pr-3">
+          {tier.asset ? <div className="report-tier-asset shrink-0">{tier.asset}</div> : null}
+          <div className="min-w-0">
+            <p className="text-[8px] font-bold text-[#625e58]">현재 티어</p>
+            <p className="mt-0.5 whitespace-nowrap text-[10px] font-black" style={{ color: tier.textColor }}>{tier.label}</p>
+            <p className="mt-0.5 text-[8px] font-bold text-[#625e58]">총 {tier.totalLp} LP</p>
+          </div>
         </div>
         <div className="pl-3">
-          <p className="text-[8px] font-bold text-[#625e58]">수준 판단 근거</p>
-          <p className="mt-1 text-[9px] font-semibold leading-[1.4] text-[#3f4541]">{cefrReason || '현재 응답을 바탕으로 수준을 추정했습니다.'}</p>
+          <p className="text-[8px] font-bold text-[#625e58]">{levelPrefix} 말하기 수준</p>
+          <p className="mt-0.5 text-[15px] font-black leading-none text-[#17251f]">{speakingLevel.label}</p>
+          <p className="mt-1 text-[8.5px] font-bold leading-[1.35] text-[#3f4541]">{speakingLevel.description}</p>
+          <p className="mt-1 text-[8px] font-semibold leading-[1.35] text-[#625e58]">{cefrReason || '현재 응답을 바탕으로 말하기 수준을 살펴봤습니다.'}</p>
         </div>
       </section>
 
-      <section className="grid grid-cols-5 border-b border-[#183c2c]/30 py-1.5">
-        {metrics.map((metric) => (
-          <div key={metric.key} className="flex items-baseline justify-center gap-1 border-r border-[#183c2c]/10 px-1 last:border-r-0">
-            <span className="text-[8px] font-bold text-[#625e58]">{metric.label}</span>
-            <span className="font-mono text-[11px] font-black text-[#17251f]">{metric.value}</span>
-          </div>
-        ))}
-      </section>
-
-      <section className="mt-2 grid grid-cols-[72px_1fr] border-l-2 border-[#2f6f4f] bg-[#f2f7f3] px-2 py-1.5">
-        <h2 className="text-[9px] font-black text-[#2f6f4f]">{assessableAnswerCount <= 7 ? '관찰된 강점' : '강점'}</h2>
-        <p className="text-[9px] font-bold leading-[1.4] text-[#2d3e34]">{strength}</p>
+      <section className="border-b border-[#183c2c]/30 py-2" aria-label="핵심 역량">
+        <div className="mb-1.5 flex items-center justify-between">
+          <h2 className="text-[11px] font-black text-[#17251f]">핵심 역량</h2>
+          <p className="text-[7.5px] font-semibold text-[#625e58]">세션 전체 신뢰 응답 평균</p>
+        </div>
+        <div className="grid gap-1.5">
+          {metrics.map((metric) => {
+            const presentation = getMetricPresentation(metric.value);
+            const displayValue = Math.round(Math.max(0, Math.min(100, metric.value)));
+            return (
+              <div key={metric.key} className="grid min-w-0 grid-cols-[78px_minmax(0,1fr)_48px] items-center gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-[8.5px] font-black text-[#273a31]">{metric.label}</p>
+                  <p className="mt-0.5 text-[7.5px] font-bold text-[#526057]">{presentation.label}</p>
+                </div>
+                <div
+                  className="relative h-2 border-b border-[#183c2c]/25"
+                  role="progressbar"
+                  aria-label={`${metric.label}: ${presentation.label}, ${displayValue}점`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={displayValue}
+                >
+                  <span className="absolute bottom-0 left-0 block h-1.5 bg-[#2f6f4f]" style={{ width: `${displayValue}%` }} />
+                </div>
+                <p className="text-right font-mono text-[13px] font-black tabular-nums text-[#183c2c]">{displayValue}점</p>
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       <LearningFocusSection
         areas={focusAreas}
         assessableAnswerCount={assessableAnswerCount}
+        isHighlightReport={isHighlightReport}
+        strength={strength}
         improvement={improvement}
       />
     </div>
@@ -194,39 +242,81 @@ function CorrectionsHeader({
   end,
   total,
   compact = false,
+  contentKind = 'corrections',
 }: {
   start: number;
   end: number;
   total: number;
   compact?: boolean;
+  contentKind?: 'corrections' | 'highlights' | 'mixed';
 }) {
+  const title = contentKind === 'mixed'
+    ? '주요 교정 및 대화 하이라이트'
+    : contentKind === 'highlights'
+      ? '대화 하이라이트'
+      : '주요 대화 교정';
+  const description = contentKind === 'mixed'
+    ? '확인된 교정과 함께, 잘한 문장 및 다시 활용하기 좋은 표현을 모았습니다.'
+    : contentKind === 'highlights'
+      ? '잘한 문장과 다음 대화에서도 활용하기 좋은 표현을 모았습니다.'
+      : '질문과 답변의 문맥을 확인한 핵심 표현만 선정했습니다.';
   return (
     <header className={`report-corrections-header flex items-end justify-between border-b-2 border-[#183c2c] ${compact ? 'pb-1.5' : 'mt-3 pb-1.5'}`}>
       <div>
-        <h2 className={`${compact ? 'text-[15px]' : 'text-[13px]'} font-black tracking-tight text-[#17251f]`}>주요 대화 교정</h2>
-        {!compact && <p className="mt-0.5 text-[8px] font-semibold text-[#625e58]">질문과 답변의 문맥을 확인한 핵심 표현만 선정했습니다.</p>}
+        <h2 className={`${compact ? 'text-[15px]' : 'text-[13px]'} font-black tracking-tight text-[#17251f]`}>{title}</h2>
+        {!compact && <p className="mt-0.5 text-[8px] font-semibold text-[#625e58]">{description}</p>}
       </div>
       <p className="font-mono text-[8px] font-bold text-[#526057]">
-        {total > 0 ? `${String(start).padStart(2, '0')}-${String(end).padStart(2, '0')} / 총 ${total}개` : '교정 없음'}
+        {total > 0 ? `${String(start).padStart(2, '0')}-${String(end).padStart(2, '0')} / 총 ${total}개` : contentKind === 'highlights' ? '하이라이트 없음' : '교정 없음'}
       </p>
     </header>
   );
 }
 
-function uniqueExplanations(correction: ReportCorrectionItem): string[] {
-  const normalized = new Set<string>();
-  return [correction.reason, correction.problem, correction.contextReason]
-    .map((value) => value.trim())
-    .filter((value) => {
-      const key = value.replace(/\s+/g, ' ').toLowerCase();
-      if (!key || normalized.has(key)) return false;
-      normalized.add(key);
-      return true;
-    });
+function correctionExplanations(correction: ReportCorrectionItem) {
+  const rawProblem = correction.problem.trim();
+  const problem = rawProblem && !/^[a-z][a-z0-9_ ,-]*$/i.test(rawProblem)
+    ? rawProblem
+    : correction.reason.trim();
+  const context = correction.contextReason.trim();
+  const usage = correction.usageGuide.trim();
+  const normalize = (value: string) => value.replace(/\s+/g, ' ').toLowerCase();
+  return {
+    problem,
+    context: normalize(context) === normalize(problem) ? '' : context,
+    usage: [problem, context].some((value) => normalize(value) === normalize(usage)) ? '' : usage,
+  };
 }
 
 function CorrectionRow({ correction, sequence }: { correction: ReportCorrectionItem; sequence: number }) {
-  const explanations = uniqueExplanations(correction);
+  const isHighlight = correction.errorTags.includes('report_highlight');
+  if (isHighlight) {
+    return (
+      <article className="report-correction report-highlight border-t border-[#183c2c]/22 pt-1.5 first:border-t-0">
+        <div className="grid grid-cols-[26px_minmax(0,1fr)_auto] items-baseline gap-2">
+          <span className="font-mono text-[11px] font-black text-[#2f6f4f]">{String(sequence).padStart(2, '0')}</span>
+          <p className="truncate text-[8px] font-black text-[#273a31]">{correction.topic} / {correction.difficulty}</p>
+          <p className="text-[8px] font-black text-[#2f6f4f]">{correction.categoryLabel}</p>
+        </div>
+        {correction.assistantPrompt && (
+          <div className="mt-1 grid grid-cols-[42px_minmax(0,1fr)] gap-2">
+            <p className="text-[8px] font-black text-[#625e58]">AI 응답</p>
+            <p className="text-[9px] font-semibold leading-[1.35] text-[#333a36]">{correction.assistantPrompt}</p>
+          </div>
+        )}
+        <div className="mt-1 grid grid-cols-[42px_minmax(0,1fr)] gap-2">
+          <p className="text-[8px] font-black text-[#2f6f4f]">내 답변</p>
+          <p className="text-[9px] font-black leading-[1.35] text-[#183c2c]">{correction.original}</p>
+        </div>
+        <div className="mt-1.5 ml-[50px] grid grid-cols-[34px_minmax(0,1fr)] gap-2 bg-[#f2f7f3] px-2 py-1.5">
+          <p className="text-[8px] font-black text-[#2f6f4f]">칭찬</p>
+          <p className="text-[8.5px] font-bold leading-[1.35] text-[#36473d]">{correction.reason}</p>
+        </div>
+      </article>
+    );
+  }
+
+  const explanations = correctionExplanations(correction);
   const compactComparison = correction.original.length + correction.suggested.length <= 190;
   return (
     <article className="report-correction border-t border-[#183c2c]/22 pt-1.5 first:border-t-0">
@@ -237,13 +327,13 @@ function CorrectionRow({ correction, sequence }: { correction: ReportCorrectionI
       </div>
 
       {correction.assistantPrompt && (
-        <div className="mt-1 grid grid-cols-[26px_minmax(0,1fr)] gap-2">
-          <p className="text-[8px] font-black text-[#625e58]">Q</p>
+        <div className="mt-1 grid grid-cols-[42px_minmax(0,1fr)] gap-2">
+          <p className="text-[8px] font-black text-[#625e58]">AI 응답</p>
           <p className="text-[9px] font-semibold leading-[1.35] text-[#333a36]">{correction.assistantPrompt}</p>
         </div>
       )}
 
-      <div className={`mt-1 grid ${compactComparison ? 'grid-cols-2' : 'grid-cols-1'} gap-x-3 gap-y-1 pl-[34px]`}>
+      <div className={`mt-1 grid ${compactComparison ? 'grid-cols-2' : 'grid-cols-1'} gap-x-3 gap-y-1 pl-[50px]`}>
         <div className="grid grid-cols-[34px_minmax(0,1fr)] gap-1.5">
           <p className="text-[8px] font-black text-[#8b5543]">내 답변</p>
           <p className="text-[9px] font-bold leading-[1.35] text-[#4c413b]">{correction.original}</p>
@@ -254,19 +344,11 @@ function CorrectionRow({ correction, sequence }: { correction: ReportCorrectionI
         </div>
       </div>
 
-      <div className="mt-1.5 ml-[34px] grid grid-cols-[26px_minmax(0,1fr)] gap-x-2 gap-y-0.5 bg-[#f7f8f5] px-2 py-1.5">
-        <p className="text-[8px] font-black text-[#8a5a12]">왜</p>
-        <div className="space-y-0.5">
-          {explanations.map((explanation) => (
-            <p key={explanation} className="text-[8.5px] font-semibold leading-[1.35] text-[#494b47]">{explanation}</p>
-          ))}
-        </div>
-        {correction.usageGuide && (
-          <>
-            <p className="text-[8px] font-black text-[#2f6f4f]">규칙</p>
-            <p className="text-[8.5px] font-bold leading-[1.35] text-[#36473d]">{correction.usageGuide}</p>
-          </>
-        )}
+      <div className="mt-1.5 ml-[50px] grid grid-cols-[28px_minmax(0,1fr)] gap-x-2 gap-y-0.5 bg-[#f7f8f5] px-2 py-1.5">
+        <p className="text-[8px] font-black text-[#8a5a12]">문제</p>
+        <p className="text-[8.5px] font-semibold leading-[1.35] text-[#494b47]">{explanations.problem}</p>
+        {explanations.context && <><p className="text-[8px] font-black text-[#625e58]">문맥</p><p className="text-[8.5px] font-semibold leading-[1.35] text-[#494b47]">{explanations.context}</p></>}
+        {explanations.usage && <><p className="text-[8px] font-black text-[#2f6f4f]">사용</p><p className="text-[8.5px] font-bold leading-[1.35] text-[#36473d]">{explanations.usage}</p></>}
       </div>
     </article>
   );
@@ -276,7 +358,7 @@ export function AssessmentPrintReport({
   messages,
   topicSegments,
   assessableAnswerCount,
-  sessionScore,
+  reliableAnswerCount,
   metrics,
   tier,
   cefrLevel,
@@ -285,8 +367,16 @@ export function AssessmentPrintReport({
   improvement,
   onLayoutReady,
 }: AssessmentPrintReportProps) {
-  const corrections = useMemo(() => buildReportCorrections(messages, topicSegments), [messages, topicSegments]);
-  const focusAreas = useMemo(() => buildLearningFocusAreas(messages, corrections), [messages, corrections]);
+  const reportContent = useMemo(() => buildReportContent(messages, topicSegments), [messages, topicSegments]);
+  const correctionItems = reportContent.corrections;
+  const corrections = reportContent.items;
+  const isHighlightReport = correctionItems.length === 0 && reportContent.highlights.length > 0;
+  const contentKind = correctionItems.length > 0 && reportContent.highlights.length > 0
+    ? 'mixed'
+    : isHighlightReport
+      ? 'highlights'
+      : 'corrections';
+  const focusAreas = useMemo(() => buildLearningFocusAreas(messages, correctionItems), [messages, correctionItems]);
   const fallbackPages = useMemo(() => paginateReportCorrections(corrections, 720).map((page) => page.map((item) => item.id)), [corrections]);
   const [pageIds, setPageIds] = useState<string[][]>(() => fallbackPages.length > 0 ? fallbackPages : [[]]);
   const [layoutReady, setLayoutReady] = useState(false);
@@ -298,7 +388,7 @@ export function AssessmentPrintReport({
   const reportDate = useMemo(() => new Intl.DateTimeFormat('ko-KR', {
     year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(new Date()), []);
-  const sampleStatus = getReportSampleStatus(assessableAnswerCount);
+  const sampleStatus = getReportSampleStatus(reliableAnswerCount);
   const correctionById = useMemo(() => new Map(corrections.map((item) => [item.id, item])), [corrections]);
 
   useLayoutEffect(() => {
@@ -382,7 +472,7 @@ export function AssessmentPrintReport({
             reportDate={reportDate}
             sampleStatus={sampleStatus}
             assessableAnswerCount={assessableAnswerCount}
-            sessionScore={sessionScore}
+            reliableAnswerCount={reliableAnswerCount}
             metrics={metrics}
             tier={tier}
             cefrLevel={cefrLevel}
@@ -390,9 +480,10 @@ export function AssessmentPrintReport({
             strength={strength}
             improvement={improvement}
             focusAreas={focusAreas}
+            isHighlightReport={isHighlightReport}
           />
         </div>
-        <div ref={measurementHeaderRef}><CorrectionsHeader start={1} end={corrections.length} total={corrections.length} /></div>
+        <div ref={measurementHeaderRef}><CorrectionsHeader start={1} end={corrections.length} total={corrections.length} contentKind={contentKind} /></div>
         <div ref={measurementFooterRef}><PageFooter page={1} total={1} /></div>
         <div className="report-correction-list">
           {corrections.map((correction, index) => (
@@ -425,7 +516,7 @@ export function AssessmentPrintReport({
                     reportDate={reportDate}
                     sampleStatus={sampleStatus}
                     assessableAnswerCount={assessableAnswerCount}
-                    sessionScore={sessionScore}
+                    reliableAnswerCount={reliableAnswerCount}
                     metrics={metrics}
                     tier={tier}
                     cefrLevel={cefrLevel}
@@ -433,6 +524,7 @@ export function AssessmentPrintReport({
                     strength={strength}
                     improvement={improvement}
                     focusAreas={focusAreas}
+                    isHighlightReport={isHighlightReport}
                   />
                 )}
                 {(!isFirstPage || items.length > 0 || corrections.length === 0) && (
@@ -441,6 +533,7 @@ export function AssessmentPrintReport({
                     end={lastSequence}
                     total={corrections.length}
                     compact={!isFirstPage}
+                    contentKind={contentKind}
                   />
                 )}
                 {corrections.length === 0 && (

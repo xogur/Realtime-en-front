@@ -78,6 +78,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
 
   const { start: startStt, stop: stopStt, isRecording } = useBrowserStt({
     language: SPEECH_LANGUAGE[sourceLanguage],
+    publishRecordingState: false,
     onFinalTranscript: (transcript) => {
       const normalized = normalizeSpeechTranscript(transcript.text, sourceLanguage);
       setInterimText('');

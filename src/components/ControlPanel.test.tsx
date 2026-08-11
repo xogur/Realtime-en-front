@@ -118,13 +118,81 @@ describe('ControlPanel microphone toggle', () => {
         expect(screen.getByText('Server STT')).toBeTruthy();
     });
 
-    it('disconnects the English project when the result window opens the translator', () => {
-        render(<ControlPanel onOpenSettings={vi.fn()} />);
+    it('pauses microphone capture without disconnecting and resumes it after the translator closes', () => {
+        const { rerender } = render(<ControlPanel onOpenSettings={vi.fn()} />);
         window.dispatchEvent(new MessageEvent('message', {
             origin: window.location.origin,
             data: { channel: 'realtime-en:translator', action: 'open' },
         }));
-        expect(controls.disconnect).toHaveBeenCalledOnce();
-        expect(screen.queryByRole('button', { name: '번역기 열기' })).toBeNull();
+        expect(controls.stopListening).toHaveBeenCalledOnce();
+        expect(controls.disconnect).not.toHaveBeenCalled();
+
+        controls.isRecording = false;
+        rerender(<ControlPanel onOpenSettings={vi.fn()} />);
+        window.dispatchEvent(new MessageEvent('message', {
+            origin: window.location.origin,
+            data: { channel: 'realtime-en:translator', action: 'close' },
+        }));
+        expect(controls.startListening).toHaveBeenCalledOnce();
+    });
+
+    it('does not start a microphone that was already off before opening the translator', () => {
+        controls.isRecording = false;
+        render(<ControlPanel onOpenSettings={vi.fn()} />);
+
+        for (const action of ['open', 'close'] as const) {
+            window.dispatchEvent(new MessageEvent('message', {
+                origin: window.location.origin,
+                data: { channel: 'realtime-en:translator', action },
+            }));
+        }
+
+        expect(controls.stopListening).not.toHaveBeenCalled();
+        expect(controls.startListening).not.toHaveBeenCalled();
+        expect(controls.disconnect).not.toHaveBeenCalled();
+    });
+
+    it('resumes through the BroadcastChannel close event used by the main translator window', () => {
+        class TestBroadcastChannel {
+            static latest: TestBroadcastChannel | null = null;
+            private listeners = new Set<(event: MessageEvent) => void>();
+
+            constructor(name: string) {
+                void name;
+                TestBroadcastChannel.latest = this;
+            }
+
+            addEventListener(_type: string, listener: (event: MessageEvent) => void) {
+                this.listeners.add(listener);
+            }
+
+            removeEventListener(_type: string, listener: (event: MessageEvent) => void) {
+                this.listeners.delete(listener);
+            }
+
+            close() {}
+
+            emit(action: 'open' | 'close') {
+                const event = new MessageEvent('message', {
+                    data: { channel: 'realtime-en:translator', action },
+                });
+                this.listeners.forEach((listener) => listener(event));
+            }
+        }
+
+        vi.stubGlobal('BroadcastChannel', TestBroadcastChannel);
+        try {
+            const { rerender } = render(<ControlPanel onOpenSettings={vi.fn()} />);
+            TestBroadcastChannel.latest?.emit('open');
+            expect(controls.stopListening).toHaveBeenCalledOnce();
+
+            controls.isRecording = false;
+            rerender(<ControlPanel onOpenSettings={vi.fn()} />);
+            TestBroadcastChannel.latest?.emit('close');
+            expect(controls.startListening).toHaveBeenCalledOnce();
+            expect(controls.disconnect).not.toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });

@@ -24,12 +24,20 @@ export type ReportCorrectionItem = {
   priority: NonNullable<TurnEvaluation['correction']['reportPriority']>;
   score: number;
   issueKey: string;
+  issueCode: string;
+  errorTags: string[];
 };
 
 export type ReportSampleStatus = {
   kind: 'unavailable' | 'provisional' | 'limited' | 'standard';
   label: string;
   notice: string | null;
+};
+
+export type ReportContent = {
+  corrections: ReportCorrectionItem[];
+  highlights: ReportCorrectionItem[];
+  items: ReportCorrectionItem[];
 };
 
 const CATEGORY_LABELS: Record<ReportCorrectionCategory, string> = {
@@ -90,16 +98,54 @@ function isLengthOnlyExpansion(original: string, suggested: string): boolean {
   return cursor === originalWords.length;
 }
 
+function wordsOnly(text: string): string {
+  return normalizeText(text).replace(/[^a-z0-9']+/g, ' ').trim();
+}
+
+function isPunctuationOrCaseOnly(original: string, suggested: string): boolean {
+  const originalWords = wordsOnly(original);
+  return Boolean(originalWords && originalWords === wordsOnly(suggested));
+}
+
+function isOptionalPolitenessRewrite(original: string, suggested: string): boolean {
+  const source = wordsOnly(original).replace(/ please$/, '');
+  const target = wordsOnly(suggested).replace(/ please$/, '');
+  const sourceRequest = source.match(/^(?:can i have|i want) (.+)$/);
+  const targetRequest = target.match(/^could i have (.+)$/);
+  if (sourceRequest?.[1] && sourceRequest[1] === targetRequest?.[1]) return true;
+  const sourcePreference = source.match(/^i want (.+)$/)?.[1]?.replace(/^(?:a|an|the) /, '');
+  const targetPreference = target.match(/^i would like (.+)$/)?.[1]?.replace(/^(?:a|an|the) /, '');
+  if (sourcePreference && sourcePreference === targetPreference) return true;
+  return source === "no i don't have a table"
+    && /^(?:no )?(?:i|we) don't have (?:a |the )?table reserved$/.test(target);
+}
+
+function hasExactObservableSpan(evaluation: TurnEvaluation, original: string): boolean {
+  const { decision, errorSpan, correctedSpan } = evaluation.correction;
+  return decision === 'confirmed_error'
+    && Boolean(errorSpan?.trim())
+    && Boolean(correctedSpan?.trim())
+    && normalizeText(original).includes(normalizeText(errorSpan ?? ''));
+}
+
 function findAssistantPrompt(messages: ChatMessage[], userIndex: number): string {
   const userMessage = messages[userIndex];
-  for (let index = userIndex - 1; index >= 0; index -= 1) {
-    const candidate = messages[index];
-    if (candidate.role !== 'assistant') continue;
-    if (userMessage.segmentId && candidate.segmentId !== userMessage.segmentId) continue;
-    if (!candidate.content.trim() || candidate.content.startsWith('(시스템)')) continue;
-    return cleanAssistantPrompt(candidate.content);
+  const findPreviousAssistant = (requireSameSegment: boolean): string => {
+    for (let index = userIndex - 1; index >= 0; index -= 1) {
+      const candidate = messages[index];
+      if (candidate.role !== 'assistant') continue;
+      if (requireSameSegment && candidate.segmentId !== userMessage.segmentId) continue;
+      if (!candidate.content.trim() || candidate.content.startsWith('(시스템)')) continue;
+      return cleanAssistantPrompt(candidate.content);
+    }
+    return '';
+  };
+
+  if (userMessage.segmentId) {
+    const sameSegmentPrompt = findPreviousAssistant(true);
+    if (sameSegmentPrompt) return sameSegmentPrompt;
   }
-  return '';
+  return findPreviousAssistant(false);
 }
 
 function resolveSegment(message: ChatMessage, segments: TopicSegment[]): TopicSegment | undefined {
@@ -118,18 +164,21 @@ function isEligible(message: ChatMessage, evaluation: TurnEvaluation): boolean {
   if (correction.reportPriority === 'none') return false;
   if (correction.contextFit === 'off_topic' || correction.contextFit === 'unknown') return false;
 
-  const hasExplicitReportDecision = typeof correction.reportEligible === 'boolean';
   const category = categoryFromEvaluation(evaluation);
   const hasObservableError = (evaluation.errorTags?.length ?? 0) > 0;
+  if (correction.decision && correction.decision !== 'confirmed_error') return false;
+  if (isPunctuationOrCaseOnly(original, suggested)) return false;
+  if (isLengthOnlyExpansion(original, suggested)) return false;
+  if (isOptionalPolitenessRewrite(original, suggested)) return false;
   if (
     isNaturalDirectAnswer(original)
     && category !== 'comprehension'
     && category !== 'meaning_clarity'
   ) return false;
   if (
-    (!hasExplicitReportDecision || category === 'naturalness')
+    ['grammar', 'vocabulary', 'naturalness'].includes(category)
     && !hasObservableError
-    && isLengthOnlyExpansion(original, suggested)
+    && !hasExactObservableSpan(evaluation, original)
   ) return false;
   return true;
 }
@@ -194,6 +243,10 @@ export function buildReportCorrections(
       priority,
       score,
       issueKey: `${category}:${normalizeText(evaluation.correction.reason).slice(0, 80)}`,
+      issueCode: evaluation.correction.issueCode?.trim()
+        || evaluation.errorTags?.[0]
+        || `${category}:${normalizeText(evaluation.correction.reason).slice(0, 80)}`,
+      errorTags: [...(evaluation.errorTags ?? [])],
     });
   });
 
@@ -233,6 +286,101 @@ export function buildReportCorrections(
   }
 
   return selected.sort((left, right) => left.conversationIndex - right.conversationIndex);
+}
+
+export function buildReportHighlights(
+  messages: ChatMessage[],
+  segments: TopicSegment[],
+  excludedConversationIndexes: ReadonlySet<number> = new Set(),
+): ReportCorrectionItem[] {
+  const seen = new Set<string>();
+  const candidates: ReportCorrectionItem[] = [];
+
+  messages.forEach((message, conversationIndex) => {
+    if (message.role !== 'user') return;
+    if (excludedConversationIndexes.has(conversationIndex)) return;
+    if (message.content.trim().startsWith('(시스템)')) return;
+    if (
+      message.evaluationSkipReason
+      && NON_CONTENT_REASONS.has(message.evaluationSkipReason)
+    ) return;
+
+    if (message.evaluation) {
+      const { confidence, correction } = message.evaluation;
+      const original = correction.original.trim() || message.content.trim();
+      const hasExplicitCorrection = Boolean(correction.suggested.trim())
+        && normalizeText(original) !== normalizeText(correction.suggested);
+      if (confidence.toLowerCase() === 'low') return;
+      if (correction.contextFit === 'off_topic' || correction.contextFit === 'unknown') return;
+      if (correction.decision === 'confirmed_error' || hasExplicitCorrection) return;
+    }
+
+    const sentence = message.content.trim();
+    const normalized = normalizeText(sentence);
+    const wordCount = sentence.match(/[a-z]+(?:'[a-z]+)?/gi)?.length ?? 0;
+    if (!normalized || !/[a-z]/i.test(sentence) || wordCount < 2 || seen.has(normalized)) return;
+    seen.add(normalized);
+
+    const segment = resolveSegment(message, segments);
+    const evaluationStrength = message.evaluation?.feedback.strength?.trim();
+    const praise = evaluationStrength
+      || '질문에 맞춰 자신의 생각을 영어로 표현했습니다. 끝까지 문장을 완성한 점이 좋아요!';
+    const evaluationScore = Math.round((message.evaluation?.scores.overall ?? 0) / 10);
+
+    candidates.push({
+      id: `highlight:${message.id ?? conversationIndex}`,
+      conversationIndex,
+      topic: segment?.label ?? '일반 대화',
+      difficulty: segment?.difficultyLabel ?? '정보 없음',
+      category: 'meaning_clarity',
+      categoryLabel: '잘한 답변',
+      assistantPrompt: findAssistantPrompt(messages, conversationIndex),
+      original: sentence,
+      suggested: sentence,
+      reason: praise,
+      problem: '',
+      usageGuide: '',
+      contextReason: '',
+      priority: 'low',
+      score: 100 + Math.min(wordCount, 20) + evaluationScore,
+      issueKey: `highlight:${normalized.slice(0, 80)}`,
+      issueCode: 'report_highlight',
+      errorTags: ['report_highlight', 'learner_sentence'],
+    });
+  });
+
+  return candidates
+    .sort((left, right) => right.score - left.score || left.conversationIndex - right.conversationIndex)
+    .slice(0, TARGET_CORRECTION_MAX)
+    .sort((left, right) => left.conversationIndex - right.conversationIndex);
+}
+
+export function buildReportContent(
+  messages: ChatMessage[],
+  segments: TopicSegment[],
+): ReportContent {
+  const corrections = buildReportCorrections(messages, segments);
+  if (corrections.length >= TARGET_CORRECTION_MIN) {
+    return { corrections, highlights: [], items: corrections };
+  }
+
+  const excludedConversationIndexes = new Set(
+    corrections.map((correction) => correction.conversationIndex),
+  );
+  const availableHighlights = buildReportHighlights(
+    messages,
+    segments,
+    excludedConversationIndexes,
+  );
+  const supplementLimit = Math.max(0, TARGET_CORRECTION_MAX - corrections.length);
+  const highlights = availableHighlights.slice(0, supplementLimit);
+
+  return {
+    corrections,
+    highlights,
+    items: [...corrections, ...highlights]
+      .sort((left, right) => left.conversationIndex - right.conversationIndex),
+  };
 }
 
 export function getReportSampleStatus(assessableAnswerCount: number): ReportSampleStatus {

@@ -99,23 +99,32 @@ nextjs-portal {
 
 .assessment-print-document .report-measurement {
   box-sizing: border-box;
-  width: 190mm;
+  width: 192mm;
 }
 
 .assessment-print-document .report-usable-height {
-  height: 277mm;
+  height: 279mm;
 }
 
 .assessment-print-document [class~="text-[8px]"] {
-  font-size: 9px;
+  font-size: 8pt;
 }
 
 .assessment-print-document [class~="text-[8.5px]"] {
-  font-size: 9.5px;
+  font-size: 8.5pt;
 }
 
 .assessment-print-document [class~="text-[9px]"] {
-  font-size: 10px;
+  font-size: 9pt;
+}
+
+.assessment-print-document [class~="text-[7.5px]"] {
+  font-size: 8pt;
+}
+
+.assessment-print-document .report-tier-asset > * {
+  width: 36px !important;
+  height: 36px !important;
 }
 
 @page {
@@ -182,7 +191,7 @@ nextjs-portal {
     height: 297mm !important;
     max-height: 297mm !important;
     min-height: 297mm !important;
-    padding: 10mm !important;
+    padding: 9mm !important;
     overflow: hidden !important;
     break-inside: avoid;
     page-break-inside: avoid;
