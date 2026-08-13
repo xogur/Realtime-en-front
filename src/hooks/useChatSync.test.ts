@@ -4,6 +4,7 @@ import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useStore, type TurnEvaluation } from '@/stores/useStore';
 import { useChatSync } from './useChatSync';
+import { CONVERSATION_USER_INPUT_EVENT } from './useVoiceSocket';
 
 function evaluation(turnId: string): TurnEvaluation {
     return {
@@ -220,5 +221,29 @@ describe('useChatSync', () => {
             pendingCount: 2,
             maxTurns: 4,
         });
+    });
+
+    it('announces text forwarded from the popout before sending it on the controller socket', () => {
+        const send = vi.fn();
+        useStore.setState({ socket: { readyState: WebSocket.OPEN, send } as unknown as WebSocket });
+        const announcedInputs: string[] = [];
+        const handleInput = (event: Event) => {
+            announcedInputs.push((event as CustomEvent<string>).detail);
+        };
+        window.addEventListener(CONVERSATION_USER_INPUT_EVENT, handleInput);
+        renderHook(() => useChatSync(true));
+        const channel = MockBroadcastChannel.instances[0];
+
+        act(() => {
+            channel.emit({
+                type: 'SEND_MESSAGE',
+                payload: 'Forwarded new turn.',
+                clientCommandId: 'command-1',
+            });
+        });
+
+        window.removeEventListener(CONVERSATION_USER_INPUT_EVENT, handleInput);
+        expect(announcedInputs).toEqual(['Forwarded new turn.']);
+        expect(send).toHaveBeenCalledOnce();
     });
 });

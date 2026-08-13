@@ -6,9 +6,11 @@ import { ArrowRightLeft, Headphones, Languages, Loader2, Mic, MicOff, X } from '
 import { useBrowserStt } from '@/hooks/useBrowserStt';
 import {
   applySentenceType,
+  MAX_TRANSLATION_TEXT_LENGTH,
   normalizeSpeechTranscript,
   translateText,
   type TranslationLanguage,
+  type TranslationProvider,
   type TranslationSentenceType,
 } from '@/lib/translator';
 
@@ -41,6 +43,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
   const targetLanguage: TranslationLanguage = sourceLanguage === 'ko' ? 'en' : 'ko';
   const [sourceText, setSourceText] = useState('');
   const [translatedText, setTranslatedText] = useState('');
+  const [translationProvider, setTranslationProvider] = useState<TranslationProvider | null>(null);
   const [interimText, setInterimText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
@@ -49,22 +52,36 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
   const [showSentenceTypeControls, setShowSentenceTypeControls] = useState(false);
   const requestControllerRef = useRef<AbortController | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const activityTokenRef = useRef(0);
 
   const runTranslation = useCallback(async (rawText: string) => {
     const text = rawText.trim();
     if (!text) return;
-
     requestControllerRef.current?.abort();
+    requestControllerRef.current = null;
+    setIsTranslating(false);
+    if (text.length > MAX_TRANSLATION_TEXT_LENGTH) {
+      setTranslatedText('');
+      setTranslationProvider(null);
+      setError(`번역할 문장은 ${MAX_TRANSLATION_TEXT_LENGTH}자 이내로 입력해 주세요.`);
+      return;
+    }
+
     const controller = new AbortController();
     requestControllerRef.current = controller;
     setIsTranslating(true);
     setError(null);
+    setTranslationProvider(null);
     try {
       const result = await translateText(text, sourceLanguage, targetLanguage, controller.signal);
-      if (!controller.signal.aborted) setTranslatedText(result.translated_text);
+      if (!controller.signal.aborted) {
+        setTranslatedText(result.translated_text);
+        setTranslationProvider(result.provider);
+      }
     } catch (translationError) {
       if (controller.signal.aborted) return;
       setTranslatedText('');
+      setTranslationProvider(null);
       setError(translationError instanceof Error
         ? translationError.message
         : '번역 중 오류가 발생했습니다.');
@@ -82,7 +99,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     onFinalTranscript: (transcript) => {
       const normalized = normalizeSpeechTranscript(transcript.text, sourceLanguage);
       setInterimText('');
-      setSourceText(normalized.text);
+      setSourceText(normalized.text.slice(0, MAX_TRANSLATION_TEXT_LENGTH));
       setSentenceType(normalized.sentenceType);
       setShowSentenceTypeControls(true);
       void runTranslation(normalized.text);
@@ -99,6 +116,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
   });
 
   const stopTranslatorActivity = useCallback(() => {
+    activityTokenRef.current += 1;
     requestControllerRef.current?.abort();
     requestControllerRef.current = null;
     void stopStt();
@@ -132,8 +150,9 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
   const handleSwap = () => {
     stopTranslatorActivity();
     setSourceLanguage(targetLanguage);
-    setSourceText(translatedText);
+    setSourceText(translatedText.slice(0, MAX_TRANSLATION_TEXT_LENGTH));
     setTranslatedText(sourceText);
+    setTranslationProvider(null);
     setSentenceType('original');
     setShowSentenceTypeControls(false);
     setError(null);
@@ -141,6 +160,10 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
 
   const handleSentenceType = (nextSentenceType: TranslationSentenceType) => {
     const nextText = applySentenceType(sourceText, nextSentenceType);
+    if (nextText.length > MAX_TRANSLATION_TEXT_LENGTH) {
+      setError(`문장부호를 포함해 ${MAX_TRANSLATION_TEXT_LENGTH}자 이내로 입력해 주세요.`);
+      return;
+    }
     setSentenceType(nextSentenceType);
     setSourceText(nextText);
     void runTranslation(nextText);
@@ -156,12 +179,15 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     if (isRecording) {
       void stopStt();
     } else {
+      activityTokenRef.current += 1;
+      window.speechSynthesis?.cancel();
+      setIsSpeaking(false);
       setInterimText('');
       void startStt();
     }
   };
 
-  const handleSpeak = () => {
+  const handleSpeak = async () => {
     if (
       !translatedText.trim()
       || !('speechSynthesis' in window)
@@ -170,6 +196,18 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
       setError('이 브라우저에서는 문장 듣기를 사용할 수 없습니다.');
       return;
     }
+
+    const activityToken = activityTokenRef.current + 1;
+    activityTokenRef.current = activityToken;
+    try {
+      await stopStt();
+    } catch {
+      setError('음성 입력을 중지하지 못해 문장 듣기를 시작하지 않았습니다.');
+      return;
+    }
+    if (activityTokenRef.current !== activityToken || !isOpen) return;
+
+    setInterimText('');
     window.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(translatedText);
     utterance.lang = SPEECH_LANGUAGE[targetLanguage];
@@ -238,17 +276,25 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
             <div className="flex min-h-64 flex-col rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
               <div className="mb-3 flex items-center justify-between">
                 <label htmlFor="translator-source" className="font-extrabold text-zinc-800">번역할 문장</label>
-                <span className="text-xs font-semibold text-zinc-400">{sourceText.length}/2000</span>
+                <span className="text-xs font-semibold text-zinc-400">
+                  {sourceText.length}/{MAX_TRANSLATION_TEXT_LENGTH}
+                </span>
               </div>
               <textarea
                 id="translator-source"
                 value={sourceText}
                 onChange={(event) => {
+                  requestControllerRef.current?.abort();
+                  requestControllerRef.current = null;
+                  setIsTranslating(false);
                   setSourceText(event.target.value);
+                  setTranslatedText('');
+                  setTranslationProvider(null);
+                  setError(null);
                   setSentenceType('original');
                   setShowSentenceTypeControls(false);
                 }}
-                maxLength={2000}
+                maxLength={MAX_TRANSLATION_TEXT_LENGTH}
                 placeholder={sourceLanguage === 'ko' ? '번역할 한국어를 입력하거나 말해 보세요.' : 'Type or speak an English sentence.'}
                 className="min-h-40 flex-1 resize-none rounded-lg bg-transparent text-xl font-semibold leading-relaxed text-zinc-900 outline-none placeholder:text-zinc-300 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-4"
               />
@@ -304,9 +350,19 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
               <div aria-live="polite" className="min-h-40 flex-1 whitespace-pre-wrap text-xl font-semibold leading-relaxed text-zinc-900">
                 {translatedText || <span className="text-zinc-300">번역 결과가 여기에 표시됩니다.</span>}
               </div>
+              {translationProvider === 'papago' && (
+                <a
+                  href="https://papago.naver.com/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 w-fit text-xs font-semibold text-zinc-500 underline decoration-zinc-300 underline-offset-2 hover:text-zinc-800"
+                >
+                  파파고 번역
+                </a>
+              )}
               <button
                 type="button"
-                onClick={handleSpeak}
+                onClick={() => { void handleSpeak(); }}
                 disabled={!translatedText.trim()}
                 className="mt-3 inline-flex w-fit items-center gap-2 rounded-full border border-blue-200 bg-white px-5 py-3 font-extrabold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:text-zinc-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600"
               >

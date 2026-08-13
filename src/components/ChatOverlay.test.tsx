@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ChatOverlay } from './ChatOverlay';
 import { useStore } from '@/stores/useStore';
+import { CONVERSATION_USER_INPUT_EVENT } from '@/hooks/useVoiceSocket';
 
 beforeEach(() => {
     useStore.setState({
@@ -19,7 +20,10 @@ beforeEach(() => {
     });
 });
 
-afterEach(cleanup);
+afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+});
 
 describe('ChatOverlay reply suggestion toggle', () => {
     it('defaults reply suggestions to ON', () => {
@@ -70,5 +74,52 @@ describe('ChatOverlay interpretation toggle', () => {
         expect(disabledToggle.textContent).toContain('OFF');
         expect(screen.getByTestId('korean-interpretation-thumb').className).toContain('translate-x-0');
         expect(useStore.getState().showKoreanInterpretation).toBe(false);
+    });
+});
+
+describe('ChatOverlay text submission', () => {
+    it('announces the exact local input before sending it to the controller socket', () => {
+        const send = vi.fn();
+        useStore.setState({
+            isChatOpen: true,
+            socket: { readyState: WebSocket.OPEN, send } as unknown as WebSocket,
+        });
+        const announcedInputs: string[] = [];
+        const handleInput = (event: Event) => {
+            announcedInputs.push((event as CustomEvent<string>).detail);
+        };
+        window.addEventListener(CONVERSATION_USER_INPUT_EVENT, handleInput);
+
+        render(<ChatOverlay />);
+        const input = screen.getByPlaceholderText('Type a message...');
+        fireEvent.change(input, { target: { value: '  A new turn after translation.  ' } });
+        fireEvent.keyDown(input, { key: 'Enter' });
+
+        window.removeEventListener(CONVERSATION_USER_INPUT_EVENT, handleInput);
+        expect(announcedInputs).toEqual(['A new turn after translation.']);
+        expect(send).toHaveBeenCalledOnce();
+    });
+
+    it('always forwards standalone input to the main controller even with a viewer socket', () => {
+        const send = vi.fn();
+        const postMessage = vi.fn();
+        const close = vi.fn();
+        vi.stubGlobal('BroadcastChannel', class {
+            postMessage = postMessage;
+            close = close;
+        });
+        useStore.setState({ socket: { readyState: WebSocket.OPEN, send } as unknown as WebSocket });
+
+        render(<ChatOverlay standalone />);
+        const input = screen.getByPlaceholderText('Type a message...');
+        fireEvent.change(input, { target: { value: 'Forward through main.' } });
+        fireEvent.keyDown(input, { key: 'Enter' });
+
+        expect(send).not.toHaveBeenCalled();
+        expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+            type: 'SEND_MESSAGE',
+            payload: 'Forward through main.',
+        }));
+        expect(close).toHaveBeenCalledOnce();
     });
 });

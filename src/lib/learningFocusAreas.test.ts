@@ -33,6 +33,7 @@ function message(id: string, overrides: Partial<TurnEvaluation> = {}): ChatMessa
 function correction(id: string, category: ReportCorrectionItem['category']): ReportCorrectionItem {
   const errorTags = category === 'grammar' ? ['verb_tense'] : category === 'vocabulary' ? ['word_choice'] : [];
   return {
+    kind: 'confirmed_correction',
     id,
     conversationIndex: 0,
     topic: '여행',

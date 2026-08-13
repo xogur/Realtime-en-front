@@ -31,6 +31,7 @@ vi.mock('@/lib/translator', async () => {
 
 describe('TranslatorOverlay', () => {
   const cancel = vi.fn();
+  const speak = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -43,7 +44,19 @@ describe('TranslatorOverlay', () => {
     });
     Object.defineProperty(window, 'speechSynthesis', {
       configurable: true,
-      value: { cancel, getVoices: vi.fn(() => []), speak: vi.fn() },
+      value: { cancel, getVoices: vi.fn(() => []), speak },
+    });
+    Object.defineProperty(window, 'SpeechSynthesisUtterance', {
+      configurable: true,
+      value: class TestSpeechSynthesisUtterance {
+        lang = '';
+        rate = 1;
+        voice: SpeechSynthesisVoice | null = null;
+        onend: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+
+        constructor(public text: string) {}
+      },
     });
   });
 
@@ -51,6 +64,7 @@ describe('TranslatorOverlay', () => {
     render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
 
     expect(screen.queryByText(/Argos|CPU/i)).toBeNull();
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).maxLength).toBe(160);
   });
 
   it('translates typed Korean with the Argos API contract', async () => {
@@ -82,6 +96,81 @@ describe('TranslatorOverlay', () => {
       'en',
       expect.any(AbortSignal),
     ));
+  });
+
+  it('does not send an oversized Web Speech final to the backend', async () => {
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    const oversizedTranscript = 'a'.repeat(161);
+
+    act(() => mocks.sttOptions?.onFinalTranscript({
+      text: oversizedTranscript,
+      speechEvidence: { version: 1, provider: 'browser', finalSegments: [oversizedTranscript] },
+    }));
+
+    expect(mocks.translateText).not.toHaveBeenCalled();
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toHaveLength(160);
+    expect((await screen.findByRole('alert')).textContent).toContain('160');
+  });
+
+  it('an oversized Web Speech final cancels a pending older translation', async () => {
+    let resolveFirst: ((value: {
+      translated_text: string;
+      source_language: 'ko';
+      target_language: 'en';
+      provider: 'ollama';
+    }) => void) | undefined;
+    mocks.translateText.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirst = resolve;
+    }));
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '안녕하세요' } });
+    fireEvent.click(screen.getByRole('button', { name: '번역하기' }));
+
+    const oversizedTranscript = 'a'.repeat(161);
+    act(() => mocks.sttOptions?.onFinalTranscript({
+      text: oversizedTranscript,
+      speechEvidence: { version: 1, provider: 'browser', finalSegments: [oversizedTranscript] },
+    }));
+    await act(async () => {
+      resolveFirst?.({
+        translated_text: 'stale result',
+        source_language: 'ko',
+        target_language: 'en',
+        provider: 'ollama',
+      });
+    });
+
+    expect(screen.queryByText('stale result')).toBeNull();
+    expect((await screen.findByRole('alert')).textContent).toContain('160');
+  });
+
+  it('editing the source cancels a pending translation and hides its stale result', async () => {
+    let resolveFirst: ((value: {
+      translated_text: string;
+      source_language: 'ko';
+      target_language: 'en';
+      provider: 'ollama';
+    }) => void) | undefined;
+    mocks.translateText.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirst = resolve;
+    }));
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    const source = screen.getByRole('textbox');
+    fireEvent.change(source, { target: { value: '안녕하세요' } });
+    fireEvent.click(screen.getByRole('button', { name: '번역하기' }));
+
+    fireEvent.change(source, { target: { value: '다른 문장' } });
+    await act(async () => {
+      resolveFirst?.({
+        translated_text: 'stale result',
+        source_language: 'ko',
+        target_language: 'en',
+        provider: 'ollama',
+      });
+    });
+
+    expect(screen.queryByText('stale result')).toBeNull();
+    expect((source as HTMLTextAreaElement).value).toBe('다른 문장');
   });
 
   it('lets the user restore a question mark omitted by Web Speech and retranslates', async () => {
@@ -128,5 +217,64 @@ describe('TranslatorOverlay', () => {
     expect(mocks.stop).toHaveBeenCalled();
     expect(cancel).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('shows the required Papago attribution only for a Papago result', async () => {
+    mocks.translateText.mockResolvedValueOnce({
+      translated_text: 'Hello',
+      source_language: 'ko',
+      target_language: 'en',
+      provider: 'papago',
+      fallback_reason: 'deepl_quota_exceeded',
+    });
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('번역할 문장'), { target: { value: '안녕하세요' } });
+    fireEvent.click(screen.getByRole('button', { name: '번역하기' }));
+
+    const attribution = await screen.findByRole('link', { name: '파파고 번역' });
+    expect(attribution.getAttribute('href')).toBe('https://papago.naver.com/');
+  });
+
+  it('cancels sentence playback before starting translator STT', () => {
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '음성으로 입력' }));
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(mocks.start).toHaveBeenCalledOnce();
+    expect(cancel.mock.invocationCallOrder[0]).toBeLessThan(mocks.start.mock.invocationCallOrder[0]);
+  });
+
+  it('fully stops translator STT before playing a translated sentence', async () => {
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('번역할 문장'), { target: { value: '안녕하세요' } });
+    fireEvent.click(screen.getByRole('button', { name: '번역하기' }));
+    await screen.findByText('Hello');
+
+    fireEvent.click(screen.getByRole('button', { name: '문장 들어보기' }));
+
+    await waitFor(() => expect(speak).toHaveBeenCalledOnce());
+    expect(mocks.stop).toHaveBeenCalled();
+    expect(mocks.stop.mock.invocationCallOrder.at(-1))
+      .toBeLessThan(speak.mock.invocationCallOrder[0]);
+  });
+
+  it('does not start delayed sentence playback after the translator closes', async () => {
+    let finishStopping: (() => void) | undefined;
+    mocks.stop.mockImplementationOnce(() => new Promise<undefined>((resolve) => {
+      finishStopping = () => resolve(undefined);
+    }));
+    const onClose = vi.fn();
+    render(<TranslatorOverlay isOpen onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText('번역할 문장'), { target: { value: '안녕하세요' } });
+    fireEvent.click(screen.getByRole('button', { name: '번역하기' }));
+    await screen.findByText('Hello');
+
+    fireEvent.click(screen.getByRole('button', { name: '문장 들어보기' }));
+    fireEvent.click(screen.getByRole('button', { name: '번역기 닫기' }));
+    finishStopping?.();
+
+    await act(async () => undefined);
+    expect(speak).not.toHaveBeenCalled();
   });
 });

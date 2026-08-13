@@ -110,6 +110,46 @@ describe('replayed assistant result state', () => {
         });
     });
 
+    it('normalizes a legacy nested evaluation id to the canonical session turn id', () => {
+        useStore.getState().addMessage('user', 'Where is Gate 5?', '10:2');
+
+        useStore.getState().setTurnEvaluation('10:2', evaluation({
+            turnId: '2',
+            correction: {
+                original: 'Where is Gate 5?',
+                suggested: 'Where is Gate 5?',
+                reason: 'No correction needed',
+            },
+            missionCandidates: [mission({
+                id: 'mission-session-turn',
+                sourceTurnId: '2',
+            })],
+        }));
+
+        const message = useStore.getState().messages[0];
+        expect(message.id).toBe('10:2');
+        expect(message.evaluation?.turnId).toBe('10:2');
+        expect(message.evaluation?.missionCandidates?.[0].sourceTurnId).toBe('10:2');
+    });
+
+    it('normalizes a legacy nested correction id to the canonical session turn id', () => {
+        useStore.getState().addMessage('user', 'It is over there.', '10:3');
+
+        useStore.getState().setTurnCorrection('10:3', {
+            turnId: '3',
+            provider: 'test',
+            model: 'test',
+            createdAt: '2026-08-12T00:00:00.000Z',
+            original: 'It is over there.',
+            suggested: 'It is over there.',
+            reason: 'No correction needed',
+            provisionalScore: 90,
+            provisionalLp: 8,
+        });
+
+        expect(useStore.getState().messages[0].correction?.turnId).toBe('10:3');
+    });
+
     it('adopts replayed speech evidence and re-evaluates sentence missions', () => {
         const candidate = mission({
             id: 'mission-synced-browser-segments',

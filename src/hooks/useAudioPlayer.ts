@@ -28,9 +28,14 @@ interface AudioPlayerOptions {
   onPlaybackIdle?: () => void;
 }
 
+const DUCKED_GAIN = 0.05;
+const DUCK_RAMP_SECONDS = 0.015;
+const RESTORE_RAMP_SECONDS = 0.04;
+
 export function useAudioPlayer(options: AudioPlayerOptions = {}) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const gainRef = useRef<GainNode | null>(null);
   const startTimeRef = useRef(0);
   const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const onPlaybackIdleRef = useRef(options.onPlaybackIdle);
@@ -52,21 +57,33 @@ export function useAudioPlayer(options: AudioPlayerOptions = {}) {
 
     const ctx = new AudioContextClass();
     const analyser = ctx.createAnalyser();
+    const gain = ctx.createGain();
     analyser.fftSize = 512;
     analyser.minDecibels = -85;
     analyser.maxDecibels = -15;
     analyser.smoothingTimeConstant = 0.45;
-    analyser.connect(ctx.destination);
+    analyser.connect(gain);
+    gain.connect(ctx.destination);
 
     audioContextRef.current = ctx;
     analyserRef.current = analyser;
+    gainRef.current = gain;
     setAudioAnalyser(analyser);
 
     return () => {
       ctx.close();
+      gainRef.current = null;
       setAudioAnalyser(null);
     };
   }, [setAudioAnalyser]);
+
+  const resetGain = useCallback(() => {
+    const ctx = audioContextRef.current;
+    const gain = gainRef.current;
+    if (!ctx || !gain) return;
+    gain.gain.cancelScheduledValues(ctx.currentTime);
+    gain.gain.setValueAtTime(1, ctx.currentTime);
+  }, []);
 
   const playPcmChunk = useCallback(
     (chunk: TtsAudioChunk) => {
@@ -81,8 +98,11 @@ export function useAudioPlayer(options: AudioPlayerOptions = {}) {
       const source = ctx.createBufferSource();
       source.buffer = buffer;
 
+      const gain = gainRef.current;
       if (analyserRef.current) {
         source.connect(analyserRef.current);
+      } else if (gain) {
+        source.connect(gain);
       } else {
         source.connect(ctx.destination);
       }
@@ -124,13 +144,37 @@ export function useAudioPlayer(options: AudioPlayerOptions = {}) {
           });
         }
         if (activeSourcesRef.current.length === 0) {
+          resetGain();
           setPlaying(false);
           onPlaybackIdleRef.current?.();
         }
       };
     },
-    [setPlaying, upsertTtsSegment],
+    [resetGain, setPlaying, upsertTtsSegment],
   );
+
+  const setGain = useCallback((target: number, rampSeconds: number) => {
+    const ctx = audioContextRef.current;
+    const gain = gainRef.current;
+    if (!ctx || !gain) return;
+
+    const now = ctx.currentTime;
+    if (typeof gain.gain.cancelAndHoldAtTime === 'function') {
+      gain.gain.cancelAndHoldAtTime(now);
+    } else {
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(gain.gain.value, now);
+    }
+    gain.gain.linearRampToValueAtTime(target, now + rampSeconds);
+  }, []);
+
+  const muteTts = useCallback(() => {
+    setGain(DUCKED_GAIN, DUCK_RAMP_SECONDS);
+  }, [setGain]);
+
+  const unmuteTts = useCallback(() => {
+    setGain(1, RESTORE_RAMP_SECONDS);
+  }, [setGain]);
 
   const clearQueue = useCallback(
     (responseId?: string) => {
@@ -144,15 +188,18 @@ export function useAudioPlayer(options: AudioPlayerOptions = {}) {
       });
       activeSourcesRef.current = [];
       startTimeRef.current = 0;
+      resetGain();
       clearTtsSegments(responseId);
       setPlaying(false);
     },
-    [clearTtsSegments, setPlaying],
+    [clearTtsSegments, resetGain, setPlaying],
   );
 
   return {
     playPcmChunk,
     clearQueue,
+    muteTts,
+    unmuteTts,
     getAudioContext: () => audioContextRef.current,
   };
 }

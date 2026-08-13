@@ -88,6 +88,21 @@ describe('translateText', () => {
     }));
   });
 
+  it.each(['ollama', 'azure', 'deepl', 'papago', 'argos'] as const)(
+    'accepts a valid %s provider response',
+    async (provider) => {
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+        translated_text: 'Hello',
+        source_language: 'ko',
+        target_language: 'en',
+        provider,
+        fallback_reason: provider === 'azure' ? null : 'azure_quota_exceeded',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+
+      await expect(translateText('안녕하세요', 'ko', 'en')).resolves.toMatchObject({ provider });
+    },
+  );
+
   it('rejects a response for a different language pair', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
       translated_text: '안녕하세요',

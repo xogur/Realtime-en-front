@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 import { getChatSyncChannelName } from '@/lib/kioskIdentity';
+import { notifyConversationUserInput } from '@/hooks/useVoiceSocket';
 
 function getBatchStatusSyncPayload() {
     const status = useStore.getState().evaluationBatchStatus;
@@ -61,6 +62,7 @@ export function useChatSync(isMainWindow: boolean) {
                 } else if (event.data.type === 'SEND_MESSAGE') {
                     const socket = useStore.getState().socket;
                     if (socket && socket.readyState === WebSocket.OPEN) {
+                        notifyConversationUserInput(event.data.payload);
                         socket.send(JSON.stringify({
                             type: 'user_text_message',
                             text: event.data.payload,

@@ -11,9 +11,15 @@ import {
 } from '@/lib/reportCorrections';
 import { packMeasuredCorrections } from '@/lib/reportPagination';
 import { getFriendlySpeakingLevel, getMetricPresentation } from '@/lib/assessmentPresentation';
+import {
+  buildReportFindingEvidence,
+  type ReportFindingEvidence,
+  type ReportFindingEvidenceSummary,
+} from '@/lib/reportFindingEvidence';
 import type { ChatMessage } from '@/stores/useStore';
 
 type Metric = { key: string; label: string; value: number };
+type PrintLayoutMode = 'paginated' | 'natural';
 
 type AssessmentPrintReportProps = {
   messages: ChatMessage[];
@@ -70,12 +76,14 @@ function LearningFocusSection({
   isHighlightReport,
   strength,
   improvement,
+  findingEvidence,
 }: {
   areas: LearningFocusArea[];
   assessableAnswerCount: number;
   isHighlightReport: boolean;
   strength: string;
   improvement: string;
+  findingEvidence: ReportFindingEvidenceSummary;
 }) {
   const isProvisional = assessableAnswerCount < 4;
   return (
@@ -96,6 +104,7 @@ function LearningFocusSection({
               ? '이번 대화에서 잘한 문장과 다시 활용하기 좋은 표현을 아래에 모았습니다.'
               : '안정적으로 사용한 방식은 다음 대화에서도 같은 흐름으로 이어가면 좋습니다.'}
           </p>
+          <FindingEvidenceBlock finding={findingEvidence.strength} tone="strength" />
         </article>
 
         <article className="border-l-2 border-[#b77f1e] bg-[#fff8ea] px-2.5 py-2">
@@ -104,6 +113,7 @@ function LearningFocusSection({
             <p className="text-[7.5px] font-bold text-[#765c2d]">다음 연습의 우선순위</p>
           </div>
           <p className="mt-1 text-[9.5px] font-black leading-[1.4] text-[#3f382e]">{improvement}</p>
+          <FindingEvidenceBlock finding={findingEvidence.improvement} tone="improvement" />
           {areas.length > 0 ? (
             <div className="mt-1.5 space-y-1.5">
               {areas.map((area) => (
@@ -113,6 +123,11 @@ function LearningFocusSection({
                     <p className="shrink-0 text-[7.5px] font-bold text-[#765c2d]">{area.statusLabel}</p>
                   </div>
                   <p className="mt-0.5 text-[8px] font-semibold leading-[1.3] text-[#5e5549]">{area.explanation}</p>
+                  {area.evidence.length > 0 && (
+                    <ul className="mt-1 space-y-0.5 border-l border-[#b77f1e]/30 pl-1.5 text-[7.5px] font-semibold leading-[1.3] text-[#5e5549]">
+                      {area.evidence.map((evidence) => <li key={evidence}>• {evidence}</li>)}
+                    </ul>
+                  )}
                   {area.correctionNumbers.length > 0 && (
                     <p className="mt-0.5 text-[7.5px] font-black text-[#8a5a12]">
                       관련 교정 {area.correctionNumbers.map((number) => `#${String(number).padStart(2, '0')}`).join(', ')}
@@ -134,6 +149,38 @@ function LearningFocusSection({
   );
 }
 
+function FindingEvidenceBlock({
+  finding,
+  tone,
+}: {
+  finding: ReportFindingEvidence;
+  tone: 'strength' | 'improvement';
+}) {
+  const colors = tone === 'strength'
+    ? { border: 'border-[#2f6f4f]/25', title: 'text-[#2f6f4f]', body: 'text-[#526057]' }
+    : { border: 'border-[#b77f1e]/30', title: 'text-[#8a5a12]', body: 'text-[#665b49]' };
+
+  return (
+    <div
+      className={`report-finding-evidence mt-1.5 border-t pt-1.5 ${colors.border}`}
+      aria-label={`${tone === 'strength' ? '강점' : '보완점'} 판단 근거`}
+    >
+      <p className={`text-[7.5px] font-black ${colors.title}`}>판단 근거</p>
+      <p className={`mt-0.5 text-[7.5px] font-semibold leading-[1.3] ${colors.body}`}>{finding.explanation}</p>
+      {finding.items.length > 0 && (
+        <ol className="mt-1 space-y-1">
+          {finding.items.map((item, index) => (
+            <li key={`${item.quote}-${index}`} className={`border-l pl-1.5 ${colors.border}`}>
+              <p className="text-[7.5px] font-black leading-[1.3] text-[#343d38]">“{item.quote}”</p>
+              <p className={`mt-0.5 text-[7px] font-semibold leading-[1.3] ${colors.body}`}>{item.reason}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 function ReportSummary({
   reportDate,
   sampleStatus,
@@ -147,6 +194,7 @@ function ReportSummary({
   improvement,
   focusAreas,
   isHighlightReport,
+  findingEvidence,
 }: {
   reportDate: string;
   sampleStatus: ReturnType<typeof getReportSampleStatus>;
@@ -160,6 +208,7 @@ function ReportSummary({
   improvement: string;
   focusAreas: LearningFocusArea[];
   isHighlightReport: boolean;
+  findingEvidence: ReportFindingEvidenceSummary;
 }) {
   const levelPrefix = assessableAnswerCount <= 7 ? '예상' : '현재';
   const speakingLevel = getFriendlySpeakingLevel(cefrLevel);
@@ -232,6 +281,7 @@ function ReportSummary({
         isHighlightReport={isHighlightReport}
         strength={strength}
         improvement={improvement}
+        findingEvidence={findingEvidence}
       />
     </div>
   );
@@ -251,12 +301,12 @@ function CorrectionsHeader({
   contentKind?: 'corrections' | 'highlights' | 'mixed';
 }) {
   const title = contentKind === 'mixed'
-    ? '주요 교정 및 대화 하이라이트'
+    ? '학습 문장 모음'
     : contentKind === 'highlights'
       ? '대화 하이라이트'
       : '주요 대화 교정';
   const description = contentKind === 'mixed'
-    ? '확인된 교정과 함께, 잘한 문장 및 다시 활용하기 좋은 표현을 모았습니다.'
+    ? '확정 교정, 참고할 표현 제안, 다시 활용할 주요 발화를 구분해 모았습니다.'
     : contentKind === 'highlights'
       ? '잘한 문장과 다음 대화에서도 활용하기 좋은 표현을 모았습니다.'
       : '질문과 답변의 문맥을 확인한 핵심 표현만 선정했습니다.';
@@ -289,7 +339,7 @@ function correctionExplanations(correction: ReportCorrectionItem) {
 }
 
 function CorrectionRow({ correction, sequence }: { correction: ReportCorrectionItem; sequence: number }) {
-  const isHighlight = correction.errorTags.includes('report_highlight');
+  const isHighlight = correction.kind === 'key_utterance';
   if (isHighlight) {
     return (
       <article className="report-correction report-highlight border-t border-[#183c2c]/22 pt-1.5 first:border-t-0">
@@ -311,6 +361,39 @@ function CorrectionRow({ correction, sequence }: { correction: ReportCorrectionI
         <div className="mt-1.5 ml-[50px] grid grid-cols-[34px_minmax(0,1fr)] gap-2 bg-[#f2f7f3] px-2 py-1.5">
           <p className="text-[8px] font-black text-[#2f6f4f]">칭찬</p>
           <p className="text-[8.5px] font-bold leading-[1.35] text-[#36473d]">{correction.reason}</p>
+        </div>
+      </article>
+    );
+  }
+
+  if (correction.kind === 'teacher_review') {
+    return (
+      <article className="report-correction report-teacher-review border-t border-[#183c2c]/22 pt-1.5 first:border-t-0">
+        <div className="grid grid-cols-[26px_minmax(0,1fr)_auto] items-baseline gap-2">
+          <span className="font-mono text-[11px] font-black text-[#8a5a12]">{String(sequence).padStart(2, '0')}</span>
+          <p className="truncate text-[8px] font-black text-[#273a31]">{correction.topic} / {correction.difficulty}</p>
+          <p className="text-[8px] font-black text-[#8a5a12]">표현 참고</p>
+        </div>
+        {correction.assistantPrompt && (
+          <div className="mt-1 grid grid-cols-[42px_minmax(0,1fr)] gap-2">
+            <p className="text-[8px] font-black text-[#625e58]">AI 질문</p>
+            <p className="text-[9px] font-semibold leading-[1.35] text-[#333a36]">{correction.assistantPrompt}</p>
+          </div>
+        )}
+        <div className="mt-1 grid grid-cols-[42px_minmax(0,1fr)] gap-2">
+          <p className="text-[8px] font-black text-[#8a5a12]">학습자</p>
+          <p className="text-[9px] font-black leading-[1.35] text-[#3f382e]">{correction.original}</p>
+        </div>
+        <div className="mt-1.5 ml-[50px] bg-[#fff8ea] px-2 py-1.5">
+          {correction.suggested && (
+            <div className="grid grid-cols-[54px_minmax(0,1fr)] gap-2">
+              <p className="text-[8px] font-black text-[#8a5a12]">표현 제안</p>
+              <p className="text-[8.5px] font-bold leading-[1.35] text-[#4d4435]">{correction.suggested}</p>
+            </div>
+          )}
+          <p className="mt-1 text-[8px] font-semibold leading-[1.35] text-[#665b49]">
+            {correction.reason} 상황과 의도에 따라 달라질 수 있는 참고 표현입니다.
+          </p>
         </div>
       </article>
     );
@@ -370,26 +453,42 @@ export function AssessmentPrintReport({
   const reportContent = useMemo(() => buildReportContent(messages, topicSegments), [messages, topicSegments]);
   const correctionItems = reportContent.corrections;
   const corrections = reportContent.items;
-  const isHighlightReport = correctionItems.length === 0 && reportContent.highlights.length > 0;
-  const contentKind = correctionItems.length > 0 && reportContent.highlights.length > 0
+  const isHighlightReport = correctionItems.length === 0
+    && reportContent.reviewItems.length === 0
+    && reportContent.keyUtterances.length > 0;
+  const contentKind = reportContent.reviewItems.length > 0
+    || (correctionItems.length > 0 && reportContent.keyUtterances.length > 0)
     ? 'mixed'
     : isHighlightReport
       ? 'highlights'
       : 'corrections';
   const focusAreas = useMemo(() => buildLearningFocusAreas(messages, correctionItems), [messages, correctionItems]);
+  const findingEvidence = useMemo(() => buildReportFindingEvidence(messages, metrics), [messages, metrics]);
   const fallbackPages = useMemo(() => paginateReportCorrections(corrections, 720).map((page) => page.map((item) => item.id)), [corrections]);
   const [pageIds, setPageIds] = useState<string[][]>(() => fallbackPages.length > 0 ? fallbackPages : [[]]);
   const [layoutReady, setLayoutReady] = useState(false);
+  const [layoutMode, setLayoutMode] = useState<PrintLayoutMode>('paginated');
+  const [measurementReady, setMeasurementReady] = useState(false);
   const measurementSummaryRef = useRef<HTMLDivElement>(null);
   const measurementPageRef = useRef<HTMLDivElement>(null);
   const measurementHeaderRef = useRef<HTMLDivElement>(null);
   const measurementFooterRef = useRef<HTMLDivElement>(null);
   const measurementItemRefs = useRef(new Map<string, HTMLElement>());
+  const renderedPageRefs = useRef(new Map<number, HTMLElement>());
+  const verificationPassRef = useRef(0);
+  const layoutNotifiedRef = useRef(false);
+  const layoutRevisionRef = useRef(0);
   const reportDate = useMemo(() => new Intl.DateTimeFormat('ko-KR', {
     year: 'numeric', month: '2-digit', day: '2-digit',
   }).format(new Date()), []);
   const sampleStatus = getReportSampleStatus(reliableAnswerCount);
   const correctionById = useMemo(() => new Map(corrections.map((item) => [item.id, item])), [corrections]);
+  const resolvedPageIds = useMemo(() => {
+    const flattened = pageIds.flat();
+    const matchesCurrentItems = flattened.length === corrections.length
+      && flattened.every((id) => correctionById.has(id));
+    return matchesCurrentItems ? pageIds : (fallbackPages.length > 0 ? fallbackPages : [[]]);
+  }, [correctionById, corrections.length, fallbackPages, pageIds]);
 
   useLayoutEffect(() => {
     let cancelled = false;
@@ -406,32 +505,35 @@ export function AssessmentPrintReport({
       }));
 
       if (usableHeight <= 0 || measurements.some((measurement) => measurement.height <= 0)) {
+        setLayoutReady(false);
+        setLayoutMode('natural');
         setPageIds(fallbackPages.length > 0 ? fallbackPages : [[]]);
+        setMeasurementReady(true);
         return;
       }
 
       const firstCapacity = usableHeight - summaryHeight - repeatedHeaderHeight - footerHeight - 18;
       const followingCapacity = usableHeight - repeatedHeaderHeight - footerHeight - 18;
       const nextPages = packMeasuredCorrections(measurements, firstCapacity, followingCapacity, 7);
+      verificationPassRef.current = 0;
+      setLayoutReady(false);
+      setLayoutMode('paginated');
       setPageIds((current) => (
         JSON.stringify(current) === JSON.stringify(nextPages) ? current : nextPages
       ));
+      setMeasurementReady(true);
     };
     const scheduleMeasure = () => {
+      layoutRevisionRef.current += 1;
+      setMeasurementReady(false);
+      setLayoutReady(false);
       window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(measure);
     };
 
     scheduleMeasure();
-    const markReady = () => {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => {
-        measure();
-        if (!cancelled) setLayoutReady(true);
-      });
-    };
-    if (document.fonts?.ready) void document.fonts.ready.then(markReady);
-    else markReady();
+    if (document.fonts?.ready) void document.fonts.ready.then(scheduleMeasure);
+    else scheduleMeasure();
     const resizeObserver = typeof ResizeObserver === 'undefined'
       ? null
       : new ResizeObserver(scheduleMeasure);
@@ -450,21 +552,81 @@ export function AssessmentPrintReport({
       window.cancelAnimationFrame(frame);
       resizeObserver?.disconnect();
     };
-  }, [corrections, fallbackPages, focusAreas]);
+  }, [corrections, fallbackPages, findingEvidence, focusAreas]);
+
+  useLayoutEffect(() => {
+    let cancelled = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (cancelled || !measurementReady) return;
+      if (layoutMode === 'natural') {
+        setLayoutReady(true);
+        return;
+      }
+
+      const overflowingPageIndex = resolvedPageIds.findIndex((_, pageIndex) => {
+        const page = renderedPageRefs.current.get(pageIndex);
+        return Boolean(page && page.scrollHeight > page.clientHeight + 1);
+      });
+      if (overflowingPageIndex < 0) {
+        setLayoutReady(true);
+        return;
+      }
+
+      const overflowingItems = resolvedPageIds[overflowingPageIndex] ?? [];
+      const canMoveWholeItem = overflowingItems.length > 0
+        && (overflowingPageIndex === 0 || overflowingItems.length > 1);
+      verificationPassRef.current += 1;
+      const verificationLimit = corrections.length + resolvedPageIds.length + 2;
+      if (!canMoveWholeItem || verificationPassRef.current > verificationLimit) {
+        setLayoutMode('natural');
+        setLayoutReady(false);
+        return;
+      }
+
+      const nextPages = resolvedPageIds.map((page) => [...page]);
+      const movedId = nextPages[overflowingPageIndex].pop();
+      if (!movedId) {
+        setLayoutMode('natural');
+        setLayoutReady(false);
+        return;
+      }
+      if (!nextPages[overflowingPageIndex + 1]) nextPages.push([]);
+      nextPages[overflowingPageIndex + 1].unshift(movedId);
+      setLayoutReady(false);
+      setPageIds(nextPages.filter((page, index) => page.length > 0 || index === 0));
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [corrections.length, layoutMode, measurementReady, resolvedPageIds]);
 
   useEffect(() => {
     if (!layoutReady || !onLayoutReady) return;
-    const frame = window.requestAnimationFrame(onLayoutReady);
+    if (layoutNotifiedRef.current) return;
+    const scheduledRevision = layoutRevisionRef.current;
+    const frame = window.requestAnimationFrame(() => {
+      if (
+        layoutNotifiedRef.current
+        || layoutRevisionRef.current !== scheduledRevision
+      ) return;
+      layoutNotifiedRef.current = true;
+      onLayoutReady();
+    });
     return () => window.cancelAnimationFrame(frame);
-  }, [layoutReady, onLayoutReady, pageIds]);
+  }, [layoutReady, onLayoutReady]);
 
-  const totalPages = Math.max(1, pageIds.length);
-  const pageCorrections = pageIds.map((ids) => ids
+  const totalPages = Math.max(1, resolvedPageIds.length);
+  const pageCorrections = resolvedPageIds.map((ids) => ids
     .map((id) => correctionById.get(id))
     .filter((item): item is ReportCorrectionItem => Boolean(item)));
 
   return (
-    <section className="print-document assessment-print-document bg-white text-[#17251f]">
+    <section
+      className={`print-document assessment-print-document bg-white text-[#17251f] ${layoutMode === 'natural' ? 'print-document--natural' : 'print-document--paginated'}`}
+      data-layout-ready={layoutReady ? 'true' : 'false'}
+      data-layout-mode={layoutMode}
+    >
       <div className="report-measurement" aria-hidden="true">
         <div ref={measurementPageRef} className="report-usable-height" />
         <div ref={measurementSummaryRef}>
@@ -481,6 +643,7 @@ export function AssessmentPrintReport({
             improvement={improvement}
             focusAreas={focusAreas}
             isHighlightReport={isHighlightReport}
+            findingEvidence={findingEvidence}
           />
         </div>
         <div ref={measurementHeaderRef}><CorrectionsHeader start={1} end={corrections.length} total={corrections.length} contentKind={contentKind} /></div>
@@ -508,6 +671,11 @@ export function AssessmentPrintReport({
           return (
             <article
               key={`report-page-${pageIndex + 1}`}
+              ref={(node) => {
+                if (node) renderedPageRefs.current.set(pageIndex, node);
+                else renderedPageRefs.current.delete(pageIndex);
+              }}
+              data-report-page={pageIndex + 1}
               className={`print-page flex flex-col ${pageIndex < totalPages - 1 ? 'break-after-page' : ''}`}
             >
               <div className="flex-1">
@@ -525,6 +693,7 @@ export function AssessmentPrintReport({
                     improvement={improvement}
                     focusAreas={focusAreas}
                     isHighlightReport={isHighlightReport}
+                    findingEvidence={findingEvidence}
                   />
                 )}
                 {(!isFirstPage || items.length > 0 || corrections.length === 0) && (

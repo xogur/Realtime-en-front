@@ -22,6 +22,7 @@ import {
   buildStartConversationMessage,
   type PendingConversationStart,
 } from '@/lib/conversationSocketMessages';
+import { isTranslatorWindowMessage, TRANSLATOR_WINDOW_MESSAGE } from '@/lib/translator';
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
@@ -317,6 +318,138 @@ export function isSttInputReady(
   return isCaptureReady && (provider === 'browser' || isServerReady);
 }
 
+export function isCurrentSttCaptureRequest<T>(
+  requestedSessionId: number,
+  currentSessionId: number,
+  initiatingSocket: T,
+  currentSocket: T,
+): boolean {
+  return requestedSessionId === currentSessionId
+    && initiatingSocket === currentSocket;
+}
+
+export function buildSttCaptureStateMessage(active: boolean, captureSessionId: number) {
+  return {
+    type: 'stt_capture_state' as const,
+    active,
+    capture_session_id: captureSessionId,
+  };
+}
+
+export type SttCaptureStartResult = 'started' | 'failed' | 'superseded';
+
+export async function startSttCaptureOperation<T>({
+  sendCaptureState,
+  startInput,
+  getCurrentSessionId,
+  getCurrentSocket,
+}: {
+  sendCaptureState: (active: boolean) => number;
+  startInput: () => Promise<boolean | void>;
+  getCurrentSessionId: () => number;
+  getCurrentSocket: () => T;
+}): Promise<SttCaptureStartResult> {
+  const initiatingSocket = getCurrentSocket();
+  const requestedSessionId = sendCaptureState(true);
+  const requestIsCurrent = () => isCurrentSttCaptureRequest(
+    requestedSessionId,
+    getCurrentSessionId(),
+    initiatingSocket,
+    getCurrentSocket(),
+  );
+  const closeFailedStartIfCurrent = () => {
+    if (requestIsCurrent()) sendCaptureState(false);
+  };
+
+  try {
+    const started = await startInput();
+    if (!requestIsCurrent()) return 'superseded';
+    if (started === false) {
+      closeFailedStartIfCurrent();
+      return 'failed';
+    }
+    return 'started';
+  } catch (error) {
+    if (!requestIsCurrent()) return 'superseded';
+    closeFailedStartIfCurrent();
+    throw error;
+  }
+}
+
+export async function stopSttCaptureOperation(
+  sendCaptureState: (active: boolean) => number,
+  stopInput: () => Promise<void>,
+): Promise<void> {
+  sendCaptureState(false);
+  await stopInput();
+}
+
+export function isMessageForCurrentGeneration(
+  generationId: number | string | null | undefined,
+  activeGenerationId: string | null,
+): boolean {
+  return generationId === undefined
+    || generationId === null
+    || activeGenerationId === null
+    || String(generationId) === activeGenerationId;
+}
+
+export function isTtsControlForCurrentGeneration(
+  generationId: number | string | null | undefined,
+  playbackGenerationId: string | null,
+): boolean {
+  if (generationId === undefined || generationId === null) return true;
+  return playbackGenerationId !== null && String(generationId) === playbackGenerationId;
+}
+
+export function shouldApplyTtsMute(
+  generationId: number | string | null | undefined,
+  playbackGenerationId: string | null,
+  isPlaying: boolean,
+): boolean {
+  return isPlaying
+    && isTtsControlForCurrentGeneration(generationId, playbackGenerationId);
+}
+
+export type TranslatorTtsGate = 'normal' | 'translator-open' | 'waiting-next-turn';
+export type TranslatorTtsGateEvent =
+  | 'open-translator'
+  | 'close-translator'
+  | 'capture-boundary-ready'
+  | 'conversation-input-ready'
+  | 'final-user-request';
+export const CONVERSATION_USER_INPUT_EVENT = 'realtime-en:conversation-user-input';
+
+function normalizeConversationInput(text: string): string {
+  return sanitizeUserTranscript(text).replace(/\s+/g, ' ').trim();
+}
+
+export function notifyConversationUserInput(text: string): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent<string>(CONVERSATION_USER_INPUT_EVENT, {
+    detail: normalizeConversationInput(text),
+  }));
+}
+
+export function transitionTranslatorTtsGate(
+  current: TranslatorTtsGate,
+  event: TranslatorTtsGateEvent,
+): TranslatorTtsGate {
+  if (event === 'open-translator') return 'translator-open';
+  if (event === 'close-translator') {
+    return current === 'translator-open' ? 'waiting-next-turn' : current;
+  }
+  if (
+    (event === 'capture-boundary-ready' || event === 'conversation-input-ready')
+    && current === 'waiting-next-turn'
+  ) return 'normal';
+  return current;
+}
+
+export function canPlayConversationTts(gate: TranslatorTtsGate): boolean {
+  return gate === 'normal';
+}
+
 function sanitizeUserTranscript(text: string): string {
   const hasStructuredTurnMarker = /<\|?(?:start|end)_of_turn\|?>|<\/?[^>\s/]+_of_turn>/i.test(text);
   const sanitized = text
@@ -427,6 +560,10 @@ export function useVoiceSocket() {
   const isConnecting = useRef(false);
   const isDisconnecting = useRef(false);
   const activeGenerationIdRef = useRef<string | null>(null);
+  const sttCaptureSessionIdRef = useRef(0);
+  const ttsPlaybackGenerationIdRef = useRef<string | null>(null);
+  const translatorTtsGateRef = useRef<TranslatorTtsGate>('normal');
+  const translatorShouldResumeCaptureRef = useRef(false);
   const backendTurnIdToClientTurnIdRef = useRef<Map<string, string>>(new Map());
   const abandonedEvaluationTurnIdsRef = useRef<Set<string>>(new Set());
   const seenEventSeqsRef = useRef<Set<string>>(new Set());
@@ -497,12 +634,13 @@ export function useVoiceSocket() {
 
   const notifyTtsPlaybackStopped = useCallback(() => {
     activeSpeechTextRef.current = '';
+    ttsPlaybackGenerationIdRef.current = null;
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({ type: 'tts_stop' }));
     }
   }, []);
 
-  const { playPcmChunk, clearQueue } = useAudioPlayer({
+  const { playPcmChunk, clearQueue, muteTts, unmuteTts } = useAudioPlayer({
     onPlaybackIdle: notifyTtsPlaybackStopped,
   });
 
@@ -532,6 +670,7 @@ export function useVoiceSocket() {
   const flushActiveTts = useCallback(
     (responseId?: string) => {
       activeSpeechTextRef.current = '';
+      ttsPlaybackGenerationIdRef.current = null;
       clearQueue(responseId);
       clearTtsSegments(responseId);
       useStore.getState().setPartialMessage('');
@@ -601,6 +740,114 @@ export function useVoiceSocket() {
     getPlaybackState,
   });
 
+  const sendSttCaptureState = useCallback((active: boolean) => {
+    const captureSessionId = sttCaptureSessionIdRef.current + 1;
+    sttCaptureSessionIdRef.current = captureSessionId;
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify(
+        buildSttCaptureStateMessage(active, captureSessionId),
+      ));
+    }
+    return captureSessionId;
+  }, []);
+
+  const startSttCapture = useCallback(async () => {
+    // The control message is placed on the WebSocket before MediaRecorder can
+    // produce new binary frames. The backend completes its discard barrier
+    // before reading those frames.
+    const result = await startSttCaptureOperation({
+      sendCaptureState: sendSttCaptureState,
+      startInput: startSttInput,
+      getCurrentSessionId: () => sttCaptureSessionIdRef.current,
+      getCurrentSocket: () => socketRef.current,
+    });
+    if (result === 'started' && translatorTtsGateRef.current === 'waiting-next-turn') {
+      translatorShouldResumeCaptureRef.current = false;
+      translatorTtsGateRef.current = transitionTranslatorTtsGate(
+        translatorTtsGateRef.current,
+        'capture-boundary-ready',
+      );
+    }
+    return result;
+  }, [sendSttCaptureState, startSttInput]);
+
+  const stopSttCapture = useCallback(async () => {
+    // Close the backend epoch first so any final browser callback or trailing
+    // PCM chunk emitted during local teardown is rejected.
+    await stopSttCaptureOperation(sendSttCaptureState, stopSttInput);
+  }, [sendSttCaptureState, stopSttInput]);
+
+  const suspendTtsForTranslator = useCallback(() => {
+    if (translatorTtsGateRef.current === 'translator-open') return;
+
+    // ControlPanel closes the STT capture epoch for the translator. Close the
+    // playback gate synchronously so late chunks cannot refill the queue while
+    // that reset barrier is running.
+    translatorTtsGateRef.current = transitionTranslatorTtsGate(
+      translatorTtsGateRef.current,
+      'open-translator',
+    );
+    translatorShouldResumeCaptureRef.current = translatorShouldResumeCaptureRef.current
+      || useStore.getState().isRecording;
+    flushActiveTts();
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'tts_stop' }));
+    }
+  }, [flushActiveTts]);
+
+  const resumeTtsAfterTranslator = useCallback(() => {
+    if (translatorTtsGateRef.current !== 'translator-open') return;
+
+    translatorTtsGateRef.current = transitionTranslatorTtsGate(
+      translatorTtsGateRef.current,
+      'close-translator',
+    );
+    if (!translatorShouldResumeCaptureRef.current) {
+      translatorTtsGateRef.current = transitionTranslatorTtsGate(
+        translatorTtsGateRef.current,
+        'capture-boundary-ready',
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleTranslatorMessage = (event: MessageEvent) => {
+      if (event.origin && event.origin !== window.location.origin) return;
+      if (!isTranslatorWindowMessage(event.data)) return;
+      if (roleRef.current === 'viewer') return;
+
+      if (event.data.action === 'open') {
+        suspendTtsForTranslator();
+      } else {
+        resumeTtsAfterTranslator();
+      }
+    };
+    const handleConversationUserInput = (event: Event) => {
+      if (translatorTtsGateRef.current !== 'waiting-next-turn') return;
+      const text = (event as CustomEvent<unknown>).detail;
+      if (typeof text !== 'string' || !text.trim()) return;
+      translatorShouldResumeCaptureRef.current = false;
+      translatorTtsGateRef.current = transitionTranslatorTtsGate(
+        translatorTtsGateRef.current,
+        'conversation-input-ready',
+      );
+    };
+
+    window.addEventListener('message', handleTranslatorMessage);
+    window.addEventListener(CONVERSATION_USER_INPUT_EVENT, handleConversationUserInput);
+    const channel = 'BroadcastChannel' in window
+      ? new BroadcastChannel(TRANSLATOR_WINDOW_MESSAGE)
+      : null;
+    channel?.addEventListener('message', handleTranslatorMessage);
+
+    return () => {
+      window.removeEventListener('message', handleTranslatorMessage);
+      window.removeEventListener(CONVERSATION_USER_INPUT_EVENT, handleConversationUserInput);
+      channel?.removeEventListener('message', handleTranslatorMessage);
+      channel?.close();
+    };
+  }, [resumeTtsAfterTranslator, suspendTtsForTranslator]);
+
   useEffect(() => {
     sttProviderRef.current = sttProvider;
   }, [sttProvider]);
@@ -638,10 +885,12 @@ export function useVoiceSocket() {
 
   const isCurrentGeneration = useCallback(
     (data: SocketMessage): boolean => {
-      const generationId = getGenerationId(data);
-      return !generationId || !activeGenerationIdRef.current || generationId === activeGenerationIdRef.current;
+      return isMessageForCurrentGeneration(
+        data.generation_id,
+        activeGenerationIdRef.current,
+      );
     },
-    [getGenerationId],
+    [],
   );
 
   const bindActiveGenerationToPendingUser = useCallback(
@@ -667,6 +916,7 @@ export function useVoiceSocket() {
 
   const handleTtsChunk = useCallback(
     (data: SocketMessage) => {
+      if (!canPlayConversationTts(translatorTtsGateRef.current)) return;
       bindActiveGenerationToPendingUser(data);
       if (!isCurrentGeneration(data)) return;
       if (roleRef.current === 'viewer') return;
@@ -685,6 +935,7 @@ export function useVoiceSocket() {
       }
 
       useStore.getState().setThinking(false);
+      ttsPlaybackGenerationIdRef.current = getGenerationId(data);
       playPcmChunk(chunk);
     },
     [bindActiveGenerationToPendingUser, getGenerationId, isCurrentGeneration, playPcmChunk],
@@ -1131,8 +1382,8 @@ export function useVoiceSocket() {
       setConnected(true);
       setSocket(ws);
       if (shouldStartRecording) {
-        void startSttInput().then((started) => {
-          if (started !== false) return;
+        void startSttCapture().then((result) => {
+          if (result !== 'failed') return;
           pendingTopicStartRef.current = null;
           pendingResumeSegmentRef.current = null;
           setConversationStartStatus(
@@ -1285,15 +1536,18 @@ export function useVoiceSocket() {
             );
             break;
           case 'tts_segment_start':
+            if (!canPlayConversationTts(translatorTtsGateRef.current)) break;
             handleSegmentStart(data);
             break;
           case 'tts_viseme_timeline':
+            if (!canPlayConversationTts(translatorTtsGateRef.current)) break;
             handleSegmentTimeline(data);
             break;
           case 'tts_chunk':
             handleTtsChunk(data);
             break;
           case 'tts_segment_end':
+            if (!canPlayConversationTts(translatorTtsGateRef.current)) break;
             handleSegmentEnd(data);
             break;
           case 'tts_flush':
@@ -1308,7 +1562,15 @@ export function useVoiceSocket() {
             break;
           case 'final_user_request':
             useStore.getState().setLiveTranscript('');
-            activeGenerationIdRef.current = getGenerationId(data);
+            const nextGenerationId = getGenerationId(data);
+            // A final arriving before the capture reset finishes belongs to
+            // the old/translator epoch. Keep it visible for diagnostics, but
+            // never let it reopen conversation audio.
+            translatorTtsGateRef.current = transitionTranslatorTtsGate(
+              translatorTtsGateRef.current,
+              'final-user-request',
+            );
+            activeGenerationIdRef.current = nextGenerationId;
             const clientTurnId = buildClientTurnId(
               activeGenerationIdRef.current,
               data.eventSeq,
@@ -1396,6 +1658,21 @@ export function useVoiceSocket() {
             }
             console.error('STT provider error:', data.content);
             break;
+          case 'mute_tts':
+            if (!shouldApplyTtsMute(
+              data.generation_id,
+              ttsPlaybackGenerationIdRef.current,
+              useStore.getState().isPlaying,
+            )) break;
+            muteTts();
+            break;
+          case 'unmute_tts':
+            if (!isTtsControlForCurrentGeneration(
+              data.generation_id,
+              ttsPlaybackGenerationIdRef.current,
+            )) break;
+            unmuteTts();
+            break;
           case 'stop_tts':
           case 'tts_interruption':
             if (!isCurrentGeneration(data)) break;
@@ -1473,6 +1750,7 @@ export function useVoiceSocket() {
     getMessageMetadata,
     getTurnId,
     isCurrentGeneration,
+    muteTts,
     queueLocalEvaluationBatchTurn,
     scheduleSupplementaryPolling,
     setConnected,
@@ -1486,8 +1764,9 @@ export function useVoiceSocket() {
     upsertTopicSegment,
     beginSessionReplay,
     finishSessionReplay,
-    startSttInput,
+    startSttCapture,
     stopSttInput,
+    unmuteTts,
   ]);
 
   const disconnect = useCallback(() => {
@@ -1512,11 +1791,11 @@ export function useVoiceSocket() {
 
   const startListening = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      void startSttInput();
+      void startSttCapture();
       return;
     }
     connect();
-  }, [connect, startSttInput]);
+  }, [connect, startSttCapture]);
 
   const sendPendingTopicStart = useCallback(() => {
     const pending = pendingTopicStartRef.current;
@@ -1528,8 +1807,9 @@ export function useVoiceSocket() {
 
   const startConversation = useCallback((topicId: TopicId, difficultyId: DifficultyId) => {
     pendingResumeSegmentRef.current = null;
+    const requestId = crypto.randomUUID();
     pendingTopicStartRef.current = {
-      requestId: crypto.randomUUID(),
+      requestId,
       topicId,
       difficultyId,
       sent: false,
@@ -1544,22 +1824,24 @@ export function useVoiceSocket() {
       return;
     }
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      void startSttInput().then((started) => {
-        if (started !== false && useStore.getState().isSttReady) {
+      void startSttCapture().then((result) => {
+        if (result === 'superseded' || pendingTopicStartRef.current?.requestId !== requestId) return;
+        if (result === 'started' && useStore.getState().isSttReady) {
           sendPendingTopicStart();
         } else {
-          if (started !== false) return;
+          if (result !== 'failed') return;
           pendingTopicStartRef.current = null;
           setConversationStartStatus('error', '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.');
         }
       }).catch(() => {
+        if (pendingTopicStartRef.current?.requestId !== requestId) return;
         pendingTopicStartRef.current = null;
         setConversationStartStatus('error', '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.');
       });
       return;
     }
     connect();
-  }, [connect, sendPendingTopicStart, setConversationStartStatus, startSttInput]);
+  }, [connect, sendPendingTopicStart, setConversationStartStatus, startSttCapture]);
 
   const sendPendingResume = useCallback(() => {
     const segmentId = pendingResumeSegmentRef.current;
@@ -1584,29 +1866,31 @@ export function useVoiceSocket() {
       return;
     }
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      void startSttInput().then((started) => {
-        if (started !== false && useStore.getState().isSttReady) {
+      void startSttCapture().then((result) => {
+        if (result === 'superseded' || pendingResumeSegmentRef.current !== segmentId) return;
+        if (result === 'started' && useStore.getState().isSttReady) {
           sendPendingResume();
         } else {
-          if (started !== false) return;
+          if (result !== 'failed') return;
           pendingResumeSegmentRef.current = null;
           setConversationStartStatus('error', '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.');
         }
       }).catch(() => {
+        if (pendingResumeSegmentRef.current !== segmentId) return;
         pendingResumeSegmentRef.current = null;
         setConversationStartStatus('error', '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.');
       });
       return;
     }
     connect();
-  }, [connect, sendPendingResume, setConversationStartStatus, startSttInput]);
+  }, [connect, sendPendingResume, setConversationStartStatus, startSttCapture]);
 
   const stopListening = useCallback(() => {
     useStore.getState().setLiveTranscript('');
     isSttCaptureReadyRef.current = false;
     setSttReady(false);
-    void stopSttInput();
-  }, [setSttReady, stopSttInput]);
+    void stopSttCapture();
+  }, [setSttReady, stopSttCapture]);
 
   useEffect(() => {
     if (!isConnected || (!isSttReady && !TEXT_ONLY_TEST_MODE)) return;

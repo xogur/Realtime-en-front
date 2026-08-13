@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   addFinalUserRequestMessage,
   buildAudioPacket,
+  buildSttCaptureStateMessage,
   buildClientTurnId,
   fetchWithTimeout,
   getTurnResultsUrl,
@@ -13,6 +14,14 @@ import {
   shouldIgnorePartialAssistantAnswer,
   shouldProcessEventSeq,
   isSttInputReady,
+  isCurrentSttCaptureRequest,
+  startSttCaptureOperation,
+  stopSttCaptureOperation,
+  isMessageForCurrentGeneration,
+  isTtsControlForCurrentGeneration,
+  shouldApplyTtsMute,
+  canPlayConversationTts,
+  transitionTranslatorTtsGate,
 } from './useVoiceSocket';
 
 describe('reply suggestion normalization', () => {
@@ -54,6 +63,202 @@ describe('STT readiness', () => {
   it('uses capture readiness directly for browser STT', () => {
     expect(isSttInputReady('browser', false, false)).toBe(false);
     expect(isSttInputReady('browser', true, false)).toBe(true);
+  });
+});
+
+describe('STT capture request ordering', () => {
+  it('builds the exact backend capture-state contract', () => {
+    expect(buildSttCaptureStateMessage(false, 7)).toEqual({
+      type: 'stt_capture_state',
+      active: false,
+      capture_session_id: 7,
+    });
+  });
+
+  it('lets only the latest start request close its own socket session', () => {
+    const oldSocket = {};
+    const currentSocket = {};
+
+    expect(isCurrentSttCaptureRequest(2, 2, currentSocket, currentSocket)).toBe(true);
+    expect(isCurrentSttCaptureRequest(1, 2, currentSocket, currentSocket)).toBe(false);
+    expect(isCurrentSttCaptureRequest(2, 2, oldSocket, currentSocket)).toBe(false);
+  });
+
+  it('sends ON before starting input and rolls a current failure back once', async () => {
+    const events: string[] = [];
+    let sessionId = 0;
+    const socket = {};
+    const sendCaptureState = (active: boolean) => {
+      sessionId += 1;
+      events.push(`send:${active}`);
+      return sessionId;
+    };
+
+    const result = await startSttCaptureOperation({
+      sendCaptureState,
+      startInput: async () => {
+        events.push('start-input');
+        return false;
+      },
+      getCurrentSessionId: () => sessionId,
+      getCurrentSocket: () => socket,
+    });
+
+    expect(result).toBe('failed');
+    expect(events).toEqual(['send:true', 'start-input', 'send:false']);
+  });
+
+  it('treats a legacy void start result as success', async () => {
+    let sessionId = 0;
+    const socket = {};
+    await expect(startSttCaptureOperation({
+      sendCaptureState: () => {
+        sessionId += 1;
+        return sessionId;
+      },
+      startInput: async () => undefined,
+      getCurrentSessionId: () => sessionId,
+      getCurrentSocket: () => socket,
+    })).resolves.toBe('started');
+  });
+
+  it('ignores a stale failed start after a newer session or socket takes over', async () => {
+    let resolveStart!: (started: boolean) => void;
+    const pendingStart = new Promise<boolean>((resolve) => {
+      resolveStart = resolve;
+    });
+    const sends: boolean[] = [];
+    let sessionId = 0;
+    let socket = {};
+    const operation = startSttCaptureOperation({
+      sendCaptureState: (active) => {
+        sessionId += 1;
+        sends.push(active);
+        return sessionId;
+      },
+      startInput: () => pendingStart,
+      getCurrentSessionId: () => sessionId,
+      getCurrentSocket: () => socket,
+    });
+
+    sessionId += 1;
+    socket = {};
+    resolveStart(false);
+
+    await expect(operation).resolves.toBe('superseded');
+    expect(sends).toEqual([true]);
+  });
+
+  it('sends OFF before stopping local input', async () => {
+    const events: string[] = [];
+    await stopSttCaptureOperation(
+      (active) => {
+        events.push(`send:${active}`);
+        return 1;
+      },
+      async () => {
+        events.push('stop-input');
+      },
+    );
+
+    expect(events).toEqual(['send:false', 'stop-input']);
+  });
+});
+
+describe('generation-scoped TTS controls', () => {
+  it('accepts the active generation and rejects stale controls', () => {
+    expect(isMessageForCurrentGeneration(7, '7')).toBe(true);
+    expect(isMessageForCurrentGeneration(6, '7')).toBe(false);
+  });
+
+  it('keeps legacy unscoped controls compatible', () => {
+    expect(isMessageForCurrentGeneration(undefined, '7')).toBe(true);
+    expect(isMessageForCurrentGeneration(7, null)).toBe(true);
+  });
+
+  it('rejects scoped controls before playback and after playback is cleared', () => {
+    expect(isTtsControlForCurrentGeneration(7, null)).toBe(false);
+    expect(isTtsControlForCurrentGeneration(7, '7')).toBe(true);
+    expect(isTtsControlForCurrentGeneration(6, '7')).toBe(false);
+    expect(isTtsControlForCurrentGeneration(7, null)).toBe(false);
+    expect(isTtsControlForCurrentGeneration(undefined, '7')).toBe(true);
+  });
+
+  it('rejects a late mute after interruption or natural playback idle', () => {
+    expect(shouldApplyTtsMute(7, '7', true)).toBe(true);
+    expect(shouldApplyTtsMute(7, null, false)).toBe(false);
+    expect(shouldApplyTtsMute(7, '7', false)).toBe(false);
+  });
+});
+
+describe('translator TTS playback gate', () => {
+  it('blocks playback immediately when the translator opens', () => {
+    const gate = transitionTranslatorTtsGate('normal', 'open-translator');
+
+    expect(gate).toBe('translator-open');
+    expect(canPlayConversationTts(gate)).toBe(false);
+  });
+
+  it('keeps old response chunks blocked after close until the next user turn', () => {
+    const openGate = transitionTranslatorTtsGate('normal', 'open-translator');
+    const closedGate = transitionTranslatorTtsGate(openGate, 'close-translator');
+
+    expect(closedGate).toBe('waiting-next-turn');
+    expect(canPlayConversationTts(closedGate)).toBe(false);
+  });
+
+  it('unlocks after the conversation capture boundary has been reset', () => {
+    const nextTurnGate = transitionTranslatorTtsGate(
+      'waiting-next-turn',
+      'capture-boundary-ready',
+    );
+
+    expect(nextTurnGate).toBe('normal');
+    expect(canPlayConversationTts(nextTurnGate)).toBe(true);
+  });
+
+  it('does not unlock when a delayed final request arrives while the translator is open', () => {
+    expect(transitionTranslatorTtsGate(
+      'translator-open',
+      'final-user-request',
+    ))
+      .toBe('translator-open');
+  });
+
+  it('keeps every final muted until the capture reset barrier completes', () => {
+    expect(transitionTranslatorTtsGate(
+      'waiting-next-turn',
+      'final-user-request',
+    )).toBe('waiting-next-turn');
+    expect(transitionTranslatorTtsGate(
+      'waiting-next-turn',
+      'final-user-request',
+    )).toBe('waiting-next-turn');
+  });
+
+  it('reopens server-STT playback without a browser transcript confirmation', () => {
+    let gate = transitionTranslatorTtsGate('normal', 'open-translator');
+    gate = transitionTranslatorTtsGate(gate, 'close-translator');
+    gate = transitionTranslatorTtsGate(gate, 'final-user-request');
+    expect(canPlayConversationTts(gate)).toBe(false);
+
+    gate = transitionTranslatorTtsGate(gate, 'capture-boundary-ready');
+    expect(canPlayConversationTts(gate)).toBe(true);
+  });
+
+  it('also reopens for an explicit typed conversation input', () => {
+    let gate = transitionTranslatorTtsGate('normal', 'open-translator');
+    gate = transitionTranslatorTtsGate(gate, 'close-translator');
+    gate = transitionTranslatorTtsGate(gate, 'conversation-input-ready');
+
+    expect(canPlayConversationTts(gate)).toBe(true);
+  });
+
+  it('handles repeated open and close events without reopening playback', () => {
+    expect(transitionTranslatorTtsGate('translator-open', 'open-translator'))
+      .toBe('translator-open');
+    expect(transitionTranslatorTtsGate('waiting-next-turn', 'close-translator'))
+      .toBe('waiting-next-turn');
   });
 });
 

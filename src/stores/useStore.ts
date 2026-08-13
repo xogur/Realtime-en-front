@@ -552,9 +552,48 @@ function pickResultStatus(
     return rank[incoming] > rank[local] ? incoming : local;
 }
 
+function normalizeEvaluationTurnIdentity(evaluation: TurnEvaluation, turnId?: string): TurnEvaluation {
+    const canonicalTurnId = turnId ?? evaluation.turnId;
+    return {
+        ...evaluation,
+        turnId: canonicalTurnId,
+        missionCandidates: evaluation.missionCandidates?.map((mission) => ({
+            ...mission,
+            sourceTurnId: canonicalTurnId,
+        })),
+    };
+}
+
+function normalizeCorrectionTurnIdentity(correction: TurnCorrection, turnId?: string): TurnCorrection {
+    return {
+        ...correction,
+        turnId: turnId ?? correction.turnId,
+    };
+}
+
+function normalizeMessageTurnIdentity(message: ChatMessage): ChatMessage {
+    if (!message.id) return message;
+    return {
+        ...message,
+        evaluation: message.evaluation
+            ? normalizeEvaluationTurnIdentity(message.evaluation, message.id)
+            : undefined,
+        correction: message.correction
+            ? normalizeCorrectionTurnIdentity(message.correction, message.id)
+            : undefined,
+    };
+}
+
 function mergeMessageState(local: ChatMessage, incoming: ChatMessage): ChatMessage {
-    const correction = local.correction ?? incoming.correction;
-    const evaluation = local.evaluation ?? incoming.evaluation;
+    const canonicalTurnId = local.id ?? incoming.id;
+    const rawCorrection = local.correction ?? incoming.correction;
+    const rawEvaluation = local.evaluation ?? incoming.evaluation;
+    const correction = rawCorrection
+        ? normalizeCorrectionTurnIdentity(rawCorrection, canonicalTurnId)
+        : undefined;
+    const evaluation = rawEvaluation
+        ? normalizeEvaluationTurnIdentity(rawEvaluation, canonicalTurnId)
+        : undefined;
     const completedMissions = mergeUniqueCompletions(local.completedMissions, incoming.completedMissions);
     const pendingMissionCompletions = mergeUniqueCompletions(
         local.pendingMissionCompletions,
@@ -585,7 +624,7 @@ function mergeMessageState(local: ChatMessage, incoming: ChatMessage): ChatMessa
     return {
         ...incoming,
         ...local,
-        id: local.id ?? incoming.id,
+        id: canonicalTurnId,
         content: mergedContent,
         speechEvidence: mergedSpeechEvidence,
         correction,
@@ -608,7 +647,7 @@ function mergeSyncedMessages(localMessages: ChatMessage[], incomingMessages: Cha
     const merged = [...localMessages];
     const fallbackMatches = new Set<number>();
 
-    incomingMessages.forEach((incoming) => {
+    incomingMessages.map(normalizeMessageTurnIdentity).forEach((incoming) => {
         let matchIndex = incoming.id
             ? merged.findIndex((local) => local.role === incoming.role && local.id === incoming.id)
             : -1;
@@ -653,10 +692,11 @@ function applyEvaluationToMessage(
     );
     const nextMessages = [...completed.messages];
     const message = nextMessages[messageIndex];
+    const canonicalTurnId = turnId ?? message.id ?? evaluation.turnId;
     nextMessages[messageIndex] = {
         ...message,
-        id: turnId ?? message.id,
-        evaluation,
+        id: canonicalTurnId,
+        evaluation: normalizeEvaluationTurnIdentity(evaluation, canonicalTurnId),
         evaluationStatus: 'ready',
         evaluationErrorCode: undefined,
         evaluationSkipReason: undefined,
@@ -1253,6 +1293,7 @@ export const useStore = create<AppState>((set, get) => ({
                     state.activeMissions,
                     state.missionQueue,
                     evaluation,
+                    turnId,
                 );
             }
 
@@ -1286,7 +1327,7 @@ export const useStore = create<AppState>((set, get) => ({
             if (fallbackMatchIndex >= 0) {
                 messages[fallbackMatchIndex] = {
                     ...messages[fallbackMatchIndex],
-                    correction,
+                    correction: normalizeCorrectionTurnIdentity(correction, turnId),
                     correctionStatus: 'ready',
                 };
                 return { messages };
@@ -1304,7 +1345,7 @@ export const useStore = create<AppState>((set, get) => ({
                         messages[index] = {
                             ...messages[index],
                             id: turnId,
-                            correction,
+                            correction: normalizeCorrectionTurnIdentity(correction, turnId),
                             correctionStatus: 'ready',
                         };
                         return { messages };

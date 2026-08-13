@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { X, MessageSquare, Send, ExternalLink } from 'lucide-react';
 import { buildKioskUrl, createClientCommandId, getChatSyncChannelName } from '@/lib/kioskIdentity';
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
+import { notifyConversationUserInput } from '@/hooks/useVoiceSocket';
 
 interface ChatOverlayProps {
     standalone?: boolean;
@@ -58,17 +59,6 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
         const text = inputValue.trim();
         if (!text) return;
 
-        if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({
-                type: 'user_text_message',
-                text,
-                clientCommandId: createClientCommandId(),
-                interruptPolicy: 'hard',
-            }));
-            setInputValue('');
-            return;
-        }
-
         if (standalone) {
             const channel = new BroadcastChannel(getChatSyncChannelName());
             channel.postMessage({
@@ -77,6 +67,18 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
                 clientCommandId: createClientCommandId(),
             });
             channel.close();
+            setInputValue('');
+            return;
+        }
+
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            notifyConversationUserInput(text);
+            socket.send(JSON.stringify({
+                type: 'user_text_message',
+                text,
+                clientCommandId: createClientCommandId(),
+                interruptPolicy: 'hard',
+            }));
             setInputValue('');
         }
     };

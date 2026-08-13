@@ -1,8 +1,11 @@
 export type TranslationLanguage = 'ko' | 'en';
 
+export type TranslationProvider = 'ollama' | 'azure' | 'deepl' | 'papago' | 'argos';
+
 export type TranslationSentenceType = 'original' | 'question' | 'exclamation';
 
 export const TRANSLATOR_WINDOW_MESSAGE = 'realtime-en:translator';
+export const MAX_TRANSLATION_TEXT_LENGTH = 160;
 
 export type TranslatorWindowMessage = {
   channel: typeof TRANSLATOR_WINDOW_MESSAGE;
@@ -78,8 +81,11 @@ export type TranslationResponse = {
   translated_text: string;
   source_language: TranslationLanguage;
   target_language: TranslationLanguage;
-  provider: 'argos';
+  provider: TranslationProvider;
+  fallback_reason?: string | null;
 };
+
+const TRANSLATION_PROVIDERS = new Set<TranslationProvider>(['ollama', 'azure', 'deepl', 'papago', 'argos']);
 
 type TranslatorEnvironment = {
   apiUrl?: string;
@@ -141,7 +147,10 @@ export async function translateText(
     !body
     || !('translated_text' in body)
     || typeof body.translated_text !== 'string'
-    || body.provider !== 'argos'
+    || !TRANSLATION_PROVIDERS.has(body.provider)
+    || (body.fallback_reason !== undefined
+      && body.fallback_reason !== null
+      && typeof body.fallback_reason !== 'string')
     || body.source_language !== sourceLanguage
     || body.target_language !== targetLanguage
   ) {

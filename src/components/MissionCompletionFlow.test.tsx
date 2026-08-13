@@ -177,4 +177,72 @@ describe('mission completion UI flow', () => {
             expect(document.querySelector('[data-mission-id="mission-from-evaluation"]')).toBeTruthy();
         });
     });
+
+    it('keeps the quest panel visible before and during the first evaluation', async () => {
+        useStore.getState().setActiveMissions([]);
+        render(<AssessmentPanel />);
+
+        expect(screen.getByText('오늘의 퀘스트')).toBeTruthy();
+        expect(screen.getByText('첫 답변을 마치면 맞춤 퀘스트가 생성됩니다.')).toBeTruthy();
+        expect(screen.queryByText('0점')).toBeNull();
+
+        act(() => {
+            useStore.getState().addMessage('user', 'I am looking for Gate 5.', '10:2');
+        });
+
+        expect(await screen.findByText('답변을 평가하고 퀘스트를 준비하고 있어요.')).toBeTruthy();
+
+        act(() => {
+            useStore.getState().setTurnEvaluationUnavailable('10:2', 'provider_error');
+        });
+
+        expect(await screen.findByText('평가를 불러오지 못했습니다. 다음 답변에서 다시 시도합니다.')).toBeTruthy();
+    });
+
+    it('publishes missions for reused generation numbers in different sessions', async () => {
+        useStore.getState().setActiveMissions([]);
+        render(<AssessmentPanel />);
+
+        const oldMission = replacementMission('mission-session-9', 'because');
+        const currentMission = replacementMission('mission-session-10', 'however');
+
+        act(() => {
+            useStore.getState().addMessage('user', 'Old session answer.', '9:2');
+            useStore.getState().addMessage('assistant', 'Old session prompt?', '9:2');
+            useStore.getState().setTurnEvaluation('9:2', {
+                ...batchEvaluation,
+                turnId: '2',
+                correction: { ...batchEvaluation.correction, original: 'Old session answer.' },
+                missionCandidates: [{ ...oldMission, sourceTurnId: '2' }],
+            });
+        });
+
+        await waitFor(() => {
+            const ids = [
+                ...useStore.getState().activeMissions,
+                ...useStore.getState().missionQueue,
+            ].map((item) => item.id);
+            expect(ids).toContain('mission-session-9');
+        });
+
+        act(() => {
+            useStore.getState().addMessage('user', 'Current session answer.', '10:2');
+            useStore.getState().addMessage('assistant', 'Current session prompt?', '10:2');
+            useStore.getState().setTurnEvaluation('10:2', {
+                ...batchEvaluation,
+                turnId: '2',
+                correction: { ...batchEvaluation.correction, original: 'Current session answer.' },
+                missionCandidates: [{ ...currentMission, sourceTurnId: '2' }],
+            });
+        });
+
+        await waitFor(() => {
+            const missions = [
+                ...useStore.getState().activeMissions,
+                ...useStore.getState().missionQueue,
+            ];
+            expect(missions.map((item) => item.id)).toContain('mission-session-10');
+            expect(missions.find((item) => item.id === 'mission-session-10')?.sourceTurnId).toBe('10:2');
+        });
+    });
 });

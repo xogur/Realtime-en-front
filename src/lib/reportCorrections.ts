@@ -6,8 +6,10 @@ export const TARGET_CORRECTION_MAX = 15;
 export const ABSOLUTE_CORRECTION_MAX = 20;
 
 export type ReportCorrectionCategory = NonNullable<TurnEvaluation['correction']['category']>;
+export type ReportItemKind = 'confirmed_correction' | 'teacher_review' | 'key_utterance';
 
 export type ReportCorrectionItem = {
+  kind: ReportItemKind;
   id: string;
   conversationIndex: number;
   topic: string;
@@ -36,6 +38,8 @@ export type ReportSampleStatus = {
 
 export type ReportContent = {
   corrections: ReportCorrectionItem[];
+  reviewItems: ReportCorrectionItem[];
+  keyUtterances: ReportCorrectionItem[];
   highlights: ReportCorrectionItem[];
   items: ReportCorrectionItem[];
 };
@@ -91,11 +95,7 @@ function isLengthOnlyExpansion(original: string, suggested: string): boolean {
   const originalWords = normalizeText(original).match(/[a-z']+/g) ?? [];
   const suggestedWords = normalizeText(suggested).match(/[a-z']+/g) ?? [];
   if (originalWords.length === 0 || suggestedWords.length <= originalWords.length) return false;
-  let cursor = 0;
-  suggestedWords.forEach((word) => {
-    if (word === originalWords[cursor]) cursor += 1;
-  });
-  return cursor === originalWords.length;
+  return originalWords.every((word, index) => suggestedWords[index] === word);
 }
 
 function wordsOnly(text: string): string {
@@ -227,6 +227,7 @@ export function buildReportCorrections(
       + (hasRepeatedError ? 8 : 0);
 
     candidates.push({
+      kind: 'confirmed_correction',
       id: message.id ?? evaluation.turnId,
       conversationIndex,
       topic: segment?.label ?? '일반 대화',
@@ -276,14 +277,7 @@ export function buildReportCorrections(
     issueCounts.set(selected.issueKey, (issueCounts.get(selected.issueKey) ?? 0) + 1);
   }
 
-  const selected = ranked.slice(0, TARGET_CORRECTION_MAX);
-  for (const candidate of ranked.slice(TARGET_CORRECTION_MAX)) {
-    if (selected.length >= ABSOLUTE_CORRECTION_MAX) break;
-    const isCriticalExtra = candidate.priority === 'high'
-      || candidate.category === 'comprehension'
-      || candidate.category === 'meaning_clarity';
-    if (isCriticalExtra) selected.push(candidate);
-  }
+  const selected = ranked.slice(0, ABSOLUTE_CORRECTION_MAX);
 
   return selected.sort((left, right) => left.conversationIndex - right.conversationIndex);
 }
@@ -311,14 +305,18 @@ export function buildReportHighlights(
       const hasExplicitCorrection = Boolean(correction.suggested.trim())
         && normalizeText(original) !== normalizeText(correction.suggested);
       if (confidence.toLowerCase() === 'low') return;
-      if (correction.contextFit === 'off_topic' || correction.contextFit === 'unknown') return;
-      if (correction.decision === 'confirmed_error' || hasExplicitCorrection) return;
+      if (correction.contextFit === 'off_topic') return;
+      if (
+        correction.decision === 'confirmed_error'
+        || correction.decision === 'transcript_uncertain'
+        || hasExplicitCorrection
+      ) return;
     }
 
     const sentence = message.content.trim();
     const normalized = normalizeText(sentence);
     const wordCount = sentence.match(/[a-z]+(?:'[a-z]+)?/gi)?.length ?? 0;
-    if (!normalized || !/[a-z]/i.test(sentence) || wordCount < 2 || seen.has(normalized)) return;
+    if (!normalized || !/[a-z]/i.test(sentence) || wordCount < 1 || seen.has(normalized)) return;
     seen.add(normalized);
 
     const segment = resolveSegment(message, segments);
@@ -328,6 +326,7 @@ export function buildReportHighlights(
     const evaluationScore = Math.round((message.evaluation?.scores.overall ?? 0) / 10);
 
     candidates.push({
+      kind: 'key_utterance',
       id: `highlight:${message.id ?? conversationIndex}`,
       conversationIndex,
       topic: segment?.label ?? '일반 대화',
@@ -355,28 +354,112 @@ export function buildReportHighlights(
     .sort((left, right) => left.conversationIndex - right.conversationIndex);
 }
 
+export function buildReportTeacherReviews(
+  messages: ChatMessage[],
+  segments: TopicSegment[],
+  excludedConversationIndexes: ReadonlySet<number> = new Set(),
+): ReportCorrectionItem[] {
+  const seen = new Set<string>();
+  const candidates: ReportCorrectionItem[] = [];
+
+  messages.forEach((message, conversationIndex) => {
+    if (message.role !== 'user' || excludedConversationIndexes.has(conversationIndex)) return;
+    if (message.evaluationSkipReason && NON_CONTENT_REASONS.has(message.evaluationSkipReason)) return;
+    const evaluation = message.evaluation;
+    if (evaluation && isEligible(message, evaluation)) return;
+
+    const original = evaluation?.correction.original.trim()
+      || message.correction?.original.trim()
+      || message.content.trim();
+    const normalized = normalizeText(original);
+    if (!normalized || !/[a-z]/i.test(original) || seen.has(normalized)) return;
+
+    const evaluatedSuggestion = evaluation?.correction.suggested.trim() ?? '';
+    const realtimeSuggestion = message.correction?.suggested.trim() ?? '';
+    const suggested = [evaluatedSuggestion, realtimeSuggestion].find(
+      (candidate) => candidate && normalizeText(candidate) !== normalized,
+    ) ?? '';
+    const decision = evaluation?.correction.decision;
+    const reviewWorthy = evaluation
+      ? decision === 'not_an_error'
+        ? false
+        : decision === 'confirmed_error'
+        || decision === 'transcript_uncertain'
+        || decision === 'optional_upgrade'
+        || evaluation.correction.contextFit === 'unknown'
+      : Boolean(suggested);
+    if (!reviewWorthy) return;
+    seen.add(normalized);
+
+    const segment = resolveSegment(message, segments);
+    const category = evaluation ? categoryFromEvaluation(evaluation) : 'naturalness';
+    const reason = evaluation?.correction.reason.trim()
+      || message.correction?.reason.trim()
+      || '문맥과 의도에 따라 다른 표현도 가능해 참고용으로 정리한 문장입니다.';
+    const score = 70
+      + (decision === 'confirmed_error' ? 20 : 0)
+      + (suggested ? 8 : 0)
+      + (evaluation?.correction.contextFit === 'unknown' ? 4 : 0);
+
+    candidates.push({
+      kind: 'teacher_review',
+      id: `review:${message.id ?? evaluation?.turnId ?? message.correction?.turnId ?? conversationIndex}`,
+      conversationIndex,
+      topic: segment?.label ?? '일반 대화',
+      difficulty: segment?.difficultyLabel ?? '정보 없음',
+      category,
+      categoryLabel: '표현 참고',
+      assistantPrompt: findAssistantPrompt(messages, conversationIndex),
+      original,
+      suggested,
+      reason,
+      problem: evaluation?.correction.problem?.trim() ?? '',
+      usageGuide: evaluation?.correction.usageGuide?.trim() ?? '',
+      contextReason: evaluation?.correction.contextReason?.trim() ?? '',
+      priority: 'low',
+      score,
+      issueKey: `review:${evaluation?.correction.issueCode || normalized.slice(0, 80)}`,
+      issueCode: evaluation?.correction.issueCode?.trim() || 'teacher_review',
+      errorTags: ['teacher_review'],
+    });
+  });
+
+  return candidates.sort(
+    (left, right) => right.score - left.score || left.conversationIndex - right.conversationIndex,
+  );
+}
+
 export function buildReportContent(
   messages: ChatMessage[],
   segments: TopicSegment[],
 ): ReportContent {
   const corrections = buildReportCorrections(messages, segments);
-  if (corrections.length >= TARGET_CORRECTION_MIN) {
-    return { corrections, highlights: [], items: corrections };
-  }
-
   const excludedConversationIndexes = new Set(
     corrections.map((correction) => correction.conversationIndex),
   );
-  const availableHighlights = buildReportHighlights(
+  const availableReviews = buildReportTeacherReviews(
     messages,
     segments,
     excludedConversationIndexes,
   );
-  const supplementLimit = Math.max(0, TARGET_CORRECTION_MAX - corrections.length);
-  const highlights = availableHighlights.slice(0, supplementLimit);
+  availableReviews.forEach((item) => excludedConversationIndexes.add(item.conversationIndex));
+  const availableHighlights = buildReportHighlights(messages, segments, excludedConversationIndexes);
+  const availableCount = corrections.length + availableReviews.length + availableHighlights.length;
+  const desiredCount = corrections.length > TARGET_CORRECTION_MAX
+    ? Math.min(corrections.length, ABSOLUTE_CORRECTION_MAX)
+    : availableCount <= 12
+      ? availableCount
+      : Math.min(TARGET_CORRECTION_MAX, availableCount);
+  const remainingAfterCorrections = Math.max(0, desiredCount - corrections.length);
+  const reviewItems = availableReviews.slice(0, remainingAfterCorrections);
+  const remainingAfterReviews = Math.max(0, remainingAfterCorrections - reviewItems.length);
+  const keyUtterances = availableHighlights.slice(0, remainingAfterReviews);
+  const highlights = [...reviewItems, ...keyUtterances];
 
   return {
     corrections,
+    reviewItems,
+    keyUtterances,
     highlights,
     items: [...corrections, ...highlights]
       .sort((left, right) => left.conversationIndex - right.conversationIndex),

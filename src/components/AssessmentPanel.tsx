@@ -1019,10 +1019,12 @@ function ActiveMissionsPanel({
     missions,
     completedMissionIds,
     holdReplacements,
+    status,
 }: {
     missions: PracticeMission[];
     completedMissionIds: Set<string>;
     holdReplacements: boolean;
+    status: 'initial' | 'pending' | 'ready' | 'unavailable';
 }) {
     const missionSlots = [0, 1, 2];
     const markMissionsPresented = useStore((state) => state.markMissionsPresented);
@@ -1031,6 +1033,24 @@ function ActiveMissionsPanel({
         holdReplacements,
         markMissionsPresented,
     );
+    const statusCopy = {
+        initial: {
+            summary: '첫 답변을 마치면 맞춤 퀘스트가 생성됩니다.',
+            empty: '첫 답변 평가 후 새 미션이 표시됩니다.',
+        },
+        pending: {
+            summary: '답변을 평가하고 퀘스트를 준비하고 있어요.',
+            empty: '평가가 끝나면 이 슬롯에 미션이 표시됩니다.',
+        },
+        ready: {
+            summary: '표현을 쓰면 완료되고 새 목표가 들어옵니다.',
+            empty: '다음 응답 평가 후 새 미션이 표시됩니다.',
+        },
+        unavailable: {
+            summary: '평가를 불러오지 못했습니다. 다음 답변에서 다시 시도합니다.',
+            empty: '다음 답변을 마치면 미션 생성을 다시 시도합니다.',
+        },
+    }[status];
 
     return (
         <section className="group relative flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-[#483c2d]/10 bg-[#f8f1ea]/90 p-2.5 shadow-[0_8px_24px_rgba(72,60,45,0.08)]">
@@ -1040,7 +1060,7 @@ function ActiveMissionsPanel({
                         <Flag className="h-3.5 w-3.5 text-[#a8792f]" />
                         오늘의 퀘스트
                     </p>
-                    <p className="mt-0.5 text-xs font-medium text-[#7a695b]">표현을 쓰면 완료되고 새 목표가 들어옵니다.</p>
+                    <p className="mt-0.5 text-xs font-medium text-[#7a695b]">{statusCopy.summary}</p>
                 </div>
                 <span className="shrink-0 rounded-md border border-[#c59b55]/25 bg-[#fff4d9] px-2.5 py-0.5 font-mono text-xs font-black text-[#7a540f]">{displayedMissions.length}/3</span>
             </div>
@@ -1061,7 +1081,7 @@ function ActiveMissionsPanel({
                                     <span className="text-[11px] font-black text-[#6b5a4a]">대기 슬롯</span>
                                 </div>
                                 <p className="mt-2 line-clamp-3 text-xs font-medium leading-snug text-[#8a796b]">
-                                    다음 응답 평가 후 새 미션이 표시됩니다.
+                                    {statusCopy.empty}
                                 </p>
                             </motion.div>
                         );
@@ -1989,7 +2009,13 @@ export function AssessmentPanel({
         const userMessages = messages.filter((message) => message.role === 'user');
         const turns: EvaluatedTurn[] = userMessages
             .filter((message): message is ChatMessage & { evaluation: TurnEvaluation } => Boolean(message.evaluation))
-            .map((message) => ({ message, evaluation: message.evaluation }));
+            .map((message) => ({
+                message,
+                evaluation: {
+                    ...message.evaluation,
+                    turnId: message.id ?? message.evaluation.turnId,
+                },
+            }));
         const latestTurn = turns[turns.length - 1] ?? null;
         const metricAverages = METRICS.map(({ key, label }) => ({
             key,
@@ -2057,6 +2083,13 @@ export function AssessmentPanel({
         || userMessages.some((message) => (message.completedMissions?.length ?? 0) > 0);
     const showCoachContent = shouldShowCoachContent(turns.length, Boolean(latestCorrectionMessage))
         || hasMissionActivity;
+    const missionPanelStatus = activeMissions.length > 0
+        ? 'ready' as const
+        : pendingCount > 0
+            ? 'pending' as const
+            : unavailableMessages.length > 0
+                ? 'unavailable' as const
+                : 'initial' as const;
     const realtimeTurnLps = userMessages.map((message) => getCurrentMessageLp(message));
     const tier = calculateTierProgress({
         tiers: TIERS,
@@ -2112,12 +2145,13 @@ export function AssessmentPanel({
         if (turns.length === 0) return;
 
         turns.forEach((turn) => {
-            if (publishedMissionTurnIds.current.has(turn.evaluation.turnId)) return;
-            publishedMissionTurnIds.current.add(turn.evaluation.turnId);
+            const turnId = turn.message.id ?? turn.evaluation.turnId;
+            if (publishedMissionTurnIds.current.has(turnId)) return;
+            publishedMissionTurnIds.current.add(turnId);
 
             addMissionCandidates(getPracticeMissionCandidates(
                 turn,
-                getAssistantPromptAfterTurn(messages, turn.evaluation.turnId),
+                getAssistantPromptAfterTurn(messages, turnId),
             ));
         });
     }, [addMissionCandidates, messages, turns]);
@@ -2282,19 +2316,29 @@ export function AssessmentPanel({
                 />
 
                 {!showCoachContent ? (
-                    <motion.section
-                        initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="mt-4 flex flex-1 items-center justify-center rounded-xl border border-dashed border-[#483c2d]/15 bg-white/35 p-6 text-center"
-                    >
-                        <div className="max-w-sm">
-                            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl border border-[#71805f]/20 bg-[#edf1e8] text-[#5f7353]">
-                                <Activity className="h-6 w-6" />
-                            </div>
-                            <h3 className="mt-4 text-base font-black text-[#3b3028]">대화를 시작해보세요</h3>
-                            <p className="mt-2 text-sm leading-relaxed text-[#7a695b]">말하는 흐름은 그대로 유지하고, 점수·교정·다음 미션은 이곳에 실시간으로 쌓입니다.</p>
+                    <div className="mt-3 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+                        <div className="min-h-[190px] shrink-0">
+                            <ActiveMissionsPanel
+                                missions={activeMissions}
+                                completedMissionIds={missionCelebration.completedMissionIds}
+                                holdReplacements={missionCelebration.isTransitionPending}
+                                status={missionPanelStatus}
+                            />
                         </div>
-                    </motion.section>
+                        <motion.section
+                            initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="flex min-h-[180px] flex-1 items-center justify-center rounded-xl border border-dashed border-[#483c2d]/15 bg-white/35 p-6 text-center"
+                        >
+                            <div className="max-w-sm">
+                                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-xl border border-[#71805f]/20 bg-[#edf1e8] text-[#5f7353]">
+                                    <Activity className="h-6 w-6" />
+                                </div>
+                                <h3 className="mt-4 text-base font-black text-[#3b3028]">대화를 시작해보세요</h3>
+                                <p className="mt-2 text-sm leading-relaxed text-[#7a695b]">말하는 흐름은 그대로 유지하고, 점수·교정·다음 미션은 이곳에 실시간으로 쌓입니다.</p>
+                            </div>
+                        </motion.section>
+                    </div>
                 ) : (
                     <div className="mt-3 grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-2 lg:grid-rows-[minmax(176px,2.1fr)_minmax(200px,2.4fr)_minmax(0,5.5fr)] lg:overflow-hidden">
                         <div className="contents">
@@ -2481,6 +2525,7 @@ export function AssessmentPanel({
                                     missions={activeMissions}
                                     completedMissionIds={missionCelebration.completedMissionIds}
                                     holdReplacements={missionCelebration.isTransitionPending}
+                                    status={missionPanelStatus}
                                 />
                             </div>
 

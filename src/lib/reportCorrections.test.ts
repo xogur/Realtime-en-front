@@ -5,6 +5,7 @@ import {
   buildReportContent,
   buildReportCorrections,
   buildReportHighlights,
+  buildReportTeacherReviews,
   getReportSampleStatus,
   paginateReportCorrections,
   TARGET_CORRECTION_MAX,
@@ -161,6 +162,24 @@ describe('buildReportCorrections', () => {
     expect(correction.issueCode).toBe('verb_tense');
   });
 
+  it('does not mistake a required article insertion for a style-only expansion', () => {
+    const item = evaluation('article', 'I bought book.', {
+      suggested: 'I bought a book.',
+      decision: 'confirmed_error',
+      issueCode: 'article',
+      errorSpan: 'book',
+      correctedSpan: 'a book',
+    });
+    const [correction] = buildReportCorrections([{
+      id: 'article',
+      role: 'user',
+      content: 'I bought book.',
+      evaluation: { ...item, errorTags: ['article'] },
+    }], []);
+
+    expect(correction.suggested).toBe('I bought a book.');
+  });
+
   it('uses the previous assistant question from the same topic segment', () => {
     const answer = 'I go there yesterday.';
     const messages: ChatMessage[] = [
@@ -226,15 +245,9 @@ describe('buildReportCorrections', () => {
     expect(buildReportCorrections(correctionMessages(13), [segment()])).toHaveLength(13);
   });
 
-  it('normally selects 15 items but allows critical items up to 20', () => {
-    const normal = buildReportCorrections(correctionMessages(25), [segment()]);
-    const critical = buildReportCorrections(correctionMessages(25, {
-      category: 'meaning_clarity',
-      reportPriority: 'high',
-    }), [segment()]);
-
-    expect(normal).toHaveLength(TARGET_CORRECTION_MAX);
-    expect(critical).toHaveLength(ABSOLUTE_CORRECTION_MAX);
+  it('keeps 16 to 20 confirmed corrections and caps larger reports at 20', () => {
+    expect(buildReportCorrections(correctionMessages(18), [segment()])).toHaveLength(18);
+    expect(buildReportCorrections(correctionMessages(25), [segment()])).toHaveLength(ABSOLUTE_CORRECTION_MAX);
   });
 
   it('returns selected corrections in conversation order', () => {
@@ -328,6 +341,94 @@ describe('buildReportHighlights', () => {
   });
 });
 
+describe('buildReportTeacherReviews', () => {
+  it('keeps a realtime correction while the final evaluation is still pending', () => {
+    const messages: ChatMessage[] = [{
+      id: 'realtime-only',
+      role: 'user',
+      content: 'I go yesterday.',
+      correction: {
+        turnId: 'realtime-only',
+        provider: 'test',
+        model: 'test',
+        createdAt: '2026-08-12T00:00:00.000Z',
+        original: 'I go yesterday.',
+        suggested: 'I went yesterday.',
+        reason: '과거 시제 후보입니다.',
+      },
+      evaluationStatus: 'pending',
+    }];
+
+    expect(buildReportTeacherReviews(messages, [segment()])).toMatchObject([{
+      kind: 'teacher_review',
+      original: 'I go yesterday.',
+      suggested: 'I went yesterday.',
+    }]);
+  });
+
+  it('drops a realtime suggestion after the final evaluation confirms not_an_error', () => {
+    const finalEvaluation = evaluation('final-safe', 'Yes, I do.', {
+      suggested: '',
+      decision: 'not_an_error',
+      contextFit: 'unknown',
+      reportEligible: false,
+      reportPriority: 'none',
+    });
+    const messages: ChatMessage[] = [{
+      id: 'final-safe',
+      role: 'user',
+      content: 'Yes, I do.',
+      evaluation: { ...finalEvaluation, errorTags: [] },
+      evaluationStatus: 'ready',
+      correction: {
+        turnId: 'final-safe',
+        provider: 'test',
+        model: 'test',
+        createdAt: '2026-08-12T00:00:00.000Z',
+        original: 'Yes, I do.',
+        suggested: 'Yes, I do, because I enjoy it.',
+        reason: '실시간 확장 후보',
+      },
+    }];
+
+    expect(buildReportTeacherReviews(messages, [])).toEqual([]);
+  });
+
+  it('keeps an uncertain evaluated turn and uses its realtime correction as a review suggestion', () => {
+    const uncertain = evaluation('uncertain', 'I favorite comedy.', {
+      suggested: '',
+      decision: 'confirmed_error',
+      contextFit: 'unknown',
+      reportEligible: false,
+      reportPriority: 'none',
+    });
+    const messages: ChatMessage[] = [{
+      id: 'uncertain',
+      role: 'user',
+      content: 'I favorite comedy.',
+      evaluation: uncertain,
+      correction: {
+        turnId: 'uncertain',
+        provider: 'test',
+        model: 'test',
+        createdAt: '2026-08-12T00:00:00.000Z',
+        original: 'I favorite comedy.',
+        suggested: 'My favorite is comedy.',
+        reason: 'favorite 앞에 소유격을 사용합니다.',
+      },
+    }];
+
+    const reviews = buildReportTeacherReviews(messages, []);
+
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]).toMatchObject({
+      kind: 'teacher_review',
+      original: 'I favorite comedy.',
+      suggested: 'My favorite is comedy.',
+    });
+  });
+});
+
 describe('buildReportContent', () => {
   it('keeps real corrections and fills the remaining report with distinct conversation highlights', () => {
     const corrections = correctionMessages(3);
@@ -359,6 +460,102 @@ describe('buildReportContent', () => {
     ];
 
     expect(buildReportContent(messages, [segment()]).items).toHaveLength(TARGET_CORRECTION_MAX);
+  });
+
+  it('builds a 15-item report from one correction, review candidates, and key utterances', () => {
+    const reviewMessages: ChatMessage[] = Array.from({ length: 9 }, (_, index) => {
+      const id = `review-${index + 1}`;
+      const original = `I said uncertain sentence number ${index + 1}.`;
+      return {
+        id,
+        role: 'user',
+        content: original,
+        evaluation: evaluation(id, original, {
+          suggested: '',
+          decision: 'transcript_uncertain',
+          contextFit: 'unknown',
+          reportEligible: false,
+          reportPriority: 'none',
+        }),
+      };
+    });
+    const keyMessages: ChatMessage[] = Array.from({ length: 8 }, (_, index) => ({
+      id: `key-${index + 1}`,
+      role: 'user',
+      content: `My useful key sentence is number ${index + 1}.`,
+    }));
+
+    const content = buildReportContent([
+      ...correctionMessages(1),
+      ...reviewMessages,
+      ...keyMessages,
+    ], [segment()]);
+
+    expect(content.items).toHaveLength(15);
+    expect(content.corrections).toHaveLength(1);
+    expect(content.reviewItems).toHaveLength(9);
+    expect(content.keyUtterances).toHaveLength(5);
+  });
+
+  it('promotes a same-turn review to a confirmed correction and replaces a key utterance', () => {
+    const baseMessages: ChatMessage[] = Array.from({ length: 15 }, (_, index) => ({
+      id: `turn-${index + 1}`,
+      role: 'user',
+      content: `I shared useful sentence number ${index + 1}.`,
+    }));
+    const before = buildReportContent(baseMessages, []);
+    const promoted = [...baseMessages];
+    const original = 'I go there yesterday.';
+    promoted[7] = {
+      ...promoted[7],
+      content: original,
+      evaluation: evaluation(promoted[7].id ?? 'turn-8', original, {
+        suggested: 'I went there yesterday.',
+        decision: 'confirmed_error',
+        errorSpan: 'go',
+        correctedSpan: 'went',
+      }),
+    };
+    const after = buildReportContent(promoted, []);
+
+    expect(before.corrections).toHaveLength(0);
+    expect(after.items).toHaveLength(15);
+    expect(after.corrections).toHaveLength(1);
+    expect(after.items.find((item) => item.conversationIndex === 7)?.kind).toBe('confirmed_correction');
+    expect(after.keyUtterances).toHaveLength(14);
+  });
+
+  it('uses the exact available count below 15 and expands for 18 confirmed corrections', () => {
+    const thirteen = Array.from({ length: 13 }, (_, index) => ({
+      id: `available-${index}`,
+      role: 'user' as const,
+      content: `Meaningful learner answer ${index + 1}.`,
+    }));
+
+    expect(buildReportContent(thirteen, []).items).toHaveLength(13);
+    expect(buildReportContent(correctionMessages(18), [segment()]).items).toHaveLength(18);
+  });
+
+  it.each([
+    [12, 12], [13, 13], [14, 14], [15, 15], [16, 16], [20, 20], [21, 20],
+  ])('applies the exact confirmed-correction boundary for %i candidates', (count, expected) => {
+    expect(buildReportContent(correctionMessages(count), [segment()]).items).toHaveLength(expected);
+  });
+
+  it('replaces one key utterance when a new correction arrives on another turn', () => {
+    const keyMessages: ChatMessage[] = Array.from({ length: 15 }, (_, index) => ({
+      id: `key-turn-${index + 1}`,
+      role: 'user',
+      content: `I shared meaningful answer number ${index + 1}.`,
+    }));
+    const correction = correctionMessages(1)[0];
+    const before = buildReportContent(keyMessages, []);
+    const after = buildReportContent([...keyMessages, correction], [segment()]);
+
+    expect(before.keyUtterances).toHaveLength(15);
+    expect(after.items).toHaveLength(15);
+    expect(after.corrections).toHaveLength(1);
+    expect(after.keyUtterances).toHaveLength(14);
   });
 
   it('does not add highlights when enough real corrections already exist', () => {

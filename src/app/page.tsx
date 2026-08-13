@@ -52,6 +52,8 @@ export default function Home() {
       action: 'close',
     };
     setIsTranslatorOpen(false);
+    // Notify same-window listeners even when BroadcastChannel is unavailable.
+    window.postMessage(message, window.location.origin);
     translatorChannelRef.current?.postMessage(message);
 
     if (chatWindowRef.current && !chatWindowRef.current.closed) {
