@@ -173,6 +173,109 @@ describe('TranslatorOverlay', () => {
     expect((source as HTMLTextAreaElement).value).toBe('다른 문장');
   });
 
+  it('clears the source, result, provider, and focuses the source without changing direction', async () => {
+    mocks.translateText.mockResolvedValueOnce({
+      translated_text: 'Hello',
+      source_language: 'ko',
+      target_language: 'en',
+      provider: 'papago',
+    });
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    const source = screen.getByRole('textbox');
+    fireEvent.change(source, { target: { value: '안녕하세요' } });
+    fireEvent.click(screen.getByRole('button', { name: '번역하기' }));
+    await screen.findByText('Hello');
+    expect(screen.getByRole('link', { name: '파파고 번역' })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '입력과 번역 결과 모두 지우기' }));
+
+    expect((source as HTMLTextAreaElement).value).toBe('');
+    expect(screen.queryByText('Hello')).toBeNull();
+    expect(screen.queryByRole('link', { name: '파파고 번역' })).toBeNull();
+    expect(document.activeElement).toBe(source);
+    expect(screen.getByText('한국어')).toBeTruthy();
+    expect(screen.getByText('English')).toBeTruthy();
+  });
+
+  it('preserves the selected translation direction after clear', async () => {
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '안녕하세요' } });
+    fireEvent.click(screen.getByRole('button', { name: '번역하기' }));
+    await screen.findByText('Hello');
+    fireEvent.click(screen.getByRole('button', { name: '번역 방향 바꾸기' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '입력과 번역 결과 모두 지우기' }));
+
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).placeholder).toBe('Type or speak an English sentence.');
+  });
+
+  it('cancels a pending translation and never restores its result after clear', async () => {
+    let resolveFirst: ((value: {
+      translated_text: string;
+      source_language: 'ko';
+      target_language: 'en';
+      provider: 'ollama';
+    }) => void) | undefined;
+    mocks.translateText.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveFirst = resolve;
+    }));
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '안녕하세요' } });
+    fireEvent.click(screen.getByRole('button', { name: '번역하기' }));
+
+    fireEvent.click(screen.getByRole('button', { name: '입력과 번역 결과 모두 지우기' }));
+    await act(async () => {
+      resolveFirst?.({
+        translated_text: 'stale result',
+        source_language: 'ko',
+        target_language: 'en',
+        provider: 'ollama',
+      });
+    });
+
+    expect(screen.queryByText('stale result')).toBeNull();
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('');
+  });
+
+  it('stops recognition and ignores a late STT final after clear', () => {
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '음성으로 입력' }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '입력 중' } });
+    const clear = screen.getByRole('button', { name: '입력과 번역 결과 모두 지우기' });
+
+    fireEvent.click(clear);
+    act(() => mocks.sttOptions?.onFinalTranscript({
+      text: '늦게 도착한 문장',
+      speechEvidence: { version: 1, provider: 'browser', finalSegments: ['늦게 도착한 문장'] },
+    }));
+
+    expect(mocks.stop).toHaveBeenCalled();
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('');
+    expect(mocks.translateText).not.toHaveBeenCalled();
+  });
+
+  it('explains replacement behavior and keeps clear disabled when nothing is active', () => {
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+
+    expect(screen.getByText('새로 입력하면 이전 번역 결과가 지워집니다. 음성 입력은 현재 입력 문장을 교체합니다.')).toBeTruthy();
+    expect((screen.getByRole('button', { name: '입력과 번역 결과 모두 지우기' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('ignores a cancelled TTS error callback after clear', async () => {
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '안녕하세요' } });
+    fireEvent.click(screen.getByRole('button', { name: '번역하기' }));
+    await screen.findByText('Hello');
+    fireEvent.click(screen.getByRole('button', { name: '문장 들어보기' }));
+    await waitFor(() => expect(speak).toHaveBeenCalledOnce());
+    const utterance = speak.mock.calls[0][0] as SpeechSynthesisUtterance;
+
+    fireEvent.click(screen.getByRole('button', { name: '입력과 번역 결과 모두 지우기' }));
+    act(() => utterance.onerror?.(new Event('error') as SpeechSynthesisErrorEvent));
+
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('lets the user restore a question mark omitted by Web Speech and retranslates', async () => {
     render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
 

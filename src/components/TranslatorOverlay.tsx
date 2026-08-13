@@ -1,7 +1,7 @@
 'use client';
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRightLeft, Headphones, Languages, Loader2, Mic, MicOff, X } from 'lucide-react';
+import { ArrowRightLeft, Headphones, Languages, Loader2, Mic, MicOff, Trash2, X } from 'lucide-react';
 
 import { useBrowserStt } from '@/hooks/useBrowserStt';
 import {
@@ -52,7 +52,9 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
   const [showSentenceTypeControls, setShowSentenceTypeControls] = useState(false);
   const requestControllerRef = useRef<AbortController | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const sourceInputRef = useRef<HTMLTextAreaElement | null>(null);
   const activityTokenRef = useRef(0);
+  const ignoreSttResultsRef = useRef(false);
 
   const runTranslation = useCallback(async (rawText: string) => {
     const text = rawText.trim();
@@ -97,6 +99,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     language: SPEECH_LANGUAGE[sourceLanguage],
     publishRecordingState: false,
     onFinalTranscript: (transcript) => {
+      if (ignoreSttResultsRef.current) return;
       const normalized = normalizeSpeechTranscript(transcript.text, sourceLanguage);
       setInterimText('');
       setSourceText(normalized.text.slice(0, MAX_TRANSLATION_TEXT_LENGTH));
@@ -104,9 +107,15 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
       setShowSentenceTypeControls(true);
       void runTranslation(normalized.text);
     },
-    onInterimTranscript: setInterimText,
+    onInterimTranscript: (text) => {
+      if (!ignoreSttResultsRef.current) setInterimText(text);
+    },
     onReadyChange: () => undefined,
-    onError: (code) => setError(STT_ERROR_MESSAGES[code] ?? '음성 인식 중 오류가 발생했습니다.'),
+    onError: (code) => {
+      if (!ignoreSttResultsRef.current) {
+        setError(STT_ERROR_MESSAGES[code] ?? '음성 인식 중 오류가 발생했습니다.');
+      }
+    },
     onUnavailable: () => undefined,
     onSpeechStarted: () => {
       window.speechSynthesis?.cancel();
@@ -117,6 +126,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
 
   const stopTranslatorActivity = useCallback(() => {
     activityTokenRef.current += 1;
+    ignoreSttResultsRef.current = true;
     requestControllerRef.current?.abort();
     requestControllerRef.current = null;
     void stopStt();
@@ -158,6 +168,18 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     setError(null);
   };
 
+  const handleClear = () => {
+    stopTranslatorActivity();
+    setSourceText('');
+    setTranslatedText('');
+    setTranslationProvider(null);
+    setInterimText('');
+    setError(null);
+    setSentenceType('original');
+    setShowSentenceTypeControls(false);
+    sourceInputRef.current?.focus();
+  };
+
   const handleSentenceType = (nextSentenceType: TranslationSentenceType) => {
     const nextText = applySentenceType(sourceText, nextSentenceType);
     if (nextText.length > MAX_TRANSLATION_TEXT_LENGTH) {
@@ -180,6 +202,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
       void stopStt();
     } else {
       activityTokenRef.current += 1;
+      ignoreSttResultsRef.current = false;
       window.speechSynthesis?.cancel();
       setIsSpeaking(false);
       setInterimText('');
@@ -216,8 +239,11 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     );
     if (matchingVoice) utterance.voice = matchingVoice;
     utterance.rate = 0.95;
-    utterance.onend = () => setIsSpeaking(false);
+    utterance.onend = () => {
+      if (activityTokenRef.current === activityToken) setIsSpeaking(false);
+    };
     utterance.onerror = () => {
+      if (activityTokenRef.current !== activityToken) return;
       setIsSpeaking(false);
       setError('문장을 재생하지 못했습니다.');
     };
@@ -276,11 +302,24 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
             <div className="flex min-h-64 flex-col rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm">
               <div className="mb-3 flex items-center justify-between">
                 <label htmlFor="translator-source" className="font-extrabold text-zinc-800">번역할 문장</label>
-                <span className="text-xs font-semibold text-zinc-400">
-                  {sourceText.length}/{MAX_TRANSLATION_TEXT_LENGTH}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-semibold text-zinc-400">
+                    {sourceText.length}/{MAX_TRANSLATION_TEXT_LENGTH}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    disabled={!sourceText && !translatedText && !interimText && !error && !showSentenceTypeControls && !isTranslating && !isRecording && !isSpeaking}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-extrabold text-zinc-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                    aria-label="입력과 번역 결과 모두 지우기"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                    전체 지우기
+                  </button>
+                </div>
               </div>
               <textarea
+                ref={sourceInputRef}
                 id="translator-source"
                 value={sourceText}
                 onChange={(event) => {
@@ -298,6 +337,9 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
                 placeholder={sourceLanguage === 'ko' ? '번역할 한국어를 입력하거나 말해 보세요.' : 'Type or speak an English sentence.'}
                 className="min-h-40 flex-1 resize-none rounded-lg bg-transparent text-xl font-semibold leading-relaxed text-zinc-900 outline-none placeholder:text-zinc-300 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-4"
               />
+              <p className="mb-3 text-xs font-semibold text-zinc-500">
+                새로 입력하면 이전 번역 결과가 지워집니다. 음성 입력은 현재 입력 문장을 교체합니다.
+              </p>
               {interimText && <p className="mb-3 rounded-xl bg-blue-50 px-3 py-2 text-base font-semibold text-blue-700">듣는 중: {interimText}</p>}
               {showSentenceTypeControls && (
                 <fieldset className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
