@@ -9,9 +9,11 @@ import { CopyrightAttribution } from '@/components/CopyrightAttribution';
 import { TranslatorOverlay } from '@/components/TranslatorOverlay';
 import { motion } from 'framer-motion';
 import { useChatSync } from '@/hooks/useChatSync';
-import { buildKioskUrl } from '@/lib/kioskIdentity';
+import { buildKioskUrl, getKioskIdFromLocation } from '@/lib/kioskIdentity';
 import {
   isTranslatorWindowMessage,
+  publishTranslatorControl,
+  subscribeTranslatorControl,
   TRANSLATOR_WINDOW_MESSAGE,
   type TranslatorWindowMessage,
 } from '@/lib/translator';
@@ -39,7 +41,13 @@ export default function Home() {
       translatorChannelRef.current = channel;
     }
 
+    const unsubscribe = subscribeTranslatorControl(
+      getKioskIdFromLocation(),
+      (message) => window.postMessage(message, window.location.origin),
+    );
+
     return () => {
+      unsubscribe();
       window.removeEventListener('message', handleTranslatorMessage);
       translatorChannelRef.current?.close();
       translatorChannelRef.current = null;
@@ -55,6 +63,16 @@ export default function Home() {
     // Notify same-window listeners even when BroadcastChannel is unavailable.
     window.postMessage(message, window.location.origin);
     translatorChannelRef.current?.postMessage(message);
+    void publishTranslatorControl(message, getKioskIdFromLocation()).then((published) => {
+      if (published) return;
+      const rollback: TranslatorWindowMessage = {
+        channel: TRANSLATOR_WINDOW_MESSAGE,
+        action: 'open',
+      };
+      setIsTranslatorOpen(true);
+      window.postMessage(rollback, window.location.origin);
+      translatorChannelRef.current?.postMessage(rollback);
+    });
 
     if (chatWindowRef.current && !chatWindowRef.current.closed) {
       chatWindowRef.current.postMessage(message, window.location.origin);

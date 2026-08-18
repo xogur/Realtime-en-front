@@ -59,6 +59,17 @@ export function ChatOverlay({ standalone = false }: ChatOverlayProps) {
         const text = inputValue.trim();
         if (!text) return;
 
+        if (standalone && socket?.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'user_text_message',
+                text,
+                clientCommandId: createClientCommandId(),
+                interruptPolicy: 'hard',
+            }));
+            setInputValue('');
+            return;
+        }
+
         if (standalone) {
             const channel = new BroadcastChannel(getChatSyncChannelName());
             channel.postMessage({

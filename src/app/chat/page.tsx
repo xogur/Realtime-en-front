@@ -5,7 +5,13 @@ import { ChatOverlay } from '@/components/ChatOverlay';
 import { AssessmentPanel } from '@/components/AssessmentPanel';
 import { useVoiceSocket } from '@/hooks/useVoiceSocket';
 import { useChatSync } from '@/hooks/useChatSync';
-import { TRANSLATOR_WINDOW_MESSAGE, type TranslatorWindowMessage } from '@/lib/translator';
+import { getKioskIdFromLocation } from '@/lib/kioskIdentity';
+import {
+    publishTranslatorControl,
+    subscribeTranslatorControl,
+    TRANSLATOR_WINDOW_MESSAGE,
+    type TranslatorWindowMessage,
+} from '@/lib/translator';
 
 export default function ChatPopout() {
     const { connect, disconnect } = useVoiceSocket();
@@ -38,7 +44,13 @@ export default function ChatPopout() {
             translatorChannelRef.current = channel;
         }
 
+        const unsubscribe = subscribeTranslatorControl(
+            getKioskIdFromLocation(),
+            (message) => window.postMessage(message, window.location.origin),
+        );
+
         return () => {
+            unsubscribe();
             window.removeEventListener('message', handleTranslatorMessage);
             translatorChannelRef.current?.close();
             translatorChannelRef.current = null;
@@ -52,6 +64,16 @@ export default function ChatPopout() {
         };
         setIsTranslatorOpen(true);
         translatorChannelRef.current?.postMessage(message);
+        void publishTranslatorControl(message, getKioskIdFromLocation()).then((published) => {
+            if (published) return;
+            const rollback: TranslatorWindowMessage = {
+                channel: TRANSLATOR_WINDOW_MESSAGE,
+                action: 'close',
+            };
+            setIsTranslatorOpen(false);
+            window.postMessage(rollback, window.location.origin);
+            translatorChannelRef.current?.postMessage(rollback);
+        });
 
         const opener = window.opener;
         if (opener && !opener.closed) {

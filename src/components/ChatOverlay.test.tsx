@@ -100,7 +100,7 @@ describe('ChatOverlay text submission', () => {
         expect(send).toHaveBeenCalledOnce();
     });
 
-    it('always forwards standalone input to the main controller even with a viewer socket', () => {
+    it('sends standalone input directly through its viewer socket when connected', () => {
         const send = vi.fn();
         const postMessage = vi.fn();
         const close = vi.fn();
@@ -115,10 +115,34 @@ describe('ChatOverlay text submission', () => {
         fireEvent.change(input, { target: { value: 'Forward through main.' } });
         fireEvent.keyDown(input, { key: 'Enter' });
 
-        expect(send).not.toHaveBeenCalled();
+        expect(send).toHaveBeenCalledOnce();
+        expect(JSON.parse(send.mock.calls[0][0])).toMatchObject({
+            type: 'user_text_message',
+            text: 'Forward through main.',
+            interruptPolicy: 'hard',
+            clientCommandId: expect.any(String),
+        });
+        expect(postMessage).not.toHaveBeenCalled();
+        expect(close).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the chat sync channel while the viewer socket is unavailable', () => {
+        const postMessage = vi.fn();
+        const close = vi.fn();
+        vi.stubGlobal('BroadcastChannel', class {
+            postMessage = postMessage;
+            close = close;
+        });
+        useStore.setState({ socket: null });
+
+        render(<ChatOverlay standalone />);
+        const input = screen.getByPlaceholderText('Type a message...');
+        fireEvent.change(input, { target: { value: 'Fallback through main.' } });
+        fireEvent.keyDown(input, { key: 'Enter' });
+
         expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
             type: 'SEND_MESSAGE',
-            payload: 'Forward through main.',
+            payload: 'Fallback through main.',
         }));
         expect(close).toHaveBeenCalledOnce();
     });

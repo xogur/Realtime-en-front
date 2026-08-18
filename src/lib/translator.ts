@@ -12,11 +12,129 @@ export type TranslatorWindowMessage = {
   action: 'open' | 'close';
 };
 
+type TranslatorControlState = TranslatorWindowMessage & {
+  version: number;
+  clientId?: string;
+};
+
+const TRANSLATOR_CONTROL_PATH = '/api/translator-control';
+const TRANSLATOR_CONTROL_RETRY_MS = 500;
+const TRANSLATOR_PUBLISH_ATTEMPTS = 3;
+const TRANSLATOR_PUBLISH_RETRY_MS = 150;
+let translatorClientId: string | null = null;
+
 export function isTranslatorWindowMessage(value: unknown): value is TranslatorWindowMessage {
   if (!value || typeof value !== 'object') return false;
   const message = value as Partial<TranslatorWindowMessage>;
   return message.channel === TRANSLATOR_WINDOW_MESSAGE
     && (message.action === 'open' || message.action === 'close');
+}
+
+function isTranslatorControlState(value: unknown): value is TranslatorControlState {
+  if (!value || typeof value !== 'object') return false;
+  const state = value as Partial<TranslatorControlState>;
+  return (state.action === 'open' || state.action === 'close')
+    && typeof state.version === 'number'
+    && (state.clientId === undefined || typeof state.clientId === 'string');
+}
+
+function getTranslatorClientId(): string {
+  if (translatorClientId) return translatorClientId;
+  translatorClientId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return translatorClientId;
+}
+
+function createTranslatorCommandId(): string {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getTranslatorControlUrl(kioskId: string, after?: number): string {
+  const url = new URL(TRANSLATOR_CONTROL_PATH, window.location.origin);
+  url.searchParams.set('kioskId', kioskId);
+  if (after !== undefined) url.searchParams.set('after', String(after));
+  return url.toString();
+}
+
+export async function publishTranslatorControl(
+  message: TranslatorWindowMessage,
+  kioskId: string,
+): Promise<boolean> {
+  const body = JSON.stringify({
+    action: message.action,
+    clientId: getTranslatorClientId(),
+    commandId: createTranslatorCommandId(),
+  });
+  for (let attempt = 0; attempt < TRANSLATOR_PUBLISH_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(getTranslatorControlUrl(kioskId), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      });
+      if (response.ok) return true;
+    } catch {
+      // A separate Chrome profile has no usable local fallback, so retry below.
+    }
+    if (attempt + 1 < TRANSLATOR_PUBLISH_ATTEMPTS) {
+      await new Promise((resolve) => window.setTimeout(resolve, TRANSLATOR_PUBLISH_RETRY_MS));
+    }
+  }
+  console.warn('[Translator] Failed to publish cross-profile control state.');
+  return false;
+}
+
+export function subscribeTranslatorControl(
+  kioskId: string,
+  onMessage: (message: TranslatorWindowMessage) => void,
+): () => void {
+  const controller = new AbortController();
+  const clientId = getTranslatorClientId();
+  let lastVersion = -1;
+
+  const waitBeforeRetry = () => new Promise<void>((resolve) => {
+    const finish = () => {
+      window.clearTimeout(timer);
+      controller.signal.removeEventListener('abort', finish);
+      resolve();
+    };
+    const timer = window.setTimeout(finish, TRANSLATOR_CONTROL_RETRY_MS);
+    controller.signal.addEventListener('abort', finish, { once: true });
+  });
+
+  void (async () => {
+    while (!controller.signal.aborted) {
+      try {
+        const requestedVersion = lastVersion;
+        const response = await fetch(getTranslatorControlUrl(kioskId, lastVersion), {
+          cache: 'no-store',
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Translator control returned ${response.status}`);
+
+        const state = await response.json() as unknown;
+        if (!isTranslatorControlState(state)) {
+          throw new Error('Invalid translator control response');
+        }
+
+        lastVersion = state.version;
+        if (
+          state.version !== requestedVersion
+          && state.clientId !== clientId
+        ) {
+          onMessage({ channel: TRANSLATOR_WINDOW_MESSAGE, action: state.action });
+        }
+      } catch {
+        if (controller.signal.aborted) break;
+        await waitBeforeRetry();
+      }
+    }
+  })();
+
+  return () => controller.abort();
 }
 
 const TERMINAL_PUNCTUATION = /[.!?。！？]+$/u;
