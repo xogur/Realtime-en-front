@@ -22,6 +22,7 @@ type Metric = { key: string; label: string; value: number };
 type PrintLayoutMode = 'paginated' | 'natural';
 
 type AssessmentPrintReportProps = {
+  capturedAt?: string;
   messages: ChatMessage[];
   topicSegments: TopicSegment[];
   assessableAnswerCount: number;
@@ -32,7 +33,11 @@ type AssessmentPrintReportProps = {
   cefrReason: string;
   strength: string;
   improvement: string;
-  onLayoutReady?: () => void;
+  onLayoutReady?: (report: {
+    element: HTMLElement;
+    pageCount: number;
+    layoutMode: PrintLayoutMode;
+  }) => void;
 };
 
 function PageFooter({ page, total }: { page: number; total: number }) {
@@ -438,6 +443,7 @@ function CorrectionRow({ correction, sequence }: { correction: ReportCorrectionI
 }
 
 export function AssessmentPrintReport({
+  capturedAt,
   messages,
   topicSegments,
   assessableAnswerCount,
@@ -478,9 +484,11 @@ export function AssessmentPrintReport({
   const verificationPassRef = useRef(0);
   const layoutNotifiedRef = useRef(false);
   const layoutRevisionRef = useRef(0);
+  const documentRef = useRef<HTMLElement>(null);
   const reportDate = useMemo(() => new Intl.DateTimeFormat('ko-KR', {
     year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(new Date()), []);
+    timeZone: 'Asia/Seoul',
+  }).format(capturedAt ? new Date(capturedAt) : new Date()), [capturedAt]);
   const sampleStatus = getReportSampleStatus(reliableAnswerCount);
   const correctionById = useMemo(() => new Map(corrections.map((item) => [item.id, item])), [corrections]);
   const resolvedPageIds = useMemo(() => {
@@ -611,10 +619,16 @@ export function AssessmentPrintReport({
         || layoutRevisionRef.current !== scheduledRevision
       ) return;
       layoutNotifiedRef.current = true;
-      onLayoutReady();
+      const element = documentRef.current;
+      if (!element) return;
+      onLayoutReady({
+        element,
+        pageCount: Math.max(1, resolvedPageIds.length),
+        layoutMode,
+      });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [layoutReady, onLayoutReady]);
+  }, [layoutMode, layoutReady, onLayoutReady, resolvedPageIds.length]);
 
   const totalPages = Math.max(1, resolvedPageIds.length);
   const pageCorrections = resolvedPageIds.map((ids) => ids
@@ -623,6 +637,7 @@ export function AssessmentPrintReport({
 
   return (
     <section
+      ref={documentRef}
       className={`print-document assessment-print-document bg-white text-[#17251f] ${layoutMode === 'natural' ? 'print-document--natural' : 'print-document--paginated'}`}
       data-layout-ready={layoutReady ? 'true' : 'false'}
       data-layout-mode={layoutMode}

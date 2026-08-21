@@ -6,7 +6,12 @@ import { useFrame } from '@react-three/fiber';
 import { DEFAULT_AVATAR_ID, useStore } from '@/stores/useStore';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
-import { getNextAnimationUrl, PRIMARY_IDLE_IDS } from '@/lib/animationUtils';
+import {
+    getNextAnimationUrl,
+    prepareAnimationAction,
+    PRIMARY_IDLE_IDS,
+    shouldAdvanceIdleAfterFinish,
+} from '@/lib/animationUtils';
 import { AVATARS } from '@/lib/avatarConstants';
 import { getAvatarLipProfile } from '@/lib/lipsync/avatarProfiles';
 import { createLipSyncDebugSnapshot } from '@/lib/lipsync/debugSnapshot';
@@ -27,7 +32,8 @@ export const AVATAR_CONFIGS = AVATARS.reduce((acc, avatar) => {
 
 const DEFAULT_ANIMS = {
     idle: 'https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/idle/M_Standing_Idle_001.glb',
-    thinking: 'https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_014.glb',
+    // Thinking animation is temporarily disabled. Restore this entry to re-enable it.
+    // thinking: 'https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/M_Standing_Expressions_014.glb',
     talking: 'https://pub-be53cae7bd99457a8c1f11b4d38f1672.r2.dev/femenine/expression/F_Talking_Variations_001.glb',
 };
 
@@ -35,7 +41,8 @@ try {
     useGLTF.preload(AVATAR_CONFIGS[DEFAULT_AVATAR_ID].file);
     useGLTF.preload(AVATAR_CONFIGS['Sohee']?.file || AVATAR_CONFIGS[DEFAULT_AVATAR_ID].file);
     useGLTF.preload(DEFAULT_ANIMS.idle);
-    useGLTF.preload(DEFAULT_ANIMS.thinking);
+    // Thinking animation preload is temporarily disabled.
+    // useGLTF.preload(DEFAULT_ANIMS.thinking);
     useGLTF.preload(DEFAULT_ANIMS.talking);
 } catch (e) {
     console.error('Asset Preload Error:', e);
@@ -74,7 +81,8 @@ export const Character = React.memo(function Character() {
 
     const audioAnalyser = useStore((state) => state.audioAnalyser);
     const emotion = useStore((state) => state.emotion);
-    const isThinking = useStore((state) => state.isThinking);
+    // Avatar thinking animation is temporarily disabled; the UI still uses isThinking.
+    // const isThinking = useStore((state) => state.isThinking);
     const isPlaying = useStore((state) => state.isPlaying);
     const ttsSegments = useStore((state) => state.ttsSegments);
     const lipSyncDebugEnabled = useStore((state) => state.lipSyncDebugEnabled);
@@ -82,10 +90,10 @@ export const Character = React.memo(function Character() {
     const setLipSyncMode = useStore((state) => state.setLipSyncMode);
     const setCurrentLipSyncSnapshot = useStore((state) => state.setCurrentLipSyncSnapshot);
 
-    const stateRef = useRef({ isThinking, isPlaying, emotion, ttsSegments, currentAvatarId });
+    const stateRef = useRef({ isPlaying, emotion, ttsSegments, currentAvatarId });
     useEffect(() => {
-        stateRef.current = { isThinking, isPlaying, emotion, ttsSegments, currentAvatarId };
-    }, [isThinking, isPlaying, emotion, ttsSegments, currentAvatarId]);
+        stateRef.current = { isPlaying, emotion, ttsSegments, currentAvatarId };
+    }, [isPlaying, emotion, ttsSegments, currentAvatarId]);
 
     useEffect(() => {
         if (!isPlaying && emotion !== 'neutral') {
@@ -118,7 +126,8 @@ export const Character = React.memo(function Character() {
 
     const { scene } = useGLTF(config.file) as unknown as { scene: THREE.Group };
     const idleRes = useGLTF(DEFAULT_ANIMS.idle) as unknown as { animations: THREE.AnimationClip[] };
-    const thinkingRes = useGLTF(DEFAULT_ANIMS.thinking) as unknown as { animations: THREE.AnimationClip[] };
+    // Thinking animation loading is temporarily disabled.
+    // const thinkingRes = useGLTF(DEFAULT_ANIMS.thinking) as unknown as { animations: THREE.AnimationClip[] };
     const talkingRes = useGLTF(DEFAULT_ANIMS.talking) as unknown as { animations: THREE.AnimationClip[] };
 
     const { mixer } = useAnimations([], group);
@@ -142,13 +151,14 @@ export const Character = React.memo(function Character() {
             }
 
             if (mesh.isSkinnedMesh) {
+                // Animated hands can move beyond the bind-pose bounds. Keep every
+                // skinned avatar part renderable when it enters the camera frame.
+                mesh.frustumCulled = false;
                 if (mesh.name.includes('Head')) {
                     headMeshRef.current = mesh;
-                    mesh.frustumCulled = false;
                 }
                 if (mesh.name.includes('Teeth')) {
                     teethMeshRef.current = mesh;
-                    mesh.frustumCulled = false;
                 }
             }
 
@@ -162,24 +172,25 @@ export const Character = React.memo(function Character() {
 
     useEffect(() => {
         if (idleRes?.animations?.[0]) clipCache.current[DEFAULT_ANIMS.idle] = idleRes.animations[0];
-        if (thinkingRes?.animations?.[0]) clipCache.current[DEFAULT_ANIMS.thinking] = thinkingRes.animations[0];
+        // Thinking animation caching is temporarily disabled.
+        // if (thinkingRes?.animations?.[0]) clipCache.current[DEFAULT_ANIMS.thinking] = thinkingRes.animations[0];
         if (talkingRes?.animations?.[0]) clipCache.current[DEFAULT_ANIMS.talking] = talkingRes.animations[0];
 
         if (mixer && idleRes?.animations?.[0] && !currentActionRef.current) {
             const clip = idleRes.animations[0];
             const action = mixer.clipAction(clip);
-            action.setEffectiveWeight(1.0);
+            prepareAnimationAction(action, 'idle', 'm_idle_01');
             action.play();
             currentActionRef.current = action;
             currentAnimIdRef.current = 'm_idle_01';
         }
-    }, [idleRes, thinkingRes, talkingRes, mixer]);
+    }, [idleRes, talkingRes, mixer]);
 
     const triggerSequentialTransition = useCallback(async (
         url: string,
         id: string,
         fadeDuration = 0.5,
-        targetState: 'idle' | 'talking' | 'thinking',
+        targetState: 'idle' | 'talking',
     ) => {
         const requestId = Math.random().toString(36).substring(7);
         transitionIdRef.current = requestId;
@@ -203,9 +214,15 @@ export const Character = React.memo(function Character() {
         const nextAction = mixer.clipAction(clip);
         if (nextAction === currentActionRef.current) return;
 
+        const isOneShot = prepareAnimationAction(nextAction, targetState, id);
+
         if (targetState === 'idle') {
             const isPrimary = PRIMARY_IDLE_IDS.includes(id);
-            animTargetTimeRef.current = isPrimary ? Math.random() * 3 + 5 : Math.max(clip.duration, 1.5);
+            animTargetTimeRef.current = isOneShot
+                ? Number.POSITIVE_INFINITY
+                : isPrimary
+                  ? Math.random() * 3 + 5
+                  : Math.max(clip.duration, 1.5);
             isLastAnimSecondaryRef.current = !isPrimary;
         } else {
             animTargetTimeRef.current = Math.max(clip.duration - fadeDuration - 0.1, clip.duration * 0.5);
@@ -215,10 +232,6 @@ export const Character = React.memo(function Character() {
         animTimerRef.current = 0;
         currentAnimIdRef.current = id;
 
-        nextAction.enabled = true;
-        nextAction.setEffectiveTimeScale(1);
-        nextAction.setEffectiveWeight(1);
-        nextAction.time = 0;
         nextAction.play();
 
         if (currentActionRef.current) {
@@ -229,12 +242,36 @@ export const Character = React.memo(function Character() {
     }, [mixer]);
 
     useEffect(() => {
+        if (!mixer) return;
+
+        const handleFinished = (event: THREE.AnimationMixerEventMap['finished']) => {
+            const finishedId = currentAnimIdRef.current;
+
+            if (!shouldAdvanceIdleAfterFinish(
+                event.action,
+                currentActionRef.current,
+                stateRef.current.isPlaying,
+                finishedId,
+            )) {
+                return;
+            }
+
+            void triggerSequentialTransition(DEFAULT_ANIMS.idle, 'm_idle_01', 0.5, 'idle');
+        };
+
+        mixer.addEventListener('finished', handleFinished);
+        return () => mixer.removeEventListener('finished', handleFinished);
+    }, [mixer, triggerSequentialTransition]);
+
+    useEffect(() => {
         const transitionTimer = setTimeout(() => {
-            let state: 'idle' | 'talking' | 'thinking' = 'idle';
+            let state: 'idle' | 'talking' = 'idle';
             const prevState = stateRef.current;
 
-            if (isThinking) state = 'thinking';
-            else if (isPlaying) state = 'talking';
+            // Thinking animation is temporarily disabled. While thinking, remain idle.
+            // if (isThinking) state = 'thinking';
+            // else if (isPlaying) state = 'talking';
+            if (isPlaying) state = 'talking';
 
             if (!isPlaying && prevState.isPlaying) {
                 hasPlayedEmotionAnimation.current = false;
@@ -256,7 +293,7 @@ export const Character = React.memo(function Character() {
         }, 100);
 
         return () => clearTimeout(transitionTimer);
-    }, [emotion, isPlaying, isThinking, triggerSequentialTransition]);
+    }, [emotion, isPlaying, triggerSequentialTransition]);
 
     useEffect(() => {
         const currentGroup = group.current;
@@ -273,11 +310,13 @@ export const Character = React.memo(function Character() {
         const deltaMs = clampedDelta * 1000;
         const t = state.clock.elapsedTime + noiseOffset.current;
 
-        const currentState = stateRef.current.isThinking
-            ? 'thinking'
-            : stateRef.current.isPlaying
-              ? 'talking'
-              : 'idle';
+        // Thinking animation is temporarily disabled. Only TTS playback enters talking.
+        // const currentState = stateRef.current.isThinking
+        //     ? 'thinking'
+        //     : stateRef.current.isPlaying
+        //       ? 'talking'
+        //       : 'idle';
+        const currentState = stateRef.current.isPlaying ? 'talking' : 'idle';
 
         animTimerRef.current += clampedDelta;
         if (animTimerRef.current > animTargetTimeRef.current) {
@@ -316,7 +355,9 @@ export const Character = React.memo(function Character() {
             neckRef.current.rotation.z = THREE.MathUtils.lerp(neckRef.current.rotation.z, organicShakeZ, 0.1);
         }
 
-        if (stateRef.current.isThinking || stateRef.current.isPlaying) {
+        // Thinking-specific eye motion is temporarily disabled and uses the idle eye motion instead.
+        // if (stateRef.current.isThinking || stateRef.current.isPlaying) {
+        if (stateRef.current.isPlaying) {
             eyeTarget.current.set(Math.sin(t * 2) * 0.02, Math.sin(t * 1.5) * 0.01);
         } else {
             saccadeTimer.current += clampedDelta;

@@ -89,12 +89,17 @@ nextjs-portal {
 
 /* 인쇄 전 실제 A4 폭으로 내용을 재어 페이지를 안정적으로 나눈다. */
 .assessment-print-document {
+  font-family: "Noto Sans CJK KR", "Noto Sans KR", var(--font-inter), sans-serif;
   position: fixed;
   top: 0;
   left: -220mm;
   width: 210mm;
   visibility: hidden;
   pointer-events: none;
+}
+
+.report-archive-dialog > span {
+  display: none;
 }
 
 .assessment-print-document .report-measurement {

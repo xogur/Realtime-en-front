@@ -31,6 +31,10 @@ import {
 } from '@/lib/missionLp';
 import { calculateTierProgress } from '@/lib/tierProgress';
 import { AssessmentPrintReport } from '@/components/AssessmentPrintReport';
+import { archiveAssessmentReport } from '@/lib/reportArchiveClient';
+import type { ReportLayoutMode } from '@/lib/reportArchiveTypes';
+import { getKioskIdFromLocation } from '@/lib/kioskIdentity';
+import type { TopicSegment } from '@/lib/conversationTopics';
 import {
     CORE_ASSESSMENT_METRICS,
     getFriendlySpeakingLevel,
@@ -179,6 +183,30 @@ type TierConfig = {
     text: string;
     glow: string;
     symbol: 'dot' | 'star' | 'book' | 'mic' | 'spark' | 'gem' | 'crown';
+};
+
+type PrintArchiveStatus = 'idle' | 'laying_out' | 'archiving' | 'archive_failed' | 'printing';
+
+type PrintReportSnapshot = {
+    archiveId: string;
+    capturedAt: string;
+    messages: ChatMessage[];
+    topicSegments: TopicSegment[];
+    assessableAnswerCount: number;
+    reliableAnswerCount: number;
+    metrics: Array<{ key: string; label: string; value: number }>;
+    tier: TierConfig;
+    totalLp: number;
+    cefrLevel: string;
+    cefrReason: string;
+    strength: string;
+    improvement: string;
+};
+
+type ReadyPrintReport = {
+    element: HTMLElement;
+    pageCount: number;
+    layoutMode: ReportLayoutMode;
 };
 
 type TierPromotionPresentation = {
@@ -1997,13 +2025,18 @@ export function AssessmentPanel({
     const [detailTab, setDetailTab] = useState<AssessmentDetailTab>('feedback');
     const [printReportOpen, setPrintReportOpen] = useState(false);
     const [printNoticeOpen, setPrintNoticeOpen] = useState(false);
+    const [printSnapshot, setPrintSnapshot] = useState<PrintReportSnapshot | null>(null);
+    const [printArchiveStatus, setPrintArchiveStatus] = useState<PrintArchiveStatus>('idle');
+    const [printArchiveError, setPrintArchiveError] = useState('');
     const prefersReducedMotion = usePrefersReducedMotion();
 
     const [missionSuccessSoundEnabled] = useMissionSuccessSoundEnabled();
     const missionAudioRef = useRef<MissionSuccessAudio | null>(null);
     const publishedMissionTurnIds = useRef<Set<string>>(new Set());
     const printTimeoutRef = useRef<number | null>(null);
-    const printNoticeRef = useRef<HTMLButtonElement | null>(null);
+    const printNoticeRef = useRef<HTMLDivElement | null>(null);
+    const readyPrintReportRef = useRef<ReadyPrintReport | null>(null);
+    const archiveInFlightRef = useRef(false);
 
     const assessment = useMemo(() => {
         const userMessages = messages.filter((message) => message.role === 'user');
@@ -2170,7 +2203,14 @@ export function AssessmentPanel({
     }, [showDeveloperLpControls]);
 
     useEffect(() => {
-        const clearPrintedDocument = () => setPrintReportOpen(false);
+        const clearPrintedDocument = () => {
+            setPrintReportOpen(false);
+            setPrintNoticeOpen(false);
+            setPrintSnapshot(null);
+            setPrintArchiveStatus('idle');
+            readyPrintReportRef.current = null;
+            archiveInFlightRef.current = false;
+        };
         window.addEventListener('afterprint', clearPrintedDocument);
         return () => window.removeEventListener('afterprint', clearPrintedDocument);
     }, []);
@@ -2187,53 +2227,106 @@ export function AssessmentPanel({
     }, []);
 
     const handlePrintDocument = useCallback(() => {
+        if (archiveInFlightRef.current) return;
+        const capturedAt = new Date().toISOString();
+        const archiveId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const snapshot: PrintReportSnapshot = {
+            archiveId,
+            capturedAt,
+            messages: structuredClone(messages),
+            topicSegments: structuredClone(topicSegments),
+            assessableAnswerCount: turns.length,
+            reliableAnswerCount: reportSummary.reliableTurnCount,
+            metrics: structuredClone(reportSummary.metricAverages),
+            tier: tier.tier,
+            totalLp: tier.totalLp,
+            cefrLevel: reportSummary.cefrLevel,
+            cefrReason: reportSummary.cefrReason,
+            strength: reportSummary.strength,
+            improvement: reportSummary.improvement,
+        };
+        readyPrintReportRef.current = null;
+        setPrintArchiveError('');
+        setPrintArchiveStatus('laying_out');
         flushSync(() => {
+            setPrintSnapshot(snapshot);
             setPrintReportOpen(true);
             setPrintNoticeOpen(true);
         });
-    }, []);
+    }, [messages, reportSummary, tier, topicSegments, turns.length]);
 
-    const handlePrintLayoutReady = useCallback(() => {
-        if (printTimeoutRef.current !== null) return;
-        printTimeoutRef.current = window.setTimeout(() => {
-            printTimeoutRef.current = null;
-            window.print();
-        }, 0);
-    }, []);
+    const archiveAndPrint = useCallback(async (report: ReadyPrintReport) => {
+        if (!printSnapshot || archiveInFlightRef.current) return;
+        archiveInFlightRef.current = true;
+        setPrintArchiveStatus('archiving');
+        setPrintArchiveError('');
+        try {
+            await archiveAssessmentReport({
+                archiveId: printSnapshot.archiveId,
+                capturedAt: printSnapshot.capturedAt,
+                kioskId: getKioskIdFromLocation(),
+                ...report,
+            });
+            setPrintArchiveStatus('printing');
+            printTimeoutRef.current = window.setTimeout(() => {
+                printTimeoutRef.current = null;
+                archiveInFlightRef.current = false;
+                window.print();
+            }, 0);
+        } catch (error) {
+            archiveInFlightRef.current = false;
+            setPrintArchiveStatus('archive_failed');
+            setPrintArchiveError(error instanceof Error ? error.message : 'PDF 저장에 실패했습니다.');
+        }
+    }, [printSnapshot]);
+
+    const handlePrintLayoutReady = useCallback((report: ReadyPrintReport) => {
+        readyPrintReportRef.current = report;
+        void archiveAndPrint(report);
+    }, [archiveAndPrint]);
+
+    const handlePrintRetry = useCallback(() => {
+        const report = readyPrintReportRef.current;
+        if (report) void archiveAndPrint(report);
+    }, [archiveAndPrint]);
 
     return (
         <aside className="relative isolate flex h-full min-h-0 flex-col overflow-hidden border-t border-[#483c2d]/10 bg-[#eee5dc]/95 text-[#3b3028] shadow-[-16px_0_48px_rgba(72,60,45,0.12)] backdrop-blur-xl print:border-0 print:bg-white lg:border-l lg:border-t-0">
             <MissionSuccessCelebration presentation={missionCelebration.current} />
-            {printRoot && printReportOpen ? createPortal(
+            {printRoot && printReportOpen && printSnapshot ? createPortal(
                 <AssessmentPrintReport
-                    messages={messages}
-                    topicSegments={topicSegments}
-                    assessableAnswerCount={turns.length}
-                    reliableAnswerCount={reportSummary.reliableTurnCount}
-                    metrics={reportSummary.metricAverages}
+                    capturedAt={printSnapshot.capturedAt}
+                    messages={printSnapshot.messages}
+                    topicSegments={printSnapshot.topicSegments}
+                    assessableAnswerCount={printSnapshot.assessableAnswerCount}
+                    reliableAnswerCount={printSnapshot.reliableAnswerCount}
+                    metrics={printSnapshot.metrics}
                     tier={{
-                        label: tier.tier.label,
-                        textColor: tier.tier.text,
-                        totalLp: tier.totalLp,
-                        asset: <TierBadge tier={tier.tier} size={70} />,
+                        label: printSnapshot.tier.label,
+                        textColor: printSnapshot.tier.text,
+                        totalLp: printSnapshot.totalLp,
+                        asset: <TierBadge tier={printSnapshot.tier} size={70} />,
                     }}
-                    cefrLevel={reportSummary.cefrLevel}
-                    cefrReason={reportSummary.cefrReason}
-                    strength={reportSummary.strength}
-                    improvement={reportSummary.improvement}
+                    cefrLevel={printSnapshot.cefrLevel}
+                    cefrReason={printSnapshot.cefrReason}
+                    strength={printSnapshot.strength}
+                    improvement={printSnapshot.improvement}
                     onLayoutReady={handlePrintLayoutReady}
                 />,
                 printRoot,
             ) : null}
             {printRoot && printNoticeOpen ? createPortal(
-                <button
+                <div
                     ref={printNoticeRef}
-                    type="button"
-                    onClick={() => setPrintNoticeOpen(false)}
-                    className="fixed inset-0 z-[2147483000] flex cursor-pointer items-center justify-center bg-[#1e2824]/78 p-6 text-left backdrop-blur-sm focus:outline-none print:hidden"
-                    aria-label="인쇄 안내 닫기"
+                    tabIndex={-1}
+                    className="fixed inset-0 z-[2147483000] flex items-center justify-center bg-[#1e2824]/78 p-6 text-left backdrop-blur-sm focus:outline-none print:hidden"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="PDF 저장 및 인쇄 상태"
                 >
-                    <span className="flex w-full max-w-md flex-col items-center rounded-[28px] border border-white/20 bg-[#fffaf5] px-8 py-10 text-center shadow-[0_28px_90px_rgba(18,28,24,0.4)]">
+                    <span className="report-archive-dialog flex w-full max-w-md flex-col items-center rounded-[28px] border border-white/20 bg-[#fffaf5] px-8 py-10 text-center shadow-[0_28px_90px_rgba(18,28,24,0.4)] [&>span]:hidden">
                         <span className="flex h-20 w-20 items-center justify-center rounded-full bg-[#5f7353] text-white shadow-lg motion-safe:animate-pulse">
                             <Printer className="h-10 w-10" strokeWidth={2.2} />
                         </span>
@@ -2244,8 +2337,25 @@ export function AssessmentPanel({
                         <span className="mt-7 rounded-full bg-[#edf1e8] px-5 py-2.5 text-[13px] font-black text-[#5f7353]">
                             화면을 터치하면 닫힙니다
                         </span>
+                        <div className="flex flex-col items-center">
+                            <span className="flex h-20 w-20 items-center justify-center rounded-full bg-[#5f7353] text-white shadow-lg motion-safe:animate-pulse">
+                                <Printer className="h-10 w-10" strokeWidth={2.2} />
+                            </span>
+                            <span className="mt-6 text-[28px] font-black tracking-tight text-[#2f3d36]">
+                                {printArchiveStatus === 'archive_failed' ? 'PDF 저장에 실패했습니다' : printArchiveStatus === 'laying_out' ? '결과지를 준비하고 있습니다' : printArchiveStatus === 'archiving' ? 'PDF를 안전하게 저장하고 있습니다' : '인쇄 중입니다'}
+                            </span>
+                            <span className="mt-3 text-[17px] font-bold leading-relaxed text-[#53645c]">
+                                {printArchiveStatus === 'archive_failed' ? printArchiveError : printArchiveStatus === 'printing' ? <>출력물을 확인하려면<br />프린터로 이동해 주세요</> : '저장이 완료되면 자동으로 인쇄합니다.'}
+                            </span>
+                            {printArchiveStatus === 'archive_failed' ? (
+                                <span className="mt-7 flex gap-3">
+                                    <button type="button" onClick={handlePrintRetry} className="rounded-full bg-[#5f7353] px-6 py-3 text-[14px] font-black text-white">다시 저장하고 인쇄</button>
+                                    <button type="button" onClick={() => { setPrintNoticeOpen(false); setPrintReportOpen(false); setPrintSnapshot(null); setPrintArchiveStatus('idle'); }} className="rounded-full bg-[#edf1e8] px-6 py-3 text-[14px] font-black text-[#5f7353]">취소</button>
+                                </span>
+                            ) : null}
+                        </div>
                     </span>
-                </button>,
+                </div>,
                 printRoot,
             ) : null}
 
@@ -2295,7 +2405,7 @@ export function AssessmentPanel({
                     <button
                         type="button"
                         onClick={handlePrintDocument}
-                        disabled={turns.length === 0}
+                        disabled={turns.length === 0 || printArchiveStatus !== 'idle'}
                         className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-[#3b3028] px-3.5 py-2.5 text-white shadow-[0_5px_14px_rgba(59,48,40,0.18)] transition-all hover:-translate-y-0.5 hover:bg-[#2d251f] hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#8b6741]/35 disabled:cursor-not-allowed disabled:bg-[#d5cbc2] disabled:text-[#796c62] disabled:shadow-none disabled:hover:translate-y-0"
                         title={turns.length === 0 ? '출력할 평가가 없습니다' : '평가 리포트 출력'}
                         aria-label="평가 리포트 출력"

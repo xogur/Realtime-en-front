@@ -48,11 +48,25 @@ beforeEach(() => {
         dispatchEvent: vi.fn(),
     }));
     Object.defineProperty(window, 'print', { configurable: true, value: vi.fn() });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+            ok: true,
+            archiveId: 'test-archive-id',
+            bucket: 'test-bucket',
+            objectKey: 'assessment-reports/2026-08-20/test.pdf',
+            savedAt: '2026-08-20T00:00:00.000Z',
+            bytes: 10000,
+            pageCount: 1,
+            deduplicated: false,
+        }),
+    }));
     useStore.setState({ messages: [] });
 });
 
 afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     vi.useRealTimers();
 });
 

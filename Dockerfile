@@ -15,6 +15,10 @@ FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Headless Chromium renders the exact print DOM, and Noto CJK keeps Korean line breaks stable.
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates font-noto-cjk
+ENV CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
 # Don't run as root
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs

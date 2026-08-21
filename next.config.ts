@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   output: "standalone",
   reactCompiler: true,
   devIndicators: false,
+  serverExternalPackages: ["puppeteer-core", "@aws-sdk/client-s3"],
   turbopack: {
     root: path.resolve(__dirname),
   },
