@@ -541,6 +541,19 @@ export function useBrowserStt(options: BrowserSttOptions) {
     startRecognitionRef.current = startRecognition;
   }, [startRecognition]);
 
+  const prepare = useCallback(async (): Promise<boolean> => {
+    desiredRef.current = true;
+    restartAttemptRef.current = 0;
+    const generation = audioInputGenerationRef.current;
+    const track = await ensureAudioTrack();
+    const prepared = Boolean(track && track.readyState === 'live' && desiredRef.current);
+    if (!prepared && generation === audioInputGenerationRef.current) {
+      desiredRef.current = false;
+      releaseAudioInput();
+    }
+    return prepared;
+  }, [ensureAudioTrack, releaseAudioInput]);
+
   const start = useCallback(async (): Promise<boolean> => {
     desiredRef.current = true;
     restartAttemptRef.current = 0;
@@ -588,5 +601,5 @@ export function useBrowserStt(options: BrowserSttOptions) {
     releaseAudioInput();
   }, [clearSilenceTimer, releaseAudioInput]);
 
-  return { start, stop, isRecording };
+  return { prepare, start, stop, isRecording };
 }

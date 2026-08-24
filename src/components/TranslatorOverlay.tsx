@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRightLeft, Headphones, Languages, Loader2, Mic, MicOff, Trash2, X } from 'lucide-react';
 
 import { useBrowserStt } from '@/hooks/useBrowserStt';
+import { useBrowserTts } from '@/hooks/useBrowserTts';
 import {
   applySentenceType,
   MAX_TRANSLATION_TEXT_LENGTH,
@@ -47,7 +48,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
   const [interimText, setInterimText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
+  const { speak, cancel: cancelSpeech, isSpeaking } = useBrowserTts();
   const [sentenceType, setSentenceType] = useState<TranslationSentenceType>('original');
   const [showSentenceTypeControls, setShowSentenceTypeControls] = useState(false);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -118,8 +119,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     },
     onUnavailable: () => undefined,
     onSpeechStarted: () => {
-      window.speechSynthesis?.cancel();
-      setIsSpeaking(false);
+      cancelSpeech();
     },
     getPlaybackState: () => ({ isPlaying: isSpeaking, text: translatedText }),
   });
@@ -130,11 +130,10 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     requestControllerRef.current?.abort();
     requestControllerRef.current = null;
     void stopStt();
-    window.speechSynthesis?.cancel();
-    setIsSpeaking(false);
+    cancelSpeech();
     setInterimText('');
     setIsTranslating(false);
-  }, [stopStt]);
+  }, [cancelSpeech, stopStt]);
 
   const handleClose = useCallback(() => {
     stopTranslatorActivity();
@@ -203,19 +202,14 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     } else {
       activityTokenRef.current += 1;
       ignoreSttResultsRef.current = false;
-      window.speechSynthesis?.cancel();
-      setIsSpeaking(false);
+      cancelSpeech();
       setInterimText('');
       void startStt();
     }
   };
 
   const handleSpeak = async () => {
-    if (
-      !translatedText.trim()
-      || !('speechSynthesis' in window)
-      || !('SpeechSynthesisUtterance' in window)
-    ) {
+    if (!translatedText.trim()) {
       setError('이 브라우저에서는 문장 듣기를 사용할 수 없습니다.');
       return;
     }
@@ -231,24 +225,10 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     if (activityTokenRef.current !== activityToken || !isOpen) return;
 
     setInterimText('');
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(translatedText);
-    utterance.lang = SPEECH_LANGUAGE[targetLanguage];
-    const matchingVoice = window.speechSynthesis.getVoices().find(
-      (voice) => voice.lang.toLowerCase().startsWith(targetLanguage),
-    );
-    if (matchingVoice) utterance.voice = matchingVoice;
-    utterance.rate = 0.95;
-    utterance.onend = () => {
-      if (activityTokenRef.current === activityToken) setIsSpeaking(false);
-    };
-    utterance.onerror = () => {
-      if (activityTokenRef.current !== activityToken) return;
-      setIsSpeaking(false);
+    const played = await speak(translatedText, SPEECH_LANGUAGE[targetLanguage]);
+    if (!played && activityTokenRef.current === activityToken) {
       setError('문장을 재생하지 못했습니다.');
-    };
-    setIsSpeaking(true);
-    window.speechSynthesis.speak(utterance);
+    }
   };
 
   if (!isOpen) return null;

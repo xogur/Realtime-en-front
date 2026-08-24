@@ -28,16 +28,19 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
         isRecording,
         sttProvider,
         clearHistory,
+        prepareForReservationIntro,
     } = useVoiceSocket();
     const isConnecting = useStore((state) => state.isConnecting);
     const activeSegmentId = useStore((state) => state.activeSegmentId);
     const topicSegments = useStore((state) => state.topicSegments);
     const conversationStartStatus = useStore((state) => state.conversationStartStatus);
     const conversationStartError = useStore((state) => state.conversationStartError);
+    const reservationIntroEventId = useStore((state) => state.reservationIntroEventId);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isTopicSelectorOpen, setIsTopicSelectorOpen] = useState(false);
     const isTranslatorOpenRef = useRef(false);
     const resumeAfterTranslatorRef = useRef(false);
+    const preparedReservationIntroRef = useRef<string | null>(null);
     const activeSegment = topicSegments.find((segment) => segment.segmentId === activeSegmentId);
     const activeTopic = getConversationTopic(activeSegment?.topicId);
     const activeDifficulty = getConversationDifficulty(activeSegment?.difficultyId);
@@ -57,6 +60,16 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
             setIsTopicSelectorOpen(false);
         }
     }), []);
+
+    useEffect(() => {
+        if (!reservationIntroEventId || preparedReservationIntroRef.current === reservationIntroEventId) {
+            return;
+        }
+        preparedReservationIntroRef.current = reservationIntroEventId;
+        setIsTopicSelectorOpen(false);
+        resumeAfterTranslatorRef.current = false;
+        prepareForReservationIntro();
+    }, [prepareForReservationIntro, reservationIntroEventId]);
 
     const handleToggleConnection = useCallback(() => {
         if (isProcessing || isConnecting) return;

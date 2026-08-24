@@ -1928,12 +1928,21 @@ export function useVoiceSocket() {
     disconnectRef.current();
   }, []);
 
-  const clearHistory = useCallback(() => {
+  const resetConversation = useCallback((stopPlayback: boolean) => {
+    if (stopPlayback) {
+      flushActiveTts();
+    }
     if (socketRef.current?.readyState === WebSocket.OPEN) {
+      if (stopPlayback) {
+        socketRef.current.send(JSON.stringify({ type: 'tts_stop' }));
+      }
       socketRef.current.send(JSON.stringify({ type: 'clear_history' }));
     } else if (typeof window !== 'undefined') {
       const ws = new WebSocket(getConfiguredWsUrl('controller'));
       ws.onopen = () => {
+        if (stopPlayback) {
+          ws.send(JSON.stringify({ type: 'tts_stop' }));
+        }
         ws.send(JSON.stringify({ type: 'clear_history' }));
         window.setTimeout(() => ws.close(), 100);
       };
@@ -1948,7 +1957,16 @@ export function useVoiceSocket() {
     pendingTopicStartRef.current = null;
     pendingResumeSegmentRef.current = null;
     useStore.getState().setPartialMessage('');
-  }, [clearMessages, clearSupplementaryPolling]);
+  }, [clearMessages, clearSupplementaryPolling, flushActiveTts]);
+
+  const clearHistory = useCallback(() => {
+    resetConversation(false);
+  }, [resetConversation]);
+
+  const prepareForReservationIntro = useCallback(() => {
+    stopListening();
+    resetConversation(true);
+  }, [resetConversation, stopListening]);
 
   return {
     connect,
@@ -1962,5 +1980,6 @@ export function useVoiceSocket() {
     isRecording,
     sttProvider,
     clearHistory,
+    prepareForReservationIntro,
   };
 }

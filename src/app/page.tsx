@@ -17,12 +17,16 @@ import {
   TRANSLATOR_WINDOW_MESSAGE,
   type TranslatorWindowMessage,
 } from '@/lib/translator';
+import { ReservationIntroOverlay } from '@/features/reservationIntro/ReservationIntroOverlay';
+import { useReservationIntro } from '@/features/reservationIntro/useReservationIntro';
+import { ParticipantNameOverlay } from '@/features/reservationIntro/ParticipantNameOverlay';
 
 export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
   const chatWindowRef = useRef<Window | null>(null);
   const translatorChannelRef = useRef<BroadcastChannel | null>(null);
+  const reservationIntro = useReservationIntro('avatar');
 
   // 멀티 윈도우 채팅창 동기화 (메인 창)
   useChatSync(true);
@@ -127,8 +131,8 @@ export default function Home() {
     <>
     <main
       className="relative h-screen w-full overflow-hidden text-zinc-900 flex flex-col"
-      inert={isTranslatorOpen ? true : undefined}
-      aria-hidden={isTranslatorOpen ? true : undefined}
+      inert={isTranslatorOpen || Boolean(reservationIntro.active) || reservationIntro.needsNameCapture ? true : undefined}
+      aria-hidden={isTranslatorOpen || Boolean(reservationIntro.active) || reservationIntro.needsNameCapture ? true : undefined}
     >
       <div
         aria-hidden="true"
@@ -189,6 +193,20 @@ export default function Home() {
     <TranslatorOverlay
       isOpen={isTranslatorOpen}
       onClose={handleCloseTranslator}
+    />
+    <ReservationIntroOverlay
+      role="avatar"
+      active={reservationIntro.active}
+      onComplete={reservationIntro.complete}
+      onExitComplete={reservationIntro.finishIntroPresentation}
+    />
+    <ParticipantNameOverlay
+      role="avatar"
+      active={reservationIntro.needsNameCapture}
+      eventId={reservationIntro.reservationSession?.eventId}
+      onConfirm={reservationIntro.confirmParticipantName}
+      onSkip={reservationIntro.skipParticipantName}
+      onWelcomeComplete={reservationIntro.finishParticipantWelcome}
     />
     </>
   );

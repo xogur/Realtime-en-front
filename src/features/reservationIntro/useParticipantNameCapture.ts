@@ -1,0 +1,229 @@
+'use client';
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useBrowserStt } from '@/hooks/useBrowserStt';
+import { useBrowserTts } from '@/hooks/useBrowserTts';
+import type { BrowserFinalTranscript } from '@/lib/stt';
+import type { ParticipantSkipReason } from './types';
+import { classifyConfirmation, extractSpokenName } from './participantName';
+
+export type NameCapturePhase =
+  | 'idle' | 'preparing' | 'prompting' | 'listening' | 'candidate' | 'confirming'
+  | 'submitting' | 'welcoming' | 'completed' | 'error';
+
+type Props = {
+  enabled: boolean;
+  eventId?: string;
+  onConfirm: (name: string) => Promise<unknown>;
+  onSkip: (reason: ParticipantSkipReason) => Promise<unknown>;
+  onWelcomeComplete: () => void;
+};
+
+const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+export function useParticipantNameCapture({
+  enabled,
+  eventId,
+  onConfirm,
+  onSkip,
+  onWelcomeComplete,
+}: Props) {
+  const [phase, setPhase] = useState<NameCapturePhase>('idle');
+  const [candidate, setCandidate] = useState('');
+  const [interim, setInterim] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [attempts, setAttempts] = useState(0);
+  const [suggestedSkipReason, setSuggestedSkipReason] = useState<ParticipantSkipReason | null>(null);
+  const modeRef = useRef<'name' | 'confirmation'>('name');
+  const candidateRef = useRef('');
+  const disposedRef = useRef(false);
+  const startedEventRef = useRef<string | null>(null);
+  const promptTextRef = useRef('');
+  const sttControlsRef = useRef<{
+    prepare: () => Promise<boolean>;
+    start: () => Promise<boolean>;
+    stop: () => Promise<void>;
+  } | null>(null);
+  const finalHandlerRef = useRef<(transcript: BrowserFinalTranscript) => void>(() => undefined);
+  const actionRef = useRef({ onConfirm, onSkip, onWelcomeComplete });
+  const { speak, cancel, isSpeaking } = useBrowserTts();
+
+  useEffect(() => {
+    actionRef.current = { onConfirm, onSkip, onWelcomeComplete };
+  }, [onConfirm, onSkip, onWelcomeComplete]);
+
+  const fail = useCallback((message: string) => {
+    setError(message);
+    setPhase('error');
+  }, []);
+
+  const stt = useBrowserStt({
+    language: 'ko-KR',
+    publishRecordingState: false,
+    onFinalTranscript: (transcript) => finalHandlerRef.current(transcript),
+    onInterimTranscript: setInterim,
+    onReadyChange: (ready) => {
+      if (ready) setPhase(modeRef.current === 'name' ? 'listening' : 'confirming');
+    },
+    onError: (code) => {
+      if (code === 'MICROPHONE_DENIED') {
+        setSuggestedSkipReason('microphone_denied');
+        fail('마이크 권한이 필요해요. 권한을 허용하거나 이름 없이 시작해 주세요.');
+      } else if (code === 'BROWSER_STT_UNSUPPORTED') {
+        setSuggestedSkipReason('speech_unsupported');
+        fail('이 브라우저에서는 음성 이름 입력을 사용할 수 없어요.');
+      }
+      else if (code === 'MICROPHONE_UNAVAILABLE') fail('마이크를 사용할 수 없어요. 연결 상태를 확인해 주세요.');
+    },
+    onUnavailable: () => undefined,
+    onSpeechStarted: cancel,
+    getPlaybackState: () => ({ isPlaying: isSpeaking, text: promptTextRef.current }),
+  });
+  useEffect(() => {
+    sttControlsRef.current = { prepare: stt.prepare, start: stt.start, stop: stt.stop };
+  }, [stt.prepare, stt.start, stt.stop]);
+
+  const speakThenListen = useCallback(async (
+    text: string,
+    mode: 'name' | 'confirmation',
+  ) => {
+    await sttControlsRef.current?.stop();
+    if (disposedRef.current) return;
+    modeRef.current = mode;
+    promptTextRef.current = text;
+    setInterim('');
+    setPhase('preparing');
+    const prepared = await sttControlsRef.current?.prepare();
+    if (!prepared || disposedRef.current) {
+      if (!disposedRef.current) {
+        fail('마이크를 준비하지 못했어요. 연결 상태를 확인하거나 이름 없이 시작해 주세요.');
+      }
+      return;
+    }
+    setPhase('prompting');
+    await speak(text, 'ko-KR');
+    if (disposedRef.current) return;
+    const started = await sttControlsRef.current?.start();
+    if (!started && !disposedRef.current) {
+      fail('음성 인식을 시작하지 못했어요. 다시 시도하거나 이름 없이 시작해 주세요.');
+    }
+  }, [fail, speak]);
+
+  const retry = useCallback(async (reason: 'generic' | 'unrecognized' = 'generic') => {
+    const nextAttempts = attempts + 1;
+    setAttempts(nextAttempts);
+    setCandidate('');
+    candidateRef.current = '';
+    setError(null);
+    setSuggestedSkipReason(null);
+    if (nextAttempts >= 3) {
+      setSuggestedSkipReason('retry_exhausted');
+      fail('이름을 정확히 확인하지 못했어요. 다시 시도하거나 이름 없이 시작해 주세요.');
+      return;
+    }
+    const prompt = reason === 'unrecognized'
+      ? '이름을 정확히 확인하지 못했어요. 이름이나 닉네임만 다시 한번 말씀해 주세요.'
+      : '잘 듣지 못했어요. 이름이나 닉네임을 다시 말씀해 주세요.';
+    await speakThenListen(prompt, 'name');
+  }, [attempts, fail, speakThenListen]);
+
+  const submitCandidate = useCallback(async () => {
+    const name = candidateRef.current;
+    if (!name) return;
+    await sttControlsRef.current?.stop();
+    cancel();
+    setPhase('submitting');
+    try {
+      await actionRef.current.onConfirm(name);
+      setPhase('welcoming');
+      await speak(`${name}님, 환영합니다. 이제 영어 대화를 시작할게요.`, 'ko-KR');
+      if (disposedRef.current) return;
+      setPhase('completed');
+      await delay(900);
+      if (!disposedRef.current) actionRef.current.onWelcomeComplete();
+    } catch {
+      fail('이름을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.');
+    }
+  }, [cancel, fail, speak]);
+
+  useEffect(() => {
+    finalHandlerRef.current = (transcript) => {
+      void (async () => {
+        await sttControlsRef.current?.stop();
+        const text = transcript.text.trim();
+        setInterim('');
+        if (modeRef.current === 'name') {
+          const extraction = extractSpokenName(text);
+          if (!extraction) {
+            await retry('unrecognized');
+            return;
+          }
+          const normalized = extraction.name;
+          candidateRef.current = normalized;
+          setCandidate(normalized);
+          setPhase('candidate');
+          await speakThenListen(
+            `${normalized}님, 맞으신가요? 맞으면 맞다고, 다르면 다시 말하겠다고 말씀해 주세요.`,
+            'confirmation',
+          );
+          return;
+        }
+        const answer = classifyConfirmation(text);
+        if (answer === 'yes') await submitCandidate();
+        else if (answer === 'no') await retry();
+        else await speakThenListen('잘 듣지 못했어요. 맞으면 맞다고, 다르면 다시 말하겠다고 말씀해 주세요.', 'confirmation');
+      })();
+    };
+  }, [retry, speakThenListen, submitCandidate]);
+
+  const skip = useCallback(async (reason: ParticipantSkipReason = 'user_skipped') => {
+    await sttControlsRef.current?.stop();
+    cancel();
+    setPhase('submitting');
+    try {
+      await actionRef.current.onSkip(reason);
+      setPhase('completed');
+    } catch {
+      fail('이름 없이 시작하지 못했어요. 잠시 후 다시 눌러 주세요.');
+    }
+  }, [cancel, fail]);
+
+  useEffect(() => {
+    if (!enabled || !eventId) {
+      startedEventRef.current = null;
+      void sttControlsRef.current?.stop();
+      cancel();
+      return;
+    }
+    if (startedEventRef.current === eventId) return;
+    startedEventRef.current = eventId;
+    setAttempts(0);
+    setCandidate('');
+    setError(null);
+    setSuggestedSkipReason(null);
+    void speakThenListen(
+      '안녕하세요. 제가 뭐라고 불러드리면 될까요? 지금 이름이나 닉네임을 말씀해 주세요.',
+      'name',
+    );
+  }, [cancel, enabled, eventId, speakThenListen]);
+
+  useEffect(() => {
+    if (!enabled || !eventId) return;
+    const timeout = window.setTimeout(() => void skip('timeout'), 60_000);
+    return () => window.clearTimeout(timeout);
+  }, [enabled, eventId, skip]);
+
+  useEffect(() => () => {
+    disposedRef.current = true;
+    void sttControlsRef.current?.stop();
+    cancel();
+  }, [cancel]);
+
+  return {
+    phase, candidate, interim, error, attempts, suggestedSkipReason,
+    isRecording: stt.isRecording,
+    confirm: submitCandidate,
+    retry,
+    skip,
+  };
+}

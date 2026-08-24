@@ -9,7 +9,10 @@ export function getKioskIdFromLocation(): string {
   }
 
   const searchParams = new URLSearchParams(window.location.search);
-  const kioskId = searchParams.get('kioskId')?.trim() || DEFAULT_KIOSK_ID;
+  const kioskId = (
+    searchParams.get('kioskId')
+    ?? searchParams.get('KioskId')
+  )?.trim() || DEFAULT_KIOSK_ID;
   return KIOSK_ID_PATTERN.test(kioskId) ? kioskId : DEFAULT_KIOSK_ID;
 }
 

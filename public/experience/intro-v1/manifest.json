@@ -1,0 +1,16 @@
+{
+  "version": "intro-v1",
+  "brandAnimation": "brand-bumper.webm",
+  "brandHold": "brand-hold.webp",
+  "guideVideo": "guide-intro.webm",
+  "brandDurationMs": 5600,
+  "guideDurationMs": 20700,
+  "brandMuted": true,
+  "guideMuted": false,
+  "videoCodec": "vp9",
+  "guideAudioCodec": "opus",
+  "colorSpace": "bt709",
+  "width": 1920,
+  "height": 1080,
+  "fps": 30
+}

@@ -12,6 +12,9 @@ import {
     TRANSLATOR_WINDOW_MESSAGE,
     type TranslatorWindowMessage,
 } from '@/lib/translator';
+import { ReservationIntroOverlay } from '@/features/reservationIntro/ReservationIntroOverlay';
+import { useReservationIntro } from '@/features/reservationIntro/useReservationIntro';
+import { ParticipantNameOverlay } from '@/features/reservationIntro/ParticipantNameOverlay';
 
 export default function ChatPopout() {
     const { connect, disconnect } = useVoiceSocket();
@@ -19,6 +22,7 @@ export default function ChatPopout() {
     const socketControlsRef = useRef({ connect, disconnect });
     const translatorChannelRef = useRef<BroadcastChannel | null>(null);
     const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
+    const reservationIntro = useReservationIntro('guide');
 
     useEffect(() => {
         socketControlsRef.current = { connect, disconnect };
@@ -82,7 +86,12 @@ export default function ChatPopout() {
     };
 
     return (
-        <main className="relative h-screen w-full overflow-hidden bg-[#e9dfd5]">
+        <>
+        <main
+            className="relative h-screen w-full overflow-hidden bg-[#e9dfd5]"
+            inert={reservationIntro.active || reservationIntro.needsNameCapture ? true : undefined}
+            aria-hidden={reservationIntro.active || reservationIntro.needsNameCapture ? true : undefined}
+        >
             <div
                 aria-hidden="true"
                 className="pointer-events-none absolute -inset-4 bg-cover bg-center blur-[10px] saturate-[0.86]"
@@ -101,5 +110,20 @@ export default function ChatPopout() {
                 </section>
             </div>
         </main>
+        <ReservationIntroOverlay
+            role="guide"
+            active={reservationIntro.active}
+            onComplete={reservationIntro.complete}
+            onExitComplete={reservationIntro.finishIntroPresentation}
+        />
+        <ParticipantNameOverlay
+            role="guide"
+            active={reservationIntro.needsNameCapture}
+            eventId={reservationIntro.reservationSession?.eventId}
+            onConfirm={reservationIntro.confirmParticipantName}
+            onSkip={reservationIntro.skipParticipantName}
+            onWelcomeComplete={reservationIntro.finishParticipantWelcome}
+        />
+        </>
     );
 }

@@ -72,6 +72,7 @@ Start-Process -FilePath $chromePath -ArgumentList @(
     "--kiosk",
     "--kiosk-printing",
     "--no-first-run",
+    "--autoplay-policy=no-user-gesture-required",
     "--user-data-dir=$kioskProfilePath",
     $Url
 )

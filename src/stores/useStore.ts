@@ -293,6 +293,9 @@ interface AppState {
     socket: WebSocket | null;
     setSocket: (socket: WebSocket | null) => void;
 
+    reservationIntroEventId: string | null;
+    setReservationIntroEventId: (eventId: string | null) => void;
+
     clearMessages: () => void;
     setConversationState: (
         learningSessionId: string,
@@ -1785,4 +1788,6 @@ export const useStore = create<AppState>((set, get) => ({
 
     socket: null,
     setSocket: (socket: WebSocket | null) => set({ socket }),
+    reservationIntroEventId: null,
+    setReservationIntroEventId: (eventId: string | null) => set({ reservationIntroEventId: eventId }),
 }));
