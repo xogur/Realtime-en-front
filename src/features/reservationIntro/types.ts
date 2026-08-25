@@ -1,4 +1,4 @@
-export type ReservationIntroStatus = 'ready' | 'completed';
+export type ReservationIntroStatus = 'waiting_for_presence' | 'ready' | 'completed';
 export type ReservationIntroRole = 'avatar' | 'guide';
 export type ReservationIntroPhase = 'brand' | 'guide';
 export type ReservationIntroCompletionReason =
@@ -20,6 +20,8 @@ export type ReservationIntroEvent = {
   reservationId: number;
   kioskId: string;
   status: ReservationIntroStatus;
+  presenceRequired: boolean;
+  presenceDetectedAt: string | null;
   eligibleAt: string;
   startedAt: string;
   serverNow: string;

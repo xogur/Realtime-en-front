@@ -12,6 +12,8 @@ const event: ReservationIntroEvent = {
   reservationId: 154,
   kioskId: 'A02',
   status: 'ready',
+  presenceRequired: true,
+  presenceDetectedAt: '2026-08-21T05:00:00.000Z',
   eligibleAt: '2026-08-21T05:00:00.000Z',
   startedAt: '2026-08-21T05:00:04.500Z',
   serverNow: '2026-08-21T05:00:04.000Z',

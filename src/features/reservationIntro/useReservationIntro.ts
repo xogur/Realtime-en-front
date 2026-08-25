@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getKioskIdFromLocation } from '@/lib/kioskIdentity';
 import { useStore } from '@/stores/useStore';
+import { usePresenceDetector } from '@/features/presence/usePresenceDetector';
 import {
   deriveStartedAtMs,
   getReservationIntroApiUrl,
@@ -33,7 +34,10 @@ export function useReservationIntro(role: ReservationIntroRole) {
   const timerRef = useRef<number | null>(null);
   const requestInFlightRef = useRef(false);
   const completingRef = useRef(false);
+  const presenceReportEventRef = useRef<string | null>(null);
+  const presenceReportInFlightRef = useRef(false);
   const enabled = process.env.NEXT_PUBLIC_COCOON_RESERVATION_INTRO_ENABLED !== 'false';
+  const presence = usePresenceDetector(role === 'avatar');
 
   const updateActive = useCallback((value: ActiveReservationIntro | null) => {
     if (value && activeRef.current?.event.eventId !== value.event.eventId) {
@@ -98,6 +102,12 @@ export function useReservationIntro(role: ReservationIntroRole) {
           event.eventId,
           stored?.startedAtMs ?? deriveStartedAtMs(event, receivedAtMs),
         );
+        startedAtRef.current = null;
+        updateActive(null);
+        return;
+      }
+
+      if (event.status === 'waiting_for_presence') {
         startedAtRef.current = null;
         updateActive(null);
         return;
@@ -182,6 +192,37 @@ export function useReservationIntro(role: ReservationIntroRole) {
     };
   }, [complete, enabled, role, updateActive, updateReservationSession]);
 
+  useEffect(() => {
+    const session = reservationSession;
+    if (
+      role !== 'avatar'
+      || !presence.present
+      || !session
+      || session.status !== 'waiting_for_presence'
+      || presenceReportEventRef.current === session.eventId
+      || presenceReportInFlightRef.current
+    ) return;
+
+    presenceReportInFlightRef.current = true;
+    void fetch(`${getReservationIntroApiUrl(session.kioskId)}/presence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventId: session.eventId }),
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`presence report failed: ${response.status}`);
+        const updated = await response.json() as ReservationIntroEvent;
+        presenceReportEventRef.current = session.eventId;
+        updateReservationSession(updated);
+      })
+      .catch((error) => {
+        console.warn('[reservation-intro] presence report failed', error);
+      })
+      .finally(() => {
+        presenceReportInFlightRef.current = false;
+      });
+  }, [presence.present, reservationSession, role, updateReservationSession]);
+
   const activeEventId = active?.event.eventId;
   useEffect(() => {
     if (!activeEventId) return;
@@ -258,6 +299,8 @@ export function useReservationIntro(role: ReservationIntroRole) {
     confirmParticipantName,
     finishParticipantWelcome,
     skipParticipantName,
+    presenceStatus: presence.status,
+    retryPresence: presence.retry,
   };
 }
 

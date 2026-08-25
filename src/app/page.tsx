@@ -22,6 +22,7 @@ import { useReservationIntro } from '@/features/reservationIntro/useReservationI
 import { ParticipantNameOverlay } from '@/features/reservationIntro/ParticipantNameOverlay';
 import { useReservationFollowup } from '@/features/reservationFollowup/useReservationFollowup';
 import { ReservationEndOverlay } from '@/features/reservationFollowup/ReservationEndOverlay';
+import { PresenceStatusBadge } from '@/features/presence/PresenceStatusBadge';
 
 export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -164,6 +165,7 @@ export default function Home() {
 
       {/* Main Visualizer Area (Full Space) */}
       <div className="flex-1 w-full relative z-10">
+        <PresenceStatusBadge status={reservationIntro.presenceStatus} />
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
