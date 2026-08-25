@@ -2,6 +2,7 @@
 
 import { motion, useReducedMotion } from 'framer-motion';
 import { Check, Loader2, Mic, RotateCcw, UserRound } from 'lucide-react';
+import { useState } from 'react';
 import type { ParticipantSkipReason, ReservationIntroRole } from './types';
 import { useParticipantNameCapture } from './useParticipantNameCapture';
 
@@ -23,6 +24,9 @@ export function ParticipantNameOverlay({
   onWelcomeComplete,
 }: Props) {
   const reduceMotion = useReducedMotion();
+  const [typedName, setTypedName] = useState('');
+  const [typedBusy, setTypedBusy] = useState(false);
+  const [typedError, setTypedError] = useState<string | null>(null);
   const capture = useParticipantNameCapture({
     enabled: active && role === 'avatar',
     eventId,
@@ -55,7 +59,7 @@ export function ParticipantNameOverlay({
   const busy = ['preparing', 'prompting', 'submitting', 'welcoming', 'completed'].includes(capture.phase);
   const title = (() => {
     if (capture.phase === 'preparing') return '마이크를 연결하고 있어요';
-    if (capture.phase === 'prompting') return '안내가 끝나면 바로 말씀해 주세요';
+    if (capture.phase === 'prompting') return '곧 말할 차례예요';
     if (capture.phase === 'listening') return '지금 말씀하세요';
     if (capture.phase === 'submitting') return '이름을 저장하고 있어요';
     if (isWelcome) return `${capture.candidate}님, 환영합니다`;
@@ -67,7 +71,7 @@ export function ParticipantNameOverlay({
     if (capture.error) return capture.error;
     if (capture.interim) return `“${capture.interim}”`;
     if (capture.phase === 'preparing') return '잠시만 기다려 주세요. 마이크가 준비되면 안내를 시작합니다.';
-    if (capture.phase === 'prompting') return '안내 음성이 끝나는 즉시 마이크가 열립니다.';
+    if (capture.phase === 'prompting') return '안내가 끝나면 바로 이름이나 닉네임을 말씀해 주세요.';
     if (capture.phase === 'listening') return '이름이나 편하게 사용할 닉네임을 말해 주세요.';
     if (capture.phase === 'submitting') return '말씀하신 이름을 확인하고 있습니다.';
     if (capture.phase === 'welcoming') return '영어 대화를 시작할 준비가 끝났어요.';
@@ -107,13 +111,19 @@ export function ParticipantNameOverlay({
         className="w-full max-w-xl rounded-[2rem] border border-white/75 bg-[#fbf8f4] px-7 py-9 text-center shadow-[0_30px_100px_rgba(57,42,31,0.24)] sm:px-12 sm:py-11"
       >
         <motion.div
-          animate={{ scale: capture.isRecording && !reduceMotion ? [1, 1.06, 1] : 1 }}
+          data-listening-state={capture.phase === 'listening' || capture.phase === 'confirming' ? 'active' : 'prompting'}
+          animate={{
+            scale: capture.isRecording && !reduceMotion ? [1, 1.06, 1] : 1,
+            boxShadow: capture.phase === 'listening' && !reduceMotion
+              ? ['0 0 0 0 rgba(37, 99, 235, 0.35)', '0 0 0 18px rgba(37, 99, 235, 0)', '0 0 0 0 rgba(37, 99, 235, 0.35)']
+              : '0 0 0 0 rgba(37, 99, 235, 0)',
+          }}
           transition={{
-            duration: reduceMotion ? 0 : 1.5,
+            duration: reduceMotion ? 0 : capture.phase === 'listening' ? 1.35 : 1.5,
             repeat: capture.isRecording && !reduceMotion ? Infinity : 0,
             ease: 'easeInOut',
           }}
-          className="mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-blue-600 text-white"
+          className={`mx-auto flex h-20 w-20 items-center justify-center rounded-2xl text-white transition-colors duration-300 ${capture.phase === 'listening' || capture.phase === 'confirming' ? 'bg-blue-600' : 'bg-zinc-800'}`}
         >
           {capture.phase === 'preparing' || capture.phase === 'submitting' ? (
             <Loader2 className="h-9 w-9 motion-safe:animate-spin" aria-hidden="true" />
@@ -124,6 +134,27 @@ export function ParticipantNameOverlay({
           )}
         </motion.div>
 
+        <div
+          aria-hidden="true"
+          className={`mx-auto mt-5 flex h-7 items-end justify-center gap-1.5 ${capture.phase === 'listening' || capture.phase === 'confirming' ? 'text-blue-600' : 'text-zinc-300'}`}
+        >
+          {[0, 1, 2, 3, 4].map((bar) => (
+            <motion.span
+              key={bar}
+              className="w-1.5 rounded-full bg-current"
+              animate={capture.phase === 'listening' || capture.phase === 'confirming'
+                ? { height: ['8px', `${12 + ((bar * 7) % 14)}px`, '8px'] }
+                : { height: '8px' }}
+              transition={{
+                duration: 0.75,
+                repeat: capture.phase === 'listening' || capture.phase === 'confirming' ? Infinity : 0,
+                delay: bar * 0.08,
+                ease: 'easeInOut',
+              }}
+            />
+          ))}
+        </div>
+
         <div className="mt-5 flex min-h-7 items-center justify-center">
           {capture.isRecording ? (
             <span className="inline-flex items-center gap-2 text-sm font-extrabold text-blue-700">
@@ -132,7 +163,7 @@ export function ParticipantNameOverlay({
             </span>
           ) : (
             <span className="text-sm font-bold text-zinc-500">
-              {capture.phase === 'prompting' ? '안내 중' : isWelcome ? '준비 완료' : '음성으로 이름 입력'}
+              {capture.phase === 'prompting' ? '안내 중 · 곧 말할 차례' : isWelcome ? '준비 완료' : '음성으로 이름 입력'}
             </span>
           )}
         </div>
@@ -143,6 +174,40 @@ export function ParticipantNameOverlay({
         <p aria-live="polite" className={`mx-auto mt-4 min-h-14 max-w-md text-lg font-semibold leading-relaxed ${capture.error ? 'text-red-700' : capture.interim ? 'text-blue-700' : 'text-zinc-600'}`}>
           {description}
         </p>
+
+        {!isWelcome && capture.phase !== 'submitting' ? (
+        <div className="mt-7 rounded-2xl bg-white p-4 ring-1 ring-zinc-200">
+          <label className="block text-left text-sm font-extrabold text-zinc-600" htmlFor="participant-name-input">
+            키보드로 이름 입력
+          </label>
+          <div className="mt-2 flex gap-2">
+            <input
+              id="participant-name-input"
+              value={typedName}
+              maxLength={30}
+              onChange={(event) => { setTypedName(event.target.value); setTypedError(null); }}
+              placeholder="이름 또는 닉네임"
+              className="min-w-0 flex-1 rounded-xl border border-zinc-300 px-4 py-3 text-lg font-bold text-zinc-900 outline-none focus:border-blue-500"
+            />
+            <button
+              type="button"
+              disabled={typedBusy || !typedName.trim()}
+              onClick={() => {
+                setTypedBusy(true);
+                setTypedError(null);
+                void onConfirm(typedName.trim())
+                  .then(() => window.setTimeout(onWelcomeComplete, 900))
+                  .catch(() => setTypedError('이름을 저장하지 못했습니다. 한글 또는 영문 이름을 확인해 주세요.'))
+                  .finally(() => setTypedBusy(false));
+              }}
+              className="rounded-xl bg-zinc-900 px-5 py-3 font-black text-white disabled:bg-zinc-300"
+            >
+              {typedBusy ? '저장 중…' : '입력 완료'}
+            </button>
+          </div>
+          {typedError ? <p role="alert" className="mt-2 text-left text-sm font-bold text-red-700">{typedError}</p> : null}
+        </div>
+        ) : null}
 
         {!isWelcome && capture.phase !== 'submitting' ? (
         <div className="mt-8 flex flex-wrap justify-center gap-3">
@@ -164,18 +229,10 @@ export function ParticipantNameOverlay({
           >
             <RotateCcw className="h-5 w-5" aria-hidden="true" /> 다시 시도
           </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void capture.skip(capture.suggestedSkipReason ?? 'user_skipped')}
-            className="rounded-full px-5 py-3.5 text-base font-bold text-zinc-500 transition hover:bg-zinc-100 hover:text-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
-          >
-            이름 없이 시작
-          </button>
         </div>
         ) : null}
         {!isWelcome ? (
-          <p className="mt-7 text-sm font-semibold text-zinc-400">음성은 브라우저에서만 인식되며 이름 확인에 사용됩니다.</p>
+          <p className="mt-7 text-sm font-semibold text-zinc-400">이름은 현재 이용과 게스트의 다음 예약에 사용됩니다.</p>
         ) : null}
       </motion.section>
     </motion.div>

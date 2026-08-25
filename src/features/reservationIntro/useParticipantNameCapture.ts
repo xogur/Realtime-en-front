@@ -39,6 +39,7 @@ export function useParticipantNameCapture({
   const disposedRef = useRef(false);
   const startedEventRef = useRef<string | null>(null);
   const promptTextRef = useRef('');
+  const promptFinishedRef = useRef(false);
   const sttControlsRef = useRef<{
     prepare: () => Promise<boolean>;
     start: () => Promise<boolean>;
@@ -63,12 +64,17 @@ export function useParticipantNameCapture({
     onFinalTranscript: (transcript) => finalHandlerRef.current(transcript),
     onInterimTranscript: setInterim,
     onReadyChange: (ready) => {
-      if (ready) setPhase(modeRef.current === 'name' ? 'listening' : 'confirming');
+      // The recognizer is intentionally started while the prompt is playing so
+      // there is no dead air after TTS. Keep the visual prompt state until the
+      // utterance ends, then switch to the explicit speaking-turn state.
+      if (ready && promptFinishedRef.current) {
+        setPhase(modeRef.current === 'name' ? 'listening' : 'confirming');
+      }
     },
     onError: (code) => {
       if (code === 'MICROPHONE_DENIED') {
         setSuggestedSkipReason('microphone_denied');
-        fail('마이크 권한이 필요해요. 권한을 허용하거나 이름 없이 시작해 주세요.');
+        fail('마이크 권한이 필요해요. 권한을 허용하거나 아래에서 이름을 입력해 주세요.');
       } else if (code === 'BROWSER_STT_UNSUPPORTED') {
         setSuggestedSkipReason('speech_unsupported');
         fail('이 브라우저에서는 음성 이름 입력을 사용할 수 없어요.');
@@ -96,14 +102,22 @@ export function useParticipantNameCapture({
     const prepared = await sttControlsRef.current?.prepare();
     if (!prepared || disposedRef.current) {
       if (!disposedRef.current) {
-        fail('마이크를 준비하지 못했어요. 연결 상태를 확인하거나 이름 없이 시작해 주세요.');
+        fail('마이크를 준비하지 못했어요. 연결 상태를 확인하거나 아래에서 이름을 입력해 주세요.');
       }
       return;
     }
+    promptFinishedRef.current = false;
     setPhase('prompting');
-    await speak(text, 'ko-KR');
+    // Start recognition before/during TTS. `useBrowserStt` filters playback
+    // echoes while `isSpeaking` is true, so this removes the post-TTS startup
+    // gap without feeding the prompt back as the user's answer.
+    const [started] = await Promise.all([
+      sttControlsRef.current?.start(),
+      speak(text, 'ko-KR'),
+    ]);
+    promptFinishedRef.current = true;
     if (disposedRef.current) return;
-    const started = await sttControlsRef.current?.start();
+    if (started) setPhase(modeRef.current === 'name' ? 'listening' : 'confirming');
     if (!started && !disposedRef.current) {
       fail('음성 인식을 시작하지 못했어요. 다시 시도하거나 이름 없이 시작해 주세요.');
     }
@@ -191,6 +205,7 @@ export function useParticipantNameCapture({
   useEffect(() => {
     if (!enabled || !eventId) {
       startedEventRef.current = null;
+      promptFinishedRef.current = false;
       void sttControlsRef.current?.stop();
       cancel();
       return;
@@ -206,12 +221,6 @@ export function useParticipantNameCapture({
       'name',
     );
   }, [cancel, enabled, eventId, speakThenListen]);
-
-  useEffect(() => {
-    if (!enabled || !eventId) return;
-    const timeout = window.setTimeout(() => void skip('timeout'), 60_000);
-    return () => window.clearTimeout(timeout);
-  }, [enabled, eventId, skip]);
 
   useEffect(() => () => {
     disposedRef.current = true;

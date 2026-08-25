@@ -15,6 +15,8 @@ import {
 import { ReservationIntroOverlay } from '@/features/reservationIntro/ReservationIntroOverlay';
 import { useReservationIntro } from '@/features/reservationIntro/useReservationIntro';
 import { ParticipantNameOverlay } from '@/features/reservationIntro/ParticipantNameOverlay';
+import { useReservationFollowup } from '@/features/reservationFollowup/useReservationFollowup';
+import { ReservationEndOverlay } from '@/features/reservationFollowup/ReservationEndOverlay';
 
 export default function ChatPopout() {
     const { connect, disconnect } = useVoiceSocket();
@@ -23,6 +25,7 @@ export default function ChatPopout() {
     const translatorChannelRef = useRef<BroadcastChannel | null>(null);
     const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
     const reservationIntro = useReservationIntro('guide');
+    const reservationFollowup = useReservationFollowup();
 
     useEffect(() => {
         socketControlsRef.current = { connect, disconnect };
@@ -88,9 +91,9 @@ export default function ChatPopout() {
     return (
         <>
         <main
-            className="relative h-screen w-full overflow-hidden bg-[#e9dfd5]"
-            inert={reservationIntro.active || reservationIntro.needsNameCapture ? true : undefined}
-            aria-hidden={reservationIntro.active || reservationIntro.needsNameCapture ? true : undefined}
+            className={`relative h-screen w-full overflow-hidden bg-[#e9dfd5] transition-[filter] duration-300 ${reservationFollowup.locked ? 'blur-md' : ''}`}
+            inert={reservationIntro.active || reservationIntro.needsNameCapture || reservationFollowup.locked ? true : undefined}
+            aria-hidden={reservationIntro.active || reservationIntro.needsNameCapture || reservationFollowup.locked ? true : undefined}
         >
             <div
                 aria-hidden="true"
@@ -124,6 +127,7 @@ export default function ChatPopout() {
             onSkip={reservationIntro.skipParticipantName}
             onWelcomeComplete={reservationIntro.finishParticipantWelcome}
         />
+        <ReservationEndOverlay role="guide" session={reservationFollowup.session} endPending={reservationFollowup.endPending} onDismiss={reservationFollowup.dismissUsage} />
         </>
     );
 }

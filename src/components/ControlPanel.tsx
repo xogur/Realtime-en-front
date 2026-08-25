@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Keyboard, Mic, MicOff, Trash2, Loader2 } from 'lucide-react';
+import { Keyboard, LogOut, Mic, MicOff, Trash2, Loader2 } from 'lucide-react';
 // import { Settings, MessageSquare } from 'lucide-react';
 import { useVoiceSocket } from '@/hooks/useVoiceSocket';
 import { TopicSelector } from '@/components/TopicSelector';
@@ -13,11 +13,13 @@ import { isTranslatorWindowMessage, TRANSLATOR_WINDOW_MESSAGE } from '@/lib/tran
 
 interface ControlPanelProps {
     onOpenSettings: () => void;
+    onEndUsage?: () => void;
+    canEndUsage?: boolean;
 }
 
 // 설정 버튼 복원 시 onOpenSettings가 다시 사용됩니다.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
+export function ControlPanel({ onOpenSettings, onEndUsage, canEndUsage = false }: ControlPanelProps) {
     const {
         startListening,
         startConversation,
@@ -176,6 +178,23 @@ export function ControlPanel({ onOpenSettings }: ControlPanelProps) {
             >
                 <Trash2 className="w-6 h-6" />
             </button>
+
+            {canEndUsage && onEndUsage ? (
+                <button
+                    type="button"
+                    onClick={() => {
+                        if (window.confirm('영어 프로그램 이용을 마치시겠어요? 현재 홈페이지 예약 시간은 변경되지 않습니다.')) {
+                            stopListening();
+                            onEndUsage();
+                        }
+                    }}
+                    className="p-3 rounded-full border border-white/15 bg-white/5 text-amber-100 transition-all hover:bg-amber-500/25 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200"
+                    aria-label="영어 프로그램 이용 종료"
+                    title="이용 종료"
+                >
+                    <LogOut className="h-6 w-6" />
+                </button>
+            ) : null}
 
             {/* 실제 운영 환경에서는 설정 버튼을 사용하지 않습니다.
             <button

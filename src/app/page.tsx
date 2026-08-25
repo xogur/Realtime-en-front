@@ -20,6 +20,8 @@ import {
 import { ReservationIntroOverlay } from '@/features/reservationIntro/ReservationIntroOverlay';
 import { useReservationIntro } from '@/features/reservationIntro/useReservationIntro';
 import { ParticipantNameOverlay } from '@/features/reservationIntro/ParticipantNameOverlay';
+import { useReservationFollowup } from '@/features/reservationFollowup/useReservationFollowup';
+import { ReservationEndOverlay } from '@/features/reservationFollowup/ReservationEndOverlay';
 
 export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -27,6 +29,7 @@ export default function Home() {
   const chatWindowRef = useRef<Window | null>(null);
   const translatorChannelRef = useRef<BroadcastChannel | null>(null);
   const reservationIntro = useReservationIntro('avatar');
+  const reservationFollowup = useReservationFollowup();
 
   // 멀티 윈도우 채팅창 동기화 (메인 창)
   useChatSync(true);
@@ -130,9 +133,9 @@ export default function Home() {
   return (
     <>
     <main
-      className="relative h-screen w-full overflow-hidden text-zinc-900 flex flex-col"
-      inert={isTranslatorOpen || Boolean(reservationIntro.active) || reservationIntro.needsNameCapture ? true : undefined}
-      aria-hidden={isTranslatorOpen || Boolean(reservationIntro.active) || reservationIntro.needsNameCapture ? true : undefined}
+      className={`relative h-screen w-full overflow-hidden text-zinc-900 flex flex-col transition-[filter] duration-300 ${reservationFollowup.locked ? 'blur-md' : ''}`}
+      inert={isTranslatorOpen || Boolean(reservationIntro.active) || reservationIntro.needsNameCapture || reservationFollowup.locked ? true : undefined}
+      aria-hidden={isTranslatorOpen || Boolean(reservationIntro.active) || reservationIntro.needsNameCapture || reservationFollowup.locked ? true : undefined}
     >
       <div
         aria-hidden="true"
@@ -175,6 +178,8 @@ export default function Home() {
       <div className="relative z-30">
         <ControlPanel
           onOpenSettings={() => setIsSettingsOpen(true)}
+          onEndUsage={() => void reservationFollowup.endUsage('MANUAL')}
+          canEndUsage={reservationFollowup.session?.status === 'active'}
         />
       </div>
 
@@ -208,6 +213,7 @@ export default function Home() {
       onSkip={reservationIntro.skipParticipantName}
       onWelcomeComplete={reservationIntro.finishParticipantWelcome}
     />
+    <ReservationEndOverlay role="avatar" session={reservationFollowup.session} endPending={reservationFollowup.endPending} onDismiss={reservationFollowup.dismissUsage} />
     </>
   );
 }

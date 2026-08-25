@@ -6,5 +6,9 @@ services:
     restart: unless-stopped
     ports:
       - "${FRONTEND_HOST_PORT:-3004}:3003"
+    env_file:
+      # PDF archive credentials/settings are server-only runtime variables.
+      - ../Realtime-en-back/.env
     environment:
       - NODE_ENV=production
+      - CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser

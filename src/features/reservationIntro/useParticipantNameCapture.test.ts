@@ -66,7 +66,7 @@ describe('useParticipantNameCapture', () => {
     mocks.sttOptions = null;
   });
 
-  it('prepares the microphone before TTS and starts listening immediately afterward', async () => {
+  it('prepares the microphone and starts listening during TTS with no post-prompt gap', async () => {
     const onConfirm = vi.fn(async () => undefined);
     const { result } = renderHook(() => useParticipantNameCapture({
       enabled: true,
@@ -82,7 +82,8 @@ describe('useParticipantNameCapture', () => {
     const startIndex = mocks.order.indexOf('start');
     expect(prepareIndex).toBeGreaterThanOrEqual(0);
     expect(promptIndex).toBeGreaterThan(prepareIndex);
-    expect(startIndex).toBeGreaterThan(promptIndex);
+    expect(startIndex).toBeGreaterThan(prepareIndex);
+    expect(startIndex).toBeLessThan(promptIndex);
     expect(result.current.phase).toBe('listening');
 
     act(() => mocks.sttOptions?.onFinalTranscript(transcript('내 이름은 권태혁이라고 해')));
