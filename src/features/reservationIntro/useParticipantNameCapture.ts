@@ -40,14 +40,15 @@ export function useParticipantNameCapture({
   const startedEventRef = useRef<string | null>(null);
   const promptTextRef = useRef('');
   const promptFinishedRef = useRef(false);
+  const turnRef = useRef(0);
   const sttControlsRef = useRef<{
     prepare: () => Promise<boolean>;
-    start: () => Promise<boolean>;
+    startAndWaitUntilReady: (timeoutMs?: number) => Promise<boolean>;
     stop: () => Promise<void>;
   } | null>(null);
   const finalHandlerRef = useRef<(transcript: BrowserFinalTranscript) => void>(() => undefined);
   const actionRef = useRef({ onConfirm, onSkip, onWelcomeComplete });
-  const { speak, cancel, isSpeaking } = useBrowserTts();
+  const { speak, cancel, isSpeaking } = useBrowserTts('participant-name');
 
   useEffect(() => {
     actionRef.current = { onConfirm, onSkip, onWelcomeComplete };
@@ -86,21 +87,27 @@ export function useParticipantNameCapture({
     getPlaybackState: () => ({ isPlaying: isSpeaking, text: promptTextRef.current }),
   });
   useEffect(() => {
-    sttControlsRef.current = { prepare: stt.prepare, start: stt.start, stop: stt.stop };
-  }, [stt.prepare, stt.start, stt.stop]);
+    sttControlsRef.current = {
+      prepare: stt.prepare,
+      startAndWaitUntilReady: stt.startAndWaitUntilReady,
+      stop: stt.stop,
+    };
+  }, [stt.prepare, stt.startAndWaitUntilReady, stt.stop]);
 
   const speakThenListen = useCallback(async (
     text: string,
     mode: 'name' | 'confirmation',
   ) => {
+    const turn = turnRef.current + 1;
+    turnRef.current = turn;
     await sttControlsRef.current?.stop();
-    if (disposedRef.current) return;
+    if (disposedRef.current || turn !== turnRef.current) return;
     modeRef.current = mode;
     promptTextRef.current = text;
     setInterim('');
     setPhase('preparing');
     const prepared = await sttControlsRef.current?.prepare();
-    if (!prepared || disposedRef.current) {
+    if (!prepared || disposedRef.current || turn !== turnRef.current) {
       if (!disposedRef.current) {
         fail('마이크를 준비하지 못했어요. 연결 상태를 확인하거나 아래에서 이름을 입력해 주세요.');
       }
@@ -108,19 +115,20 @@ export function useParticipantNameCapture({
     }
     promptFinishedRef.current = false;
     setPhase('prompting');
-    // Start recognition before/during TTS. `useBrowserStt` filters playback
-    // echoes while `isSpeaking` is true, so this removes the post-TTS startup
-    // gap without feeding the prompt back as the user's answer.
-    const [started] = await Promise.all([
-      sttControlsRef.current?.start(),
-      speak(text, 'ko-KR'),
-    ]);
-    promptFinishedRef.current = true;
-    if (disposedRef.current) return;
-    if (started) setPhase(modeRef.current === 'name' ? 'listening' : 'confirming');
-    if (!started && !disposedRef.current) {
-      fail('음성 인식을 시작하지 못했어요. 다시 시도하거나 이름 없이 시작해 주세요.');
+    // Wait for the recognizer's real `onstart`, then play the prompt while the
+    // microphone stays open. Users can answer during TTS without a startup gap.
+    const started = await sttControlsRef.current?.startAndWaitUntilReady();
+    if (!started || disposedRef.current || turn !== turnRef.current) {
+      if (!disposedRef.current && turn === turnRef.current) {
+        fail('음성 인식을 시작하지 못했어요. 다시 시도하거나 이름 없이 시작해 주세요.');
+      }
+      return;
     }
+    setPhase(mode === 'name' ? 'listening' : 'confirming');
+    await speak(text, 'ko-KR');
+    promptFinishedRef.current = true;
+    if (disposedRef.current || turn !== turnRef.current) return;
+    setPhase(modeRef.current === 'name' ? 'listening' : 'confirming');
   }, [fail, speak]);
 
   const retry = useCallback(async (reason: 'generic' | 'unrecognized' = 'generic') => {
@@ -141,24 +149,36 @@ export function useParticipantNameCapture({
     await speakThenListen(prompt, 'name');
   }, [attempts, fail, speakThenListen]);
 
-  const submitCandidate = useCallback(async () => {
-    const name = candidateRef.current;
-    if (!name) return;
+  const submitName = useCallback(async (providedName?: string) => {
+    const name = providedName?.trim() || candidateRef.current;
+    if (!name) return false;
+    candidateRef.current = name;
+    const turn = turnRef.current + 1;
+    turnRef.current = turn;
+    setCandidate(name);
     await sttControlsRef.current?.stop();
     cancel();
     setPhase('submitting');
     try {
       await actionRef.current.onConfirm(name);
+      if (disposedRef.current || turn !== turnRef.current) return false;
       setPhase('welcoming');
       await speak(`${name}님, 환영합니다. 이제 영어 대화를 시작할게요.`, 'ko-KR');
-      if (disposedRef.current) return;
+      if (disposedRef.current || turn !== turnRef.current) return false;
       setPhase('completed');
       await delay(900);
       if (!disposedRef.current) actionRef.current.onWelcomeComplete();
+      return true;
     } catch {
       fail('이름을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.');
+      return false;
     }
   }, [cancel, fail, speak]);
+
+  const submitCandidate = useCallback(
+    () => submitName(),
+    [submitName],
+  );
 
   useEffect(() => {
     finalHandlerRef.current = (transcript) => {
@@ -191,6 +211,7 @@ export function useParticipantNameCapture({
   }, [retry, speakThenListen, submitCandidate]);
 
   const skip = useCallback(async (reason: ParticipantSkipReason = 'user_skipped') => {
+    turnRef.current += 1;
     await sttControlsRef.current?.stop();
     cancel();
     setPhase('submitting');
@@ -204,6 +225,7 @@ export function useParticipantNameCapture({
 
   useEffect(() => {
     if (!enabled || !eventId) {
+      turnRef.current += 1;
       startedEventRef.current = null;
       promptFinishedRef.current = false;
       void sttControlsRef.current?.stop();
@@ -212,18 +234,26 @@ export function useParticipantNameCapture({
     }
     if (startedEventRef.current === eventId) return;
     startedEventRef.current = eventId;
-    setAttempts(0);
-    setCandidate('');
-    setError(null);
-    setSuggestedSkipReason(null);
-    void speakThenListen(
-      '안녕하세요. 제가 뭐라고 불러드리면 될까요? 지금 이름이나 닉네임을 말씀해 주세요.',
-      'name',
-    );
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setAttempts(0);
+      setCandidate('');
+      setError(null);
+      setSuggestedSkipReason(null);
+      void speakThenListen(
+        '안녕하세요. 제가 뭐라고 불러드리면 될까요? 지금 이름이나 닉네임을 말씀해 주세요.',
+        'name',
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [cancel, enabled, eventId, speakThenListen]);
 
   useEffect(() => () => {
     disposedRef.current = true;
+    turnRef.current += 1;
     void sttControlsRef.current?.stop();
     cancel();
   }, [cancel]);
@@ -232,6 +262,7 @@ export function useParticipantNameCapture({
     phase, candidate, interim, error, attempts, suggestedSkipReason,
     isRecording: stt.isRecording,
     confirm: submitCandidate,
+    submitName,
     retry,
     skip,
   };

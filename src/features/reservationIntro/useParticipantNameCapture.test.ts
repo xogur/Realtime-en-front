@@ -48,8 +48,11 @@ vi.mock('@/hooks/useBrowserStt', () => ({
     return {
       prepare: mocks.prepare,
       start: mocks.start,
+      startAndWaitUntilReady: mocks.start,
+      restartAndWaitUntilReady: mocks.start,
       stop: mocks.stop,
       isRecording: false,
+      status: 'listening',
     };
   },
 }));
@@ -146,5 +149,45 @@ describe('useParticipantNameCapture', () => {
       expect.stringContaining('불러주면 될 거 같아님'),
       'ko-KR',
     );
+  });
+
+  it('keeps keyboard name entry in the welcome phase until welcome TTS finishes', async () => {
+    let finishWelcomeSpeech: ((played: boolean) => void) | undefined;
+    mocks.speak.mockImplementation(async (text: string) => {
+      mocks.order.push(`speak:${text}`);
+      if (text.includes('환영합니다')) {
+        return new Promise<boolean>((resolve) => {
+          finishWelcomeSpeech = resolve;
+        });
+      }
+      return true;
+    });
+    const onWelcomeComplete = vi.fn();
+    const onConfirm = vi.fn(async () => undefined);
+    const { result } = renderHook(() => useParticipantNameCapture({
+      enabled: true,
+      eventId: 'cocoon:keyboard:intro',
+      onConfirm,
+      onSkip: vi.fn(async () => undefined),
+      onWelcomeComplete,
+    }));
+
+    await waitFor(() => expect(mocks.start).toHaveBeenCalledOnce());
+    act(() => {
+      void result.current.submitName('권태혁');
+    });
+
+    await waitFor(() => expect(result.current.phase).toBe('welcoming'));
+    expect(onConfirm).toHaveBeenCalledWith('권태혁');
+    expect(mocks.speak).toHaveBeenCalledWith(
+      '권태혁님, 환영합니다. 이제 영어 대화를 시작할게요.',
+      'ko-KR',
+    );
+    expect(onWelcomeComplete).not.toHaveBeenCalled();
+
+    act(() => finishWelcomeSpeech?.(true));
+    await waitFor(() => expect(result.current.phase).toBe('completed'));
+    expect(onWelcomeComplete).not.toHaveBeenCalled();
+    await waitFor(() => expect(onWelcomeComplete).toHaveBeenCalledOnce(), { timeout: 1_200 });
   });
 });

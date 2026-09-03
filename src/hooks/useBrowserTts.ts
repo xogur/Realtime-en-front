@@ -1,8 +1,23 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 const VOICE_LOAD_TIMEOUT_MS = 800;
+export type BrowserTtsOwner = 'participant-name' | 'topic-selector' | 'translator' | 'default';
+export type BrowserTtsPlaybackState = 'idle' | 'queued' | 'speaking';
+
+type ActiveSpeech = {
+  owner: BrowserTtsOwner;
+  text: string;
+  state: Exclude<BrowserTtsPlaybackState, 'idle'>;
+  utterance: SpeechSynthesisUtterance;
+  settle: (result: boolean) => void;
+};
+
+let activeSpeech: ActiveSpeech | null = null;
+const listeners = new Set<() => void>();
+
+function emitChange() { listeners.forEach((listener) => listener()); }
 
 function languageMatches(voice: SpeechSynthesisVoice, language: string): boolean {
   const requested = language.toLowerCase();
@@ -13,11 +28,7 @@ function languageMatches(voice: SpeechSynthesisVoice, language: string): boolean
 function voiceScore(voice: SpeechSynthesisVoice, language: string): number {
   const name = voice.name.toLowerCase();
   const requested = language.toLowerCase();
-  const exactLanguage = voice.lang.toLowerCase() === requested;
-  let score = exactLanguage ? 100 : 50;
-
-  // Chromium on Windows commonly exposes these higher-quality Korean voices.
-  // Prefer natural/online voices, then well-known Korean system voices.
+  let score = voice.lang.toLowerCase() === requested ? 100 : 50;
   if (name.includes('natural')) score += 80;
   if (/sunhi|injoo?n/.test(name)) score += 70;
   if (name.includes('google') && /korean|한국/.test(name)) score += 60;
@@ -27,10 +38,7 @@ function voiceScore(voice: SpeechSynthesisVoice, language: string): number {
   return score;
 }
 
-export function selectPreferredVoice(
-  voices: SpeechSynthesisVoice[],
-  language: string,
-): SpeechSynthesisVoice | undefined {
+export function selectPreferredVoice(voices: SpeechSynthesisVoice[], language: string) {
   return voices
     .filter((voice) => languageMatches(voice, language))
     .sort((left, right) => voiceScore(right, language) - voiceScore(left, language))[0];
@@ -39,7 +47,6 @@ export function selectPreferredVoice(
 async function loadVoices(synthesis: SpeechSynthesis): Promise<SpeechSynthesisVoice[]> {
   const current = synthesis.getVoices();
   if (current.length > 0) return current;
-
   return new Promise((resolve) => {
     let settled = false;
     const finish = () => {
@@ -55,47 +62,90 @@ async function loadVoices(synthesis: SpeechSynthesis): Promise<SpeechSynthesisVo
   });
 }
 
-export function useBrowserTts() {
-  const generationRef = useRef(0);
-  const [isSpeaking, setIsSpeaking] = useState(false);
+function settleActive(result: boolean) {
+  const current = activeSpeech;
+  if (!current) return;
+  activeSpeech = null;
+  current.settle(result);
+  emitChange();
+}
 
-  const cancel = useCallback(() => {
-    generationRef.current += 1;
-    if (typeof window !== 'undefined') window.speechSynthesis?.cancel();
-    setIsSpeaking(false);
-  }, []);
+function cancelOwnedSpeech(owner: BrowserTtsOwner) {
+  if (!activeSpeech || activeSpeech.owner !== owner) return;
+  window.speechSynthesis?.cancel();
+  settleActive(false);
+}
 
-  const speak = useCallback(async (text: string, language = 'ko-KR'): Promise<boolean> => {
-    if (
-      typeof window === 'undefined'
-      || !text.trim()
-      || !('speechSynthesis' in window)
-      || !('SpeechSynthesisUtterance' in window)
-    ) return false;
+async function speakOwned(owner: BrowserTtsOwner, text: string, language: string) {
+  if (typeof window === 'undefined' || !text.trim()
+    || !('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) return false;
 
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
+  if (activeSpeech) {
     window.speechSynthesis.cancel();
-    const voices = await loadVoices(window.speechSynthesis);
-    if (generationRef.current !== generation) return false;
-    return new Promise((resolve) => {
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = language;
-      utterance.rate = language.toLowerCase().startsWith('ko') ? 1 : 0.98;
-      utterance.pitch = 1;
-      const voice = selectPreferredVoice(voices, language);
-      if (voice) utterance.voice = voice;
-      const finish = (played: boolean) => {
-        if (generationRef.current === generation) setIsSpeaking(false);
-        resolve(played);
-      };
-      utterance.onend = () => finish(true);
-      utterance.onerror = () => finish(false);
-      setIsSpeaking(true);
-      window.speechSynthesis.speak(utterance);
-    });
-  }, []);
+    settleActive(false);
+  }
+  const voices = window.speechSynthesis.getVoices();
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const settle = (result: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = language;
+    utterance.rate = language.toLowerCase().startsWith('ko') ? 1 : 0.98;
+    utterance.pitch = 1;
+    const voice = selectPreferredVoice(voices, language);
+    if (voice) utterance.voice = voice;
+    utterance.onstart = () => {
+      if (activeSpeech?.utterance !== utterance) return;
+      activeSpeech.state = 'speaking';
+      emitChange();
+    };
+    utterance.onend = () => activeSpeech?.utterance === utterance
+      ? settleActive(true) : settle(false);
+    utterance.onerror = () => activeSpeech?.utterance === utterance
+      ? settleActive(false) : settle(false);
+    activeSpeech = { owner, text, state: 'queued', utterance, settle };
+    emitChange();
+    window.speechSynthesis.speak(utterance);
+  });
+}
 
-  useEffect(() => cancel, [cancel]);
-  return { speak, cancel, isSpeaking };
+export function getBrowserTtsPlaybackState() {
+  return {
+    owner: activeSpeech?.owner ?? null,
+    text: activeSpeech?.text ?? '',
+    state: activeSpeech?.state ?? 'idle' as BrowserTtsPlaybackState,
+    isPlaying: activeSpeech?.state === 'speaking',
+  };
+}
+
+export function useBrowserTts(owner: BrowserTtsOwner = 'default') {
+  const [, forceRender] = useState(0);
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      void loadVoices(window.speechSynthesis);
+    }
+    const listener = () => forceRender((value) => value + 1);
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+      cancelOwnedSpeech(owner);
+    };
+  }, [owner]);
+
+  const cancel = useCallback(() => cancelOwnedSpeech(owner), [owner]);
+  const speak = useCallback(
+    (text: string, language = 'ko-KR') => speakOwned(owner, text, language),
+    [owner],
+  );
+  const playback = getBrowserTtsPlaybackState();
+  return {
+    speak,
+    cancel,
+    isSpeaking: playback.owner === owner && playback.state === 'speaking',
+    playbackState: playback.owner === owner ? playback.state : 'idle' as BrowserTtsPlaybackState,
+  };
 }

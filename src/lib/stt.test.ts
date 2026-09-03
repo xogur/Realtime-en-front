@@ -3,6 +3,7 @@ import {
   assembleBrowserSpeechEvent,
   buildBrowserPartialTranscriptMessage,
   buildBrowserTranscriptMessage,
+  extractPlaybackResidual,
   getBrowserSttConfig,
   isLateBrowserFinal,
   isLikelyPlaybackEcho,
@@ -98,6 +99,18 @@ describe('browser speech events', () => {
     )).toBe(true);
     expect(isLikelyPlaybackEcho('yes', 'Would you like to practice ordering food?')).toBe(false);
     expect(isLateBrowserFinal('I would like coffee', 'I would like coffee.', 1_000, 2_000)).toBe(true);
+  });
+
+  it('keeps the user answer when playback and speech share one transcript', () => {
+    expect(extractPlaybackResidual(
+      '대화 난이도를 선택해 주세요. 준비가 되면 바로 말씀해 주세요. 초급',
+      '대화 난이도를 선택해 주세요. 준비가 되면 바로 말씀해 주세요.',
+    )).toBe('초급');
+    expect(extractPlaybackResidual(
+      '대화 난이도를 선택해 주세요.',
+      '대화 난이도를 선택해 주세요.',
+    )).toBe('');
+    expect(extractPlaybackResidual('초급', '대화 난이도를 선택해 주세요.')).toBeNull();
   });
 
   it('uses the existing backend text-message contract', () => {

@@ -1,8 +1,9 @@
 'use client';
 
-import { motion, useReducedMotion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Check, Loader2, Mic, RotateCcw, UserRound } from 'lucide-react';
 import { useState } from 'react';
+import { OnboardingJourney } from '@/components/onboarding/OnboardingJourney';
 import type { ParticipantSkipReason, ReservationIntroRole } from './types';
 import { useParticipantNameCapture } from './useParticipantNameCapture';
 
@@ -44,6 +45,7 @@ export function ParticipantNameOverlay({
         className="fixed inset-0 z-[2147483647] flex min-h-[100dvh] w-full items-center justify-center bg-zinc-950/25 p-8 backdrop-blur-[16px]"
       >
         <section className="w-full max-w-lg rounded-[2rem] border border-white/70 bg-[#fbf8f4] px-10 py-12 text-center shadow-[0_28px_90px_rgba(57,42,31,0.22)]">
+          <OnboardingJourney stage="name" className="mb-9" />
           <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-600 text-white">
             <UserRound className="h-8 w-8" aria-hidden="true" />
           </span>
@@ -97,6 +99,18 @@ export function ParticipantNameOverlay({
       aria-modal="true"
       aria-labelledby="participant-name-title"
     >
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+        <motion.div
+          className="absolute left-[8%] top-[14%] h-56 w-56 rounded-full bg-[#dbe7dd]/55 blur-3xl"
+          animate={reduceMotion ? undefined : { x: [0, 32, 0], y: [0, -18, 0], scale: [1, 1.08, 1] }}
+          transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="absolute bottom-[10%] right-[7%] h-64 w-64 rounded-full bg-[#d9e2f3]/50 blur-3xl"
+          animate={reduceMotion ? undefined : { x: [0, -26, 0], y: [0, 20, 0], scale: [1.04, 0.96, 1.04] }}
+          transition={{ duration: 9, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      </div>
       <motion.section
         initial={{ opacity: 0, y: 22, scale: 0.97 }}
         animate={{
@@ -108,8 +122,23 @@ export function ParticipantNameOverlay({
           duration: reduceMotion ? 0 : isLeaving ? 0.55 : 0.5,
           ease: [0.16, 1, 0.3, 1],
         }}
-        className="w-full max-w-xl rounded-[2rem] border border-white/75 bg-[#fbf8f4] px-7 py-9 text-center shadow-[0_30px_100px_rgba(57,42,31,0.24)] sm:px-12 sm:py-11"
+        className="relative w-full max-w-xl overflow-hidden rounded-[2rem] border border-white/75 bg-[#fbf8f4]/95 px-7 py-8 text-center shadow-[0_30px_100px_rgba(57,42,31,0.24)] sm:px-12 sm:py-10"
       >
+        <OnboardingJourney stage={isWelcome ? 'difficulty' : 'name'} className="mb-8" />
+
+        <div className="relative mx-auto h-24 w-24">
+          <motion.span
+            aria-hidden="true"
+            className="absolute inset-0 rounded-[1.75rem] border border-[#4f6b57]/20"
+            animate={reduceMotion || isWelcome ? undefined : { rotate: 360 }}
+            transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
+          />
+          <motion.span
+            aria-hidden="true"
+            className="absolute -right-1 top-3 h-3 w-3 rounded-full bg-[#4f6b57]"
+            animate={reduceMotion || isWelcome ? undefined : { scale: [0.75, 1.15, 0.75] }}
+            transition={{ duration: 1.6, repeat: Infinity, ease: 'easeInOut' }}
+          />
         <motion.div
           data-listening-state={capture.phase === 'listening' || capture.phase === 'confirming' ? 'active' : 'prompting'}
           animate={{
@@ -123,7 +152,7 @@ export function ParticipantNameOverlay({
             repeat: capture.isRecording && !reduceMotion ? Infinity : 0,
             ease: 'easeInOut',
           }}
-          className={`mx-auto flex h-20 w-20 items-center justify-center rounded-2xl text-white transition-colors duration-300 ${capture.phase === 'listening' || capture.phase === 'confirming' ? 'bg-blue-600' : 'bg-zinc-800'}`}
+          className={`absolute left-2 top-2 flex h-20 w-20 items-center justify-center rounded-2xl text-white transition-colors duration-300 ${capture.phase === 'listening' || capture.phase === 'confirming' ? 'bg-[#315f8f]' : isWelcome ? 'bg-[#4f6b57]' : 'bg-zinc-800'}`}
         >
           {capture.phase === 'preparing' || capture.phase === 'submitting' ? (
             <Loader2 className="h-9 w-9 motion-safe:animate-spin" aria-hidden="true" />
@@ -133,6 +162,7 @@ export function ParticipantNameOverlay({
             <Mic className="h-10 w-10" aria-hidden="true" />
           )}
         </motion.div>
+        </div>
 
         <div
           aria-hidden="true"
@@ -142,12 +172,12 @@ export function ParticipantNameOverlay({
             <motion.span
               key={bar}
               className="w-1.5 rounded-full bg-current"
-              animate={capture.phase === 'listening' || capture.phase === 'confirming'
+              animate={!reduceMotion && (capture.phase === 'listening' || capture.phase === 'confirming')
                 ? { height: ['8px', `${12 + ((bar * 7) % 14)}px`, '8px'] }
                 : { height: '8px' }}
               transition={{
                 duration: 0.75,
-                repeat: capture.phase === 'listening' || capture.phase === 'confirming' ? Infinity : 0,
+                repeat: !reduceMotion && (capture.phase === 'listening' || capture.phase === 'confirming') ? Infinity : 0,
                 delay: bar * 0.08,
                 ease: 'easeInOut',
               }}
@@ -168,9 +198,19 @@ export function ParticipantNameOverlay({
           )}
         </div>
 
-        <h2 id="participant-name-title" className="mt-2 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl">
-          {title}
-        </h2>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.h2
+            key={title}
+            id="participant-name-title"
+            initial={reduceMotion ? false : { opacity: 0, y: 12, filter: 'blur(5px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={reduceMotion ? undefined : { opacity: 0, y: -10, filter: 'blur(4px)' }}
+            transition={{ duration: reduceMotion ? 0 : 0.34, ease: [0.16, 1, 0.3, 1] }}
+            className="mt-2 text-3xl font-black tracking-tight text-zinc-900 sm:text-4xl"
+          >
+            {title}
+          </motion.h2>
+        </AnimatePresence>
         <p aria-live="polite" className={`mx-auto mt-4 min-h-14 max-w-md text-lg font-semibold leading-relaxed ${capture.error ? 'text-red-700' : capture.interim ? 'text-blue-700' : 'text-zinc-600'}`}>
           {description}
         </p>
@@ -189,21 +229,23 @@ export function ParticipantNameOverlay({
               placeholder="이름 또는 닉네임"
               className="min-w-0 flex-1 rounded-xl border border-zinc-300 px-4 py-3 text-lg font-bold text-zinc-900 outline-none focus:border-blue-500"
             />
-            <button
+            <motion.button
               type="button"
               disabled={typedBusy || !typedName.trim()}
               onClick={() => {
                 setTypedBusy(true);
                 setTypedError(null);
-                void onConfirm(typedName.trim())
-                  .then(() => window.setTimeout(onWelcomeComplete, 900))
-                  .catch(() => setTypedError('이름을 저장하지 못했습니다. 한글 또는 영문 이름을 확인해 주세요.'))
+                void capture.submitName(typedName.trim())
+                  .then((saved) => {
+                    if (!saved) setTypedError('이름을 저장하지 못했습니다. 한글 또는 영문 이름을 확인해 주세요.');
+                  })
                   .finally(() => setTypedBusy(false));
               }}
               className="rounded-xl bg-zinc-900 px-5 py-3 font-black text-white disabled:bg-zinc-300"
+              whileTap={reduceMotion ? undefined : { scale: 0.97 }}
             >
               {typedBusy ? '저장 중…' : '입력 완료'}
-            </button>
+            </motion.button>
           </div>
           {typedError ? <p role="alert" className="mt-2 text-left text-sm font-bold text-red-700">{typedError}</p> : null}
         </div>
@@ -212,14 +254,15 @@ export function ParticipantNameOverlay({
         {!isWelcome && capture.phase !== 'submitting' ? (
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           {capture.candidate ? (
-            <button
+            <motion.button
               type="button"
               disabled={busy}
               onClick={() => void capture.confirm()}
-              className="rounded-full bg-blue-600 px-7 py-3.5 text-lg font-black text-white transition hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-zinc-300"
+              className="rounded-full bg-[#315f8f] px-7 py-3.5 text-lg font-black text-white transition hover:bg-[#284f78] active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-zinc-300"
+              whileTap={reduceMotion ? undefined : { scale: 0.97 }}
             >
               이 이름으로 확정
-            </button>
+            </motion.button>
           ) : null}
           <button
             type="button"

@@ -311,14 +311,14 @@ describe('TranslatorOverlay', () => {
     ));
   });
 
-  it('stops translator audio and recognition before closing', () => {
+  it('stops translator recognition before closing without cancelling unrelated audio', () => {
     const onClose = vi.fn();
     render(<TranslatorOverlay isOpen onClose={onClose} />);
 
     fireEvent.click(screen.getByRole('button', { name: '번역기 닫기' }));
 
     expect(mocks.stop).toHaveBeenCalled();
-    expect(cancel).toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledOnce();
   });
 
@@ -338,14 +338,13 @@ describe('TranslatorOverlay', () => {
     expect(attribution.getAttribute('href')).toBe('https://papago.naver.com/');
   });
 
-  it('cancels sentence playback before starting translator STT', () => {
+  it('starts translator STT without globally cancelling unrelated audio', () => {
     render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
 
     fireEvent.click(screen.getByRole('button', { name: '음성으로 입력' }));
 
-    expect(cancel).toHaveBeenCalledOnce();
+    expect(cancel).not.toHaveBeenCalled();
     expect(mocks.start).toHaveBeenCalledOnce();
-    expect(cancel.mock.invocationCallOrder[0]).toBeLessThan(mocks.start.mock.invocationCallOrder[0]);
   });
 
   it('fully stops translator STT before playing a translated sentence', async () => {

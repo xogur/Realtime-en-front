@@ -1,42 +1,52 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, Check, Loader2, QrCode } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion';
+import { CalendarDays, Check, Loader2, RotateCcw, QrCode } from 'lucide-react';
 import QRCode from 'qrcode';
 import Image from 'next/image';
 import type { ReservationIntroRole } from '@/features/reservationIntro/types';
-import { addOneCalendarMonth, dateInputValue, getReservationSessionApiUrl } from './model';
-import type { Availability, AvailableRoom, AvailabilitySlot, UsageSession } from './types';
+import { getReservationSessionApiUrl } from './model';
+import { FollowupBookingFlow } from './FollowupBookingFlow';
+import { createFollowupReservation } from './reservationFollowupApi';
+import { BookingSuccessScene } from './BookingTransitionElements';
+import { bookingMotion, type BookingVisualSnapshot } from './bookingMotion';
+import type { DurationMinutes, UsageSession } from './types';
 
 type Props = {
   role: ReservationIntroRole;
   session: UsageSession | null;
   endPending?: boolean;
+  resumePending?: boolean;
+  resumeError?: string | null;
+  onResume?: () => Promise<UsageSession>;
   onDismiss?: () => Promise<void>;
+  onBook?: (request: { reservationId: number; date: string; startTime: string; durationMinutes: DurationMinutes; roomId: number }) => Promise<UsageSession>;
 };
 
-export function ReservationEndOverlay({ role, session, endPending = false, onDismiss }: Props) {
-  const today = useMemo(() => new Date(), []);
+export function ReservationEndOverlay({
+  role,
+  session,
+  endPending = false,
+  resumePending = false,
+  resumeError = null,
+  onResume,
+  onDismiss,
+  onBook,
+}: Props) {
   const [mode, setMode] = useState<'choices' | 'booking'>('choices');
-  const [date, setDate] = useState(dateInputValue(today));
-  const [duration, setDuration] = useState(30);
-  const [availability, setAvailability] = useState<Availability | null>(null);
-  const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
-  const [selectedRoom, setSelectedRoom] = useState<AvailableRoom | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [returnCountdown, setReturnCountdown] = useState<number | null>(null);
-  const availabilityRequest = useRef<AbortController | null>(null);
-  const sessionKioskId = session?.kioskId;
-  const sessionReservationId = session?.reservationId;
+  const [bookingSnapshot, setBookingSnapshot] = useState<BookingVisualSnapshot | null>(null);
+  const reduceMotion = useReducedMotion();
+  const followupReservationId = session?.followup?.reservationId;
 
   useEffect(() => {
     setMode('choices');
-    setAvailability(null);
-    setSelectedSlot(null);
-    setSelectedRoom(null);
     setError(null);
+    setBookingSnapshot(null);
   }, [session?.reservationId]);
 
   useEffect(() => {
@@ -55,7 +65,7 @@ export function ReservationEndOverlay({ role, session, endPending = false, onDis
   }, [session?.signupUrl]);
 
   useEffect(() => {
-    if (session?.status !== 'booked' || !session.followup) {
+    if (session?.status !== 'booked' || !followupReservationId) {
       setReturnCountdown(null);
       return;
     }
@@ -83,69 +93,10 @@ export function ReservationEndOverlay({ role, session, endPending = false, onDis
       window.clearInterval(interval);
       window.clearTimeout(timeout);
     };
-  }, [session?.followup?.reservationId, session?.kioskId, session?.reservationId, session?.status]);
-
-  useEffect(() => {
-    if (mode !== 'booking' || !sessionKioskId || !sessionReservationId) return;
-    availabilityRequest.current?.abort();
-    const controller = new AbortController();
-    availabilityRequest.current = controller;
-    setLoading(true);
-    setError(null);
-    setSelectedSlot(null);
-    setSelectedRoom(null);
-    const url = new URL(`${getReservationSessionApiUrl(sessionKioskId)}/availability`);
-    url.searchParams.set('date', date);
-    url.searchParams.set('durationMinutes', String(duration));
-    void fetch(url, { cache: 'no-store', signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) {
-          const body = await response.json().catch(() => null) as { detail?: string } | null;
-          throw new Error(body?.detail || '예약 가능 시간을 불러오지 못했습니다.');
-        }
-        return response.json() as Promise<Availability>;
-      })
-      .then(setAvailability)
-      .catch((reason: unknown) => {
-        if (!(reason instanceof DOMException && reason.name === 'AbortError')) {
-          setError(reason instanceof Error ? reason.message : '예약 가능 시간을 불러오지 못했습니다.');
-        }
-      })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [date, duration, mode, sessionKioskId, sessionReservationId]);
+  }, [followupReservationId, session?.kioskId, session?.reservationId, session?.status]);
 
   if (!session || session.status === 'active') return null;
   const isController = role === 'avatar';
-
-  const submit = async () => {
-    if (!selectedSlot || !selectedRoom) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${getReservationSessionApiUrl(session.kioskId)}/followup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          reservationId: session.reservationId,
-          date,
-          startTime: selectedSlot.startTime,
-          durationMinutes: duration,
-          roomId: selectedRoom.roomId,
-        }),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => null) as { detail?: string } | null;
-        throw new Error(body?.detail || '예약을 완료하지 못했습니다.');
-      }
-      // The polling hook will replace the session with the authoritative booked response.
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : '예약을 완료하지 못했습니다.');
-      setAvailability(null);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const dismiss = async () => {
     setLoading(true);
@@ -171,24 +122,23 @@ export function ReservationEndOverlay({ role, session, endPending = false, onDis
     }
   };
 
+  const resume = async () => {
+    if (!onResume) return;
+    setError(null);
+    try {
+      await onResume();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : '이용을 다시 시작하지 못했습니다.');
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-[2147483646] flex min-h-[100dvh] items-center justify-center bg-zinc-950/35 p-6 backdrop-blur-[18px]" role="dialog" aria-modal="true" aria-label="예약 이용 종료">
-      <section className="max-h-[92dvh] w-full max-w-3xl overflow-y-auto rounded-[2rem] border border-white/70 bg-[#fbf8f4] px-7 py-8 text-center shadow-[0_30px_110px_rgba(24,24,27,0.3)] sm:px-12">
+    <div className="fixed inset-0 z-[2147483646] flex min-h-[100dvh] items-center justify-center bg-zinc-950/35 p-0 backdrop-blur-[18px] sm:p-6" role="dialog" aria-modal="true" aria-label="예약 이용 종료">
+      <LayoutGroup id="reservation-followup">
+      <motion.section layout transition={reduceMotion ? { duration: 0.01 } : bookingMotion.springSoft} className={`max-h-[100dvh] min-h-[100dvh] w-full overflow-y-auto border border-white/70 bg-[#fbf8f4] px-5 py-6 text-center shadow-[0_30px_110px_rgba(24,24,27,0.3)] sm:min-h-0 sm:max-h-[92dvh] sm:rounded-[2rem] sm:px-12 sm:py-8 ${mode === 'booking' ? 'max-w-6xl' : 'max-w-3xl'}`}>
+        <AnimatePresence mode="wait" initial={false}>
         {session.status === 'booked' && session.followup ? (
-          <>
-            <Check className="mx-auto h-16 w-16 rounded-full bg-emerald-600 p-3 text-white" />
-            <h2 className="mt-5 text-3xl font-black text-zinc-900">다음 예약이 완료되었습니다</h2>
-            <p className="mt-4 text-xl font-bold text-zinc-700">
-              {new Intl.DateTimeFormat('ko-KR', { timeZone: 'Asia/Seoul', dateStyle: 'long', timeStyle: 'short' }).format(new Date(session.followup.startAt))}
-              {' · '}코쿤 {session.followup.roomNumber}번
-            </p>
-            <p className="mt-3 font-semibold text-zinc-500">예약 시간에 해당 코쿤으로 오시면 자동으로 이용을 시작합니다.</p>
-            {returnCountdown !== null ? (
-              <p className="mt-5 text-sm font-extrabold text-blue-700" aria-live="polite">
-                {returnCountdown}초 후 메인 영어 프로젝트 화면으로 돌아갑니다.
-              </p>
-            ) : null}
-          </>
+          <motion.div key="booked" exit={{ opacity: 0 }}><BookingSuccessScene snapshot={bookingSnapshot} countdown={returnCountdown} /></motion.div>
         ) : session.status === 'dismissed' ? (
           <>
             <Check className="mx-auto h-16 w-16 rounded-full bg-zinc-700 p-3 text-white" />
@@ -198,25 +148,48 @@ export function ReservationEndOverlay({ role, session, endPending = false, onDis
         ) : !isController ? (
           <>
             <CalendarDays className="mx-auto h-16 w-16 rounded-2xl bg-blue-600 p-3 text-white" />
-            <h2 className="mt-5 text-3xl font-black text-zinc-900">예약하신 사용 시간이 끝났습니다</h2>
+            <h2 className="mt-5 text-3xl font-black text-zinc-900">
+              {session.canResume ? '대화가 잠시 멈췄습니다' : '예약하신 사용 시간이 끝났습니다'}
+            </h2>
             <p className="mt-3 text-lg font-semibold text-zinc-500">
-              {session.canSignup
+              {session.canResume
+                ? '왼쪽 화면에서 계속 이용하거나 다음 일정을 선택해 주세요.'
+                : session.canSignup
                 ? '왼쪽 화면에서 다음 예약 또는 회원가입 QR을 이용해 주세요.'
                 : '왼쪽 화면에서 다음 예약을 선택해 주세요.'}
             </p>
           </>
         ) : (
           <>
-            <h2 className="text-3xl font-black text-zinc-900">예약하신 사용 시간이 끝났습니다</h2>
-            <p className="mt-2 text-lg font-semibold text-zinc-500">다음 이용을 간편하게 예약할 수 있어요.</p>
+            <h2 className={`${mode === 'booking' ? 'text-2xl sm:text-3xl' : 'text-3xl'} font-black text-zinc-900`}>
+              {session.canResume ? '대화가 잠시 멈췄습니다' : '예약하신 사용 시간이 끝났습니다'}
+            </h2>
+            <p className={`${mode === 'booking' ? 'mt-1 text-base sm:mt-2 sm:text-lg' : 'mt-2 text-lg'} font-semibold text-zinc-500`}>
+              {session.canResume
+                ? '예약 시간이 남아 있어 이전 대화를 그대로 이어서 이용할 수 있습니다.'
+                : '다음 이용을 간편하게 예약할 수 있어요.'}
+            </p>
 
+            {mode === 'choices' && session.canResume ? (
+              <button
+                type="button"
+                disabled={endPending || resumePending || loading}
+                onClick={() => void resume()}
+                className="mt-7 flex w-full items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-6 py-5 text-xl font-black text-white shadow-lg shadow-emerald-700/20 transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60"
+              >
+                {resumePending ? <Loader2 className="h-6 w-6 animate-spin" /> : <RotateCcw className="h-6 w-6" />}
+                {resumePending ? '이전 대화를 불러오는 중…' : '잘못 눌렀어요 · 계속 이용하기'}
+              </button>
+            ) : null}
+
+            <AnimatePresence mode="wait" initial={false}>
             {mode === 'choices' ? (
-              <div className={`mt-8 grid gap-4 ${session.canSignup ? 'sm:grid-cols-2' : ''}`}>
-                <button type="button" disabled={endPending || loading} onClick={() => setMode('booking')} className="rounded-2xl bg-blue-600 p-6 text-left text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60">
+              <motion.div key="choices" exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 6 }} transition={{ duration: reduceMotion ? 0.01 : 0.18 }} className={`mt-8 grid gap-4 ${session.canSignup ? 'sm:grid-cols-2' : ''}`}>
+                <motion.button layoutId="booking-surface" whileTap={reduceMotion ? undefined : { scale: 0.985 }} type="button" disabled={endPending || loading} onClick={() => setMode('booking')} className="rounded-2xl bg-blue-600 p-6 text-left text-white shadow-[0_18px_42px_rgba(33,85,217,0.18)] transition-colors hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60">
                   <CalendarDays className="h-8 w-8" />
                   <strong className="mt-4 block text-xl">다음 예약 일정 잡기</strong>
                   <span className="mt-1 block text-sm font-semibold text-blue-100">한 달 이내 날짜와 가능한 코쿤을 선택합니다.</span>
-                </button>
+                </motion.button>
                 {session.canSignup && session.signupUrl ? (
                   <section aria-label="울주 AI 회원가입 QR" className="rounded-2xl border-2 border-[#C8734D]/60 bg-[#F5F0E8] p-6 text-center text-[#15243A]">
                     <QrCode className="mx-auto h-8 w-8 text-[#C8734D]" />
@@ -227,53 +200,13 @@ export function ReservationEndOverlay({ role, session, endPending = false, onDis
                     <p className="mt-1 break-all text-[11px] font-semibold text-[#6E6A63]">ulju.ulsan.kr/ujai/reservation/cocoon</p>
                   </section>
                 ) : null}
-              </div>
+              </motion.div>
             ) : null}
 
-            {mode === 'booking' ? (
-              <div className="mt-7 text-left">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="font-bold text-zinc-700">날짜
-                    <input type="date" value={date} min={dateInputValue(today)} max={dateInputValue(addOneCalendarMonth(today))} onChange={(event) => setDate(event.target.value)} className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-4 py-3" />
-                  </label>
-                  <label className="font-bold text-zinc-700">이용 시간
-                    <select value={duration} onChange={(event) => setDuration(Number(event.target.value))} className="mt-2 w-full rounded-xl border border-zinc-300 bg-white px-4 py-3">
-                      <option value={30}>30분</option><option value={60}>60분</option>
-                    </select>
-                  </label>
-                </div>
-                {loading && !availability ? <Loader2 className="mx-auto mt-8 h-8 w-8 animate-spin text-blue-600" /> : null}
-                {availability?.message ? <p className="mt-6 rounded-xl bg-amber-50 p-4 font-semibold text-amber-800">{availability.message}</p> : null}
-                {availability?.slots.length ? (
-                  <div className="mt-6">
-                    <p className="font-black text-zinc-800">시간 선택</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {availability.slots.map((slot) => (
-                        <button key={slot.startTime} type="button" onClick={() => { setSelectedSlot(slot); setSelectedRoom(null); }} className={`rounded-full px-4 py-2 font-bold ${selectedSlot?.startTime === slot.startTime ? 'bg-blue-600 text-white' : 'bg-white text-zinc-700 ring-1 ring-zinc-200'}`}>
-                          {slot.startTime}–{slot.nominalEndTime}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                {selectedSlot ? (
-                  <div className="mt-6">
-                    <p className="font-black text-zinc-800">예약 가능한 코쿤</p>
-                    <div className="mt-3 flex gap-2">
-                      {selectedSlot.availableRooms.map((room) => (
-                        <button key={room.roomId} type="button" onClick={() => setSelectedRoom(room)} className={`rounded-xl px-5 py-3 font-black ${selectedRoom?.roomId === room.roomId ? 'bg-blue-600 text-white' : 'bg-white text-zinc-700 ring-1 ring-zinc-200'}`}>코쿤 {room.roomNumber}번</button>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-                <div className="mt-7 flex justify-end gap-3">
-                  <button type="button" onClick={() => setMode('choices')} className="rounded-full px-5 py-3 font-bold text-zinc-600">이전</button>
-                  <button type="button" disabled={!selectedRoom || loading} onClick={() => void submit()} className="rounded-full bg-blue-600 px-7 py-3 font-black text-white disabled:bg-zinc-300">{loading ? '예약 확인 중…' : '이 일정으로 예약'}</button>
-                </div>
-              </div>
-            ) : null}
+            {mode === 'booking' ? <motion.div key="booking" layoutId="booking-surface" className="mt-7 rounded-[1.5rem] bg-[#fbf8f4]" initial={reduceMotion ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: reduceMotion ? 0.01 : bookingMotion.shared }}><FollowupBookingFlow session={session} onBack={() => setMode('choices')} onBookingSnapshot={setBookingSnapshot} onBook={onBook ?? ((request) => createFollowupReservation(session.kioskId, request))} /></motion.div> : null}
+            </AnimatePresence>
 
-            {error ? <p role="alert" className="mt-5 rounded-xl bg-red-50 p-4 font-semibold text-red-700">{error}</p> : null}
+            {error || resumeError ? <p role="alert" className="mt-5 rounded-xl bg-red-50 p-4 font-semibold text-red-700">{error || resumeError}</p> : null}
             {mode === 'choices' ? (
               <>
                 {endPending ? <p className="mt-5 text-sm font-semibold text-zinc-500" aria-live="polite">이용 종료를 저장하고 있습니다…</p> : null}
@@ -282,7 +215,9 @@ export function ReservationEndOverlay({ role, session, endPending = false, onDis
             ) : null}
           </>
         )}
-      </section>
+        </AnimatePresence>
+      </motion.section>
+      </LayoutGroup>
     </div>
   );
 }

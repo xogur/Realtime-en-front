@@ -43,6 +43,12 @@ class FakeSpeechRecognition implements RecognitionHandlers {
   abort() {}
 }
 
+class DelayedSpeechRecognition extends FakeSpeechRecognition {
+  start(audioTrack?: MediaStreamTrack) {
+    this.startedWith = audioTrack ?? null;
+  }
+}
+
 class FakeAudioTrack extends EventTarget {
   kind = 'audio';
   readyState: MediaStreamTrackState = 'live';
@@ -176,6 +182,41 @@ describe('useBrowserStt restart handling', () => {
       await result.current.stop();
     });
     expect(audioTrack.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports ready only after the recognizer onstart event', async () => {
+    Object.defineProperty(window, 'webkitSpeechRecognition', {
+      configurable: true,
+      value: DelayedSpeechRecognition,
+    });
+    const options = makeOptions();
+    const { result } = renderHook(() => useBrowserStt(options));
+    let readyPromise: Promise<boolean> | undefined;
+
+    await act(async () => {
+      readyPromise = result.current.startAndWaitUntilReady();
+      await Promise.resolve();
+    });
+    expect(result.current.isRecording).toBe(false);
+    expect(result.current.status).toBe('starting');
+    expect(options.onReadyChange).not.toHaveBeenCalledWith(true);
+
+    act(() => FakeSpeechRecognition.instances.at(-1)?.onstart?.());
+    await expect(readyPromise).resolves.toBe(true);
+    expect(result.current.isRecording).toBe(true);
+    expect(result.current.status).toBe('listening');
+  });
+
+  it('turns the listening indicator off while a healthy recognizer restarts', async () => {
+    const options = makeOptions();
+    const { result } = renderHook(() => useBrowserStt(options));
+    await act(async () => { await result.current.startAndWaitUntilReady(); });
+    expect(result.current.isRecording).toBe(true);
+
+    act(() => FakeSpeechRecognition.instances.at(-1)?.onend?.());
+    expect(result.current.isRecording).toBe(false);
+    expect(result.current.status).toBe('restarting');
+    expect(options.onReadyChange).toHaveBeenLastCalledWith(false);
   });
 
   it('does not let an isolated translator recorder clear the conversation recording state', async () => {

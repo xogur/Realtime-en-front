@@ -180,8 +180,17 @@ export default function Home() {
       <div className="relative z-30">
         <ControlPanel
           onOpenSettings={() => setIsSettingsOpen(true)}
+          participantName={reservationIntro.participantName}
           onEndUsage={() => void reservationFollowup.endUsage('MANUAL')}
           canEndUsage={reservationFollowup.session?.status === 'active'}
+          resumeUsageSignal={reservationFollowup.resumeSignal}
+          openTopicSelectorEventId={
+            reservationIntro.programReady
+              && !isTranslatorOpen
+              && !reservationFollowup.locked
+              ? reservationIntro.reservationSession?.eventId ?? null
+              : null
+          }
         />
       </div>
 
@@ -215,7 +224,18 @@ export default function Home() {
       onSkip={reservationIntro.skipParticipantName}
       onWelcomeComplete={reservationIntro.finishParticipantWelcome}
     />
-    <ReservationEndOverlay role="avatar" session={reservationFollowup.session} endPending={reservationFollowup.endPending} onDismiss={reservationFollowup.dismissUsage} />
+    <ReservationEndOverlay
+      role="avatar"
+      session={reservationFollowup.session}
+      endPending={reservationFollowup.endPending}
+      resumePending={reservationFollowup.resumePending}
+      resumeError={reservationFollowup.resumeError}
+      onResume={async () => {
+        return reservationFollowup.resumeUsage();
+      }}
+      onDismiss={reservationFollowup.dismissUsage}
+      onBook={reservationFollowup.createFollowup}
+    />
     </>
   );
 }

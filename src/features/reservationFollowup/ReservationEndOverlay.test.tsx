@@ -9,11 +9,13 @@ vi.mock('qrcode', () => ({ default: { toDataURL: vi.fn(async () => 'data:image/p
 const session: UsageSession = {
   reservationId: 154,
   kioskId: 'A02',
+  currentRoomNumber: 1,
   status: 'ended',
   serverNow: '2026-08-24T05:30:00Z',
   endAt: '2026-08-24T05:30:00Z',
   endedAt: '2026-08-24T05:30:00Z',
   endReason: 'NATURAL',
+  canResume: false,
   isGuest: true,
   canSignup: true,
   participantNameReady: true,
@@ -32,8 +34,15 @@ describe('ReservationEndOverlay', () => {
   // Found by /qa on 2026-08-24.
   // Report: COCOON_RESERVATION_FOLLOWUP_IMPLEMENTATION.md
   it('keeps the selected slot when polling returns the same reservation as a new object', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
-      date: '2026-08-25',
+    const today = new Date();
+    const date = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => new Response(JSON.stringify(String(input).includes('availability-calendar') ? {
+      from: date,
+      to: date,
+      durationMinutes: 30,
+      days: [{ date, status: 'available', availableSlotCount: 1, message: null }],
+    } : {
+      date,
       durationMinutes: 30,
       closed: false,
       message: null,
@@ -46,13 +55,14 @@ describe('ReservationEndOverlay', () => {
 
     const view = render(<ReservationEndOverlay role="avatar" session={session} />);
     fireEvent.click(screen.getByRole('button', { name: /다음 예약 일정 잡기/ }));
-    fireEvent.click(await screen.findByRole('button', { name: '14:00–14:30' }));
-    expect(await screen.findByRole('button', { name: '코쿤 3번' })).not.toBeNull();
+    fireEvent.click(await screen.findByRole('gridcell', { name: new RegExp(`${today.getMonth() + 1}월 ${today.getDate()}일`) }));
+    fireEvent.click(await screen.findByRole('button', { name: /14:00.*14:30/ }));
+    expect(await screen.findByRole('button', { name: /코쿤 3/ })).not.toBeNull();
 
     view.rerender(<ReservationEndOverlay role="avatar" session={{ ...session }} />);
 
-    await waitFor(() => expect(screen.getByRole('button', { name: '코쿤 3번' })).not.toBeNull());
-    expect(fetch).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.getByRole('button', { name: /코쿤 3/ })).not.toBeNull());
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it('does not show signup to a registered member', () => {
@@ -137,5 +147,17 @@ describe('ReservationEndOverlay', () => {
     expect((screen.getByRole('button', { name: /다음 예약 일정 잡기/ }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole('button', { name: '예약하지 않고 이용 마치기' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText('이용 종료를 저장하고 있습니다…')).not.toBeNull();
+  });
+
+  it('shows resume only on the avatar display when the server allows it', async () => {
+    const resumable = { ...session, endReason: 'MANUAL' as const, canResume: true };
+    const onResume = vi.fn(async () => ({ ...resumable, status: 'active' as const }));
+    const view = render(<ReservationEndOverlay role="avatar" session={resumable} onResume={onResume} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /잘못 눌렀어요/ }));
+    await waitFor(() => expect(onResume).toHaveBeenCalledTimes(1));
+
+    view.rerender(<ReservationEndOverlay role="guide" session={resumable} onResume={onResume} />);
+    expect(screen.queryByRole('button', { name: /잘못 눌렀어요/ })).toBeNull();
   });
 });

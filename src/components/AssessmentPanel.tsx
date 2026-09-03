@@ -10,6 +10,7 @@ import {
     Info,
     Languages,
     Minus,
+    Play,
     Plus,
     Printer,
     RotateCcw,
@@ -2004,9 +2005,11 @@ export function getRepeatedErrorPatterns(turns: EvaluatedTurn[]): ReportErrorPat
 export function AssessmentPanel({
     isTranslatorOpen = false,
     onOpenTranslator,
+    onReplayGuide,
 }: {
     isTranslatorOpen?: boolean;
     onOpenTranslator?: () => void;
+    onReplayGuide?: () => void;
 }) {
     const isClientReady = useSyncExternalStore(
         subscribeClientReady,
@@ -2400,6 +2403,18 @@ export function AssessmentPanel({
                                 aria-hidden="true"
                                 className={`h-2.5 w-2.5 rounded-full ${isTranslatorOpen ? 'bg-emerald-500' : 'bg-[#8b6741]'}`}
                             />
+                        </button>
+                    )}
+                    {onReplayGuide && (
+                        <button
+                            type="button"
+                            onClick={onReplayGuide}
+                            className="inline-flex min-h-12 items-center gap-2 rounded-xl border border-[#71805f]/30 bg-[#f4f6f0] px-3.5 py-2.5 text-[#42513a] shadow-[0_4px_12px_rgba(59,48,40,0.08)] transition-all hover:-translate-y-0.5 hover:border-[#71805f]/50 hover:bg-white hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#71805f]/35"
+                            title="가이드 영상을 다시 봅니다"
+                            aria-label="가이드 영상 다시 보기"
+                        >
+                            <Play className="h-5 w-5 shrink-0" strokeWidth={2.3} />
+                            <span className="whitespace-nowrap text-[13px] font-black">가이드 영상</span>
                         </button>
                     )}
                     <button

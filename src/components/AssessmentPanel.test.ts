@@ -190,6 +190,20 @@ describe('assessment print report', () => {
         expect(onOpenTranslator).toHaveBeenCalledOnce();
     });
 
+    it('places the guide replay action beside translator and print', () => {
+        const onReplayGuide = vi.fn();
+        render(createElement(AssessmentPanel, { onOpenTranslator: vi.fn(), onReplayGuide }));
+
+        const translatorButton = screen.getByRole('button', { name: '한영 번역기 열기' });
+        const guideButton = screen.getByRole('button', { name: '가이드 영상 다시 보기' });
+        const printButton = screen.getByRole('button', { name: '평가 리포트 출력' });
+        expect(guideButton.parentElement).toBe(translatorButton.parentElement);
+        expect(guideButton.parentElement).toBe(printButton.parentElement);
+
+        fireEvent.click(guideButton);
+        expect(onReplayGuide).toHaveBeenCalledOnce();
+    });
+
     it('shows translator state and keeps the launcher usable for recovery', () => {
         const onOpenTranslator = vi.fn();
         render(createElement(AssessmentPanel, { isTranslatorOpen: true, onOpenTranslator }));

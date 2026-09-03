@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { addOneCalendarMonth, endDeadlineMs, getReservationSessionApiUrl, reconcilePolledSession } from './model';
+import { getKioskDisplayCocoon } from './cocoonSceneModel';
 import type { UsageSession } from './types';
 
 describe('reservation follow-up model', () => {
+  it('highlights only physical English-project cocoons', () => {
+    expect(getKioskDisplayCocoon('A02', 2)).toBe(2);
+    expect(getKioskDisplayCocoon('A03', 3)).toBe(3);
+    expect(getKioskDisplayCocoon('A04', 4)).toBe(4);
+    expect(getKioskDisplayCocoon('A05', 5)).toBeNull();
+  });
+
   it('clamps a calendar month at month end', () => {
     expect(addOneCalendarMonth(new Date(2027, 0, 31))).toEqual(new Date(2027, 1, 28));
   });
@@ -24,6 +32,7 @@ describe('reservation follow-up model', () => {
       endAt: '2026-08-24T05:30:00Z',
       endedAt: null,
       endReason: null,
+      canResume: false,
       isGuest: false,
       canSignup: false,
       participantNameReady: true,

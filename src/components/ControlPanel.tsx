@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useStore } from '@/stores/useStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Keyboard, LogOut, Mic, MicOff, Trash2, Loader2 } from 'lucide-react';
@@ -13,18 +14,26 @@ import { isTranslatorWindowMessage, TRANSLATOR_WINDOW_MESSAGE } from '@/lib/tran
 
 interface ControlPanelProps {
     onOpenSettings: () => void;
-    onEndUsage?: () => void;
+    onEndUsage?: () => Promise<void> | void;
     canEndUsage?: boolean;
+    resumeUsageSignal?: number;
+    openTopicSelectorEventId?: string | null;
+    participantName?: string | null;
 }
 
-// 설정 버튼 복원 시 onOpenSettings가 다시 사용됩니다.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function ControlPanel({ onOpenSettings, onEndUsage, canEndUsage = false }: ControlPanelProps) {
+export function ControlPanel({
+    onEndUsage,
+    canEndUsage = false,
+    resumeUsageSignal = 0,
+    openTopicSelectorEventId = null,
+    participantName = null,
+}: ControlPanelProps) {
     const {
         startListening,
         startConversation,
         resumeConversation,
         stopListening,
+        pauseConversationForUsageEnd,
         isConnected,
         isSttReady,
         isRecording,
@@ -40,6 +49,11 @@ export function ControlPanel({ onOpenSettings, onEndUsage, canEndUsage = false }
     const reservationIntroEventId = useStore((state) => state.reservationIntroEventId);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isTopicSelectorOpen, setIsTopicSelectorOpen] = useState(false);
+    const [isEndDialogOpen, setIsEndDialogOpen] = useState(false);
+    const [isEndingUsage, setIsEndingUsage] = useState(false);
+    const safeEndChoiceRef = useRef<HTMLButtonElement | null>(null);
+    const handledResumeSignalRef = useRef(0);
+    const handledTopicSelectorEventRef = useRef<string | null>(null);
     const isTranslatorOpenRef = useRef(false);
     const resumeAfterTranslatorRef = useRef(false);
     const preparedReservationIntroRef = useRef<string | null>(null);
@@ -72,6 +86,59 @@ export function ControlPanel({ onOpenSettings, onEndUsage, canEndUsage = false }
         resumeAfterTranslatorRef.current = false;
         prepareForReservationIntro();
     }, [prepareForReservationIntro, reservationIntroEventId]);
+
+    useEffect(() => {
+        if (resumeUsageSignal <= 0 || handledResumeSignalRef.current === resumeUsageSignal) return;
+        handledResumeSignalRef.current = resumeUsageSignal;
+        setIsTopicSelectorOpen(false);
+        if (activeSegment) {
+            resumeConversation(activeSegment.segmentId);
+        } else {
+            setIsTopicSelectorOpen(true);
+        }
+    }, [activeSegment, resumeConversation, resumeUsageSignal]);
+
+    useEffect(() => {
+        if (
+            !openTopicSelectorEventId
+            || handledTopicSelectorEventRef.current === openTopicSelectorEventId
+        ) return;
+
+        handledTopicSelectorEventRef.current = openTopicSelectorEventId;
+        setIsTopicSelectorOpen(true);
+    }, [openTopicSelectorEventId]);
+
+    useEffect(() => {
+        if (!isEndDialogOpen) return;
+        const main = document.querySelector('main');
+        const previousAriaHidden = main ? main.getAttribute('aria-hidden') : null;
+        const previouslyInert = main?.hasAttribute('inert') ?? false;
+        main?.setAttribute('inert', '');
+        main?.setAttribute('aria-hidden', 'true');
+        safeEndChoiceRef.current?.focus();
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && !isEndingUsage) setIsEndDialogOpen(false);
+        };
+        window.addEventListener('keydown', onKeyDown);
+        return () => {
+            window.removeEventListener('keydown', onKeyDown);
+            if (!previouslyInert) main?.removeAttribute('inert');
+            if (previousAriaHidden === null) main?.removeAttribute('aria-hidden');
+            else main?.setAttribute('aria-hidden', previousAriaHidden);
+        };
+    }, [isEndDialogOpen, isEndingUsage]);
+
+    const confirmUsageEnd = useCallback(async () => {
+        if (!onEndUsage || isEndingUsage) return;
+        setIsEndingUsage(true);
+        pauseConversationForUsageEnd();
+        try {
+            await onEndUsage();
+            setIsEndDialogOpen(false);
+        } finally {
+            setIsEndingUsage(false);
+        }
+    }, [isEndingUsage, onEndUsage, pauseConversationForUsageEnd]);
 
     const handleToggleConnection = useCallback(() => {
         if (isProcessing || isConnecting) return;
@@ -182,12 +249,7 @@ export function ControlPanel({ onOpenSettings, onEndUsage, canEndUsage = false }
             {canEndUsage && onEndUsage ? (
                 <button
                     type="button"
-                    onClick={() => {
-                        if (window.confirm('영어 프로그램 이용을 마치시겠어요? 현재 홈페이지 예약 시간은 변경되지 않습니다.')) {
-                            stopListening();
-                            onEndUsage();
-                        }
-                    }}
+                    onClick={() => setIsEndDialogOpen(true)}
                     className="p-3 rounded-full border border-white/15 bg-white/5 text-amber-100 transition-all hover:bg-amber-500/25 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-200"
                     aria-label="영어 프로그램 이용 종료"
                     title="이용 종료"
@@ -294,6 +356,7 @@ export function ControlPanel({ onOpenSettings, onEndUsage, canEndUsage = false }
         </motion.div>
         <TopicSelector
             isOpen={isTopicSelectorOpen}
+            participantName={participantName}
             currentTopicId={activeSegment?.topicId}
             currentDifficultyId={activeSegment?.difficultyId}
             isBusy={conversationStartStatus === 'preparing'}
@@ -302,6 +365,42 @@ export function ControlPanel({ onOpenSettings, onEndUsage, canEndUsage = false }
             onResume={activeSegment ? handleResume : undefined}
             onClose={() => setIsTopicSelectorOpen(false)}
         />
+        {isEndDialogOpen && typeof document !== 'undefined' ? createPortal(
+            <div className="fixed inset-0 z-[2147483647] flex items-center justify-center bg-zinc-950/55 p-6 backdrop-blur-sm">
+                <section
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="usage-end-title"
+                    aria-describedby="usage-end-description"
+                    className="w-full max-w-lg rounded-[2rem] border border-white/70 bg-[#fbf8f4] p-8 text-center shadow-[0_30px_110px_rgba(24,24,27,0.4)]"
+                >
+                    <h2 id="usage-end-title" className="text-3xl font-black text-zinc-900">이용을 종료할까요?</h2>
+                    <p id="usage-end-description" className="mt-4 text-base font-semibold leading-7 text-zinc-600">
+                        대화는 잠시 멈추고 종료 화면으로 이동합니다. 예약 시간이 남아 있다면 다시 이어서 이용할 수 있습니다.
+                    </p>
+                    <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-center">
+                        <button
+                            ref={safeEndChoiceRef}
+                            type="button"
+                            disabled={isEndingUsage}
+                            onClick={() => setIsEndDialogOpen(false)}
+                            className="rounded-full border border-zinc-300 bg-white px-7 py-3 font-black text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                        >
+                            계속 대화하기
+                        </button>
+                        <button
+                            type="button"
+                            disabled={isEndingUsage}
+                            onClick={() => void confirmUsageEnd()}
+                            className="rounded-full bg-amber-600 px-7 py-3 font-black text-white hover:bg-amber-700 disabled:cursor-wait disabled:opacity-60"
+                        >
+                            {isEndingUsage ? '종료 처리 중…' : '이용 종료하기'}
+                        </button>
+                    </div>
+                </section>
+            </div>,
+            document.body,
+        ) : null}
         </>
     );
 }

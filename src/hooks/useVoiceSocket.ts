@@ -1892,6 +1892,14 @@ export function useVoiceSocket() {
     void stopSttCapture();
   }, [setSttReady, stopSttCapture]);
 
+  const pauseConversationForUsageEnd = useCallback(() => {
+    stopListening();
+    flushActiveTts();
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'tts_stop' }));
+    }
+  }, [flushActiveTts, stopListening]);
+
   useEffect(() => {
     if (!isConnected || (!isSttReady && !TEXT_ONLY_TEST_MODE)) return;
     sendPendingTopicStart();
@@ -1975,6 +1983,7 @@ export function useVoiceSocket() {
     startConversation,
     resumeConversation,
     stopListening,
+    pauseConversationForUsageEnd,
     isConnected,
     isSttReady,
     isRecording,

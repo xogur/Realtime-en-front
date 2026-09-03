@@ -1,9 +1,10 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { getKioskIdFromLocation } from '@/lib/kioskIdentity';
 import { useStore } from '@/stores/useStore';
 import { usePresenceDetector } from '@/features/presence/usePresenceDetector';
+import { PRESENCE_EVIDENCE_MAX_AGE_MS } from '@/features/presence/personDetection';
 import {
   deriveStartedAtMs,
   getReservationIntroApiUrl,
@@ -21,13 +22,20 @@ import type {
   ParticipantSkipReason,
 } from './types';
 
-const SUPPORTED_KIOSKS = new Set(['A02', 'A03', 'A04']);
+const SUPPORTED_KIOSKS = new Set(['A02', 'A03', 'A04', 'A05']);
+const PRESENCE_REPORT_TIMEOUT_MS = 5_000;
+const PRESENCE_REPORT_RETRY_BASE_MS = 500;
+const PRESENCE_REPORT_RETRY_MAX_MS = 4_000;
+const subscribeClientReady = () => () => undefined;
 
 export function useReservationIntro(role: ReservationIntroRole) {
   const [active, setActive] = useState<ActiveReservationIntro | null>(null);
   const [reservationSession, setReservationSession] = useState<ReservationIntroEvent | null>(null);
   const [participantWelcomeName, setParticipantWelcomeName] = useState<string | null>(null);
+  const [participantName, setParticipantName] = useState<string | null>(null);
   const [introPresentationPending, setIntroPresentationPending] = useState(false);
+  const [presenceReportRetryToken, setPresenceReportRetryToken] = useState(0);
+  const clientReady = useSyncExternalStore(subscribeClientReady, () => true, () => false);
   const reservationSessionRef = useRef<ReservationIntroEvent | null>(null);
   const activeRef = useRef<ActiveReservationIntro | null>(null);
   const startedAtRef = useRef<number | null>(null);
@@ -36,8 +44,25 @@ export function useReservationIntro(role: ReservationIntroRole) {
   const completingRef = useRef(false);
   const presenceReportEventRef = useRef<string | null>(null);
   const presenceReportInFlightRef = useRef(false);
+  const presenceReportAbortRef = useRef<AbortController | null>(null);
+  const presenceReportRequestEventRef = useRef<string | null>(null);
+  const presenceReportFailureCountRef = useRef(0);
+  const presenceReportRetryAtRef = useRef(0);
+  const presenceReportRetryEventRef = useRef<string | null>(null);
+  const presenceReportRetryTimerRef = useRef<number | null>(null);
+  const presenceReportMountedRef = useRef(false);
   const enabled = process.env.NEXT_PUBLIC_COCOON_RESERVATION_INTRO_ENABLED !== 'false';
-  const presence = usePresenceDetector(role === 'avatar');
+  const {
+    status: presenceStatus,
+    present: presencePresent,
+    getEvidence: getPresenceEvidence,
+    retry: retryPresence,
+  } = usePresenceDetector(
+    enabled
+      && role === 'avatar'
+      && clientReady
+      && SUPPORTED_KIOSKS.has(getKioskIdFromLocation().toUpperCase()),
+  );
 
   const updateActive = useCallback((value: ActiveReservationIntro | null) => {
     if (value && activeRef.current?.event.eventId !== value.event.eventId) {
@@ -48,6 +73,10 @@ export function useReservationIntro(role: ReservationIntroRole) {
   }, []);
 
   const updateReservationSession = useCallback((value: ReservationIntroEvent | null) => {
+    if (value?.eventId !== reservationSessionRef.current?.eventId) {
+      setParticipantWelcomeName(null);
+      setParticipantName(null);
+    }
     reservationSessionRef.current = value;
     setReservationSession(value);
   }, []);
@@ -192,36 +221,124 @@ export function useReservationIntro(role: ReservationIntroRole) {
     };
   }, [complete, enabled, role, updateActive, updateReservationSession]);
 
+  const reservationEventId = reservationSession?.eventId ?? null;
+  useEffect(() => {
+    const requestEventId = presenceReportRequestEventRef.current;
+    if (requestEventId !== null && requestEventId !== reservationEventId) {
+      presenceReportAbortRef.current?.abort();
+    }
+    if (
+      presenceReportRetryEventRef.current !== null
+      && presenceReportRetryEventRef.current !== reservationEventId
+    ) {
+      if (presenceReportRetryTimerRef.current !== null) {
+        window.clearTimeout(presenceReportRetryTimerRef.current);
+        presenceReportRetryTimerRef.current = null;
+      }
+      presenceReportFailureCountRef.current = 0;
+      presenceReportRetryAtRef.current = 0;
+      presenceReportRetryEventRef.current = null;
+    }
+  }, [reservationEventId]);
+
+  useEffect(() => {
+    presenceReportMountedRef.current = true;
+    return () => {
+      presenceReportMountedRef.current = false;
+      presenceReportAbortRef.current?.abort();
+      if (presenceReportRetryTimerRef.current !== null) {
+        window.clearTimeout(presenceReportRetryTimerRef.current);
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const session = reservationSession;
-    if (
-      role !== 'avatar'
-      || !presence.present
-      || !session
-      || session.status !== 'waiting_for_presence'
-      || presenceReportEventRef.current === session.eventId
-      || presenceReportInFlightRef.current
-    ) return;
+    const evidence = getPresenceEvidence();
+    const nowMs = performance.now();
+    if (nowMs < presenceReportRetryAtRef.current || !session || !shouldReportPresence({
+      role,
+      present: presencePresent,
+      lastPositiveAtMs: evidence.lastPositiveAtMs,
+      nowMs,
+      session,
+      reportedEventId: presenceReportEventRef.current,
+      inFlight: presenceReportInFlightRef.current,
+    })) return;
 
     presenceReportInFlightRef.current = true;
+    const controller = new AbortController();
+    presenceReportAbortRef.current = controller;
+    presenceReportRequestEventRef.current = session.eventId;
+    const timeout = window.setTimeout(() => controller.abort(), PRESENCE_REPORT_TIMEOUT_MS);
     void fetch(`${getReservationIntroApiUrl(session.kioskId)}/presence`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ eventId: session.eventId }),
+      signal: controller.signal,
     })
       .then(async (response) => {
         if (!response.ok) throw new Error(`presence report failed: ${response.status}`);
         const updated = await response.json() as ReservationIntroEvent;
+        if (
+          updated.eventId !== session.eventId
+          || reservationSessionRef.current?.eventId !== session.eventId
+        ) return;
         presenceReportEventRef.current = session.eventId;
+        presenceReportFailureCountRef.current = 0;
+        presenceReportRetryAtRef.current = 0;
+        presenceReportRetryEventRef.current = null;
+        if (presenceReportRetryTimerRef.current !== null) {
+          window.clearTimeout(presenceReportRetryTimerRef.current);
+          presenceReportRetryTimerRef.current = null;
+        }
         updateReservationSession(updated);
       })
       .catch((error) => {
+        if (!presenceReportMountedRef.current) return;
+        if (
+          controller.signal.aborted
+          && reservationSessionRef.current?.eventId !== session.eventId
+        ) return;
+        presenceReportFailureCountRef.current += 1;
+        const retryDelayMs = presenceReportRetryDelayMs(
+          presenceReportFailureCountRef.current,
+        );
+        presenceReportRetryAtRef.current = performance.now() + retryDelayMs;
+        presenceReportRetryEventRef.current = session.eventId;
+        if (presenceReportRetryTimerRef.current !== null) {
+          window.clearTimeout(presenceReportRetryTimerRef.current);
+        }
+        presenceReportRetryTimerRef.current = window.setTimeout(() => {
+          presenceReportRetryTimerRef.current = null;
+          if (presenceReportMountedRef.current) {
+            setPresenceReportRetryToken((value) => value + 1);
+          }
+        }, retryDelayMs);
         console.warn('[reservation-intro] presence report failed', error);
       })
       .finally(() => {
-        presenceReportInFlightRef.current = false;
+        window.clearTimeout(timeout);
+        if (presenceReportAbortRef.current === controller) {
+          presenceReportAbortRef.current = null;
+          presenceReportRequestEventRef.current = null;
+          presenceReportInFlightRef.current = false;
+        }
+        if (
+          presenceReportMountedRef.current
+          && reservationSessionRef.current?.eventId !== session.eventId
+        ) {
+          setPresenceReportRetryToken((value) => value + 1);
+        }
       });
-  }, [presence.present, reservationSession, role, updateReservationSession]);
+  }, [
+    getPresenceEvidence,
+    presencePresent,
+    presenceReportRetryToken,
+    reservationSession,
+    role,
+    updateReservationSession,
+  ]);
 
   const activeEventId = active?.event.eventId;
   useEffect(() => {
@@ -268,7 +385,10 @@ export function useReservationIntro(role: ReservationIntroRole) {
   const confirmParticipantName = useCallback(
     (name: string) => updateParticipant(
       { action: 'confirm', name },
-      () => setParticipantWelcomeName(name),
+      () => {
+        setParticipantName(name);
+        setParticipantWelcomeName(name);
+      },
     ),
     [updateParticipant],
   );
@@ -287,21 +407,38 @@ export function useReservationIntro(role: ReservationIntroRole) {
     participantWelcomeName,
     introPresentationPending,
   );
+  const programReady = isReservationProgramReady(
+    reservationSession,
+    needsNameCapture,
+    introPresentationPending,
+  );
 
   return {
     active,
     complete,
     reservationSession,
     participant: reservationSession?.participant ?? null,
+    participantName,
     needsNameCapture,
+    programReady,
     participantWelcomeName,
     finishIntroPresentation,
     confirmParticipantName,
     finishParticipantWelcome,
     skipParticipantName,
-    presenceStatus: presence.status,
-    retryPresence: presence.retry,
+    presenceStatus,
+    retryPresence,
   };
+}
+
+export function isReservationProgramReady(
+  reservationSession: ReservationIntroEvent | null,
+  needsNameCapture: boolean,
+  introPresentationPending: boolean,
+) {
+  return reservationSession?.status === 'completed'
+    && !needsNameCapture
+    && !introPresentationPending;
 }
 
 export function shouldShowParticipantNameOverlay(
@@ -318,4 +455,37 @@ export function shouldShowParticipantNameOverlay(
           && reservationSession.participant.status === 'required'
       ),
   );
+}
+
+export function shouldReportPresence({
+  role,
+  present,
+  lastPositiveAtMs,
+  nowMs,
+  session,
+  reportedEventId,
+  inFlight,
+}: {
+  role: ReservationIntroRole;
+  present: boolean;
+  lastPositiveAtMs: number | null;
+  nowMs: number;
+  session: ReservationIntroEvent | null;
+  reportedEventId: string | null;
+  inFlight: boolean;
+}) {
+  const evidenceAgeMs = lastPositiveAtMs === null ? null : nowMs - lastPositiveAtMs;
+  return role === 'avatar'
+    && present
+    && evidenceAgeMs !== null
+    && evidenceAgeMs >= 0
+    && evidenceAgeMs <= PRESENCE_EVIDENCE_MAX_AGE_MS
+    && session?.status === 'waiting_for_presence'
+    && reportedEventId !== session.eventId
+    && !inFlight;
+}
+
+export function presenceReportRetryDelayMs(failureCount: number) {
+  const exponent = Math.max(0, Math.floor(failureCount) - 1);
+  return Math.min(PRESENCE_REPORT_RETRY_BASE_MS * (2 ** exponent), PRESENCE_REPORT_RETRY_MAX_MS);
 }

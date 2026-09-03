@@ -17,14 +17,23 @@ vi.mock('@/hooks/useVoiceSocket', () => ({
 vi.mock('@/hooks/useChatSync', () => ({ useChatSync: vi.fn() }));
 vi.mock('@/components/ChatOverlay', () => ({ ChatOverlay: () => <div>Chat</div> }));
 vi.mock('@/components/AssessmentPanel', () => ({
-  AssessmentPanel: ({ isTranslatorOpen, onOpenTranslator }: {
+  AssessmentPanel: ({ isTranslatorOpen, onOpenTranslator, onReplayGuide }: {
     isTranslatorOpen: boolean;
     onOpenTranslator: () => void;
+    onReplayGuide: () => void;
   }) => (
-    <button onClick={onOpenTranslator} type="button">
-      {isTranslatorOpen ? 'translator-open' : 'translator-closed'}
-    </button>
+    <>
+      <button onClick={onOpenTranslator} type="button">
+        {isTranslatorOpen ? 'translator-open' : 'translator-closed'}
+      </button>
+      <button onClick={onReplayGuide} type="button">open-guide-replay</button>
+    </>
   ),
+}));
+vi.mock('@/features/reservationIntro/GuideReplayOverlay', () => ({
+  GuideReplayOverlay: ({ active, onClose }: { active: boolean; onClose: () => void }) => active
+    ? <button type="button" onClick={onClose}>guide-replay-open</button>
+    : null,
 }));
 vi.mock('@/lib/translator', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/translator')>();
@@ -69,5 +78,16 @@ describe('chat translator cross-profile flow', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'translator-closed' })).toBeTruthy();
     });
+  });
+
+  it('opens and closes the guide replay without changing reservation state', () => {
+    render(<ChatPopout />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-guide-replay' }));
+    const replay = screen.getByRole('button', { name: 'guide-replay-open' });
+    expect(replay).toBeTruthy();
+
+    fireEvent.click(replay);
+    expect(screen.queryByRole('button', { name: 'guide-replay-open' })).toBeNull();
   });
 });

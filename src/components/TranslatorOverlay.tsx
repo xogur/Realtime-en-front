@@ -48,7 +48,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
   const [interimText, setInterimText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
-  const { speak, cancel: cancelSpeech, isSpeaking } = useBrowserTts();
+  const { speak, cancel: cancelSpeech, isSpeaking } = useBrowserTts('translator');
   const [sentenceType, setSentenceType] = useState<TranslationSentenceType>('original');
   const [showSentenceTypeControls, setShowSentenceTypeControls] = useState(false);
   const requestControllerRef = useRef<AbortController | null>(null);

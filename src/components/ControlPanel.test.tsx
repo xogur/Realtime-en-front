@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ControlPanel } from './ControlPanel';
@@ -16,6 +16,7 @@ const controls = {
     startConversation: vi.fn(),
     resumeConversation: vi.fn(),
     stopListening: vi.fn(),
+    pauseConversationForUsageEnd: vi.fn(),
     clearHistory: vi.fn(),
     isConnected: true,
     isSttReady: true,
@@ -58,13 +59,13 @@ describe('ControlPanel microphone toggle', () => {
         expect(controls.startListening).not.toHaveBeenCalled();
     });
 
-    it('starts a conversation with the selected difficulty and topic', () => {
+    it('starts a conversation with the selected difficulty and topic', async () => {
         controls.isRecording = false;
         render(<ControlPanel onOpenSettings={vi.fn()} />);
         fireEvent.click(screen.getByRole('button', { name: 'Turn microphone on' }));
         fireEvent.click(screen.getByRole('button', { name: /^초급/ }));
         fireEvent.click(screen.getByRole('button', { name: /^여행/ }));
-        expect(controls.startConversation).toHaveBeenCalledWith('travel', 'beginner');
+        await waitFor(() => expect(controls.startConversation).toHaveBeenCalledWith('travel', 'beginner'));
     });
 
     it('resumes the active segment at its original difficulty', () => {
@@ -136,6 +137,44 @@ describe('ControlPanel microphone toggle', () => {
         expect(controls.startListening).toHaveBeenCalledOnce();
     });
 
+    it('opens topic and difficulty selection once after the reservation introduction finishes', async () => {
+        controls.isRecording = false;
+        controls.isSttReady = false;
+        const view = render(
+            <ControlPanel onOpenSettings={vi.fn()} openTopicSelectorEventId={null} />,
+        );
+
+        view.rerender(
+            <ControlPanel onOpenSettings={vi.fn()} openTopicSelectorEventId="cocoon:401:intro" />,
+        );
+        expect(screen.getByRole('dialog', { name: '원하는 대화 스타일을 선택하세요' })).toBeTruthy();
+        expect(controls.startListening).not.toHaveBeenCalled();
+        expect(controls.startConversation).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: /^초급/ }));
+        fireEvent.click(screen.getByRole('button', { name: /^여행/ }));
+        await waitFor(() => expect(controls.startConversation).toHaveBeenCalledWith('travel', 'beginner'));
+
+        fireEvent.click(screen.getByRole('button', { name: '대화 선택 닫기' }));
+        controls.startConversation.mockClear();
+        view.rerender(
+            <ControlPanel onOpenSettings={vi.fn()} openTopicSelectorEventId="cocoon:401:intro" />,
+        );
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(controls.startConversation).not.toHaveBeenCalled();
+    });
+
+    it('does not turn the microphone on before the user chooses difficulty and topic', () => {
+        render(
+            <ControlPanel
+                onOpenSettings={vi.fn()}
+                openTopicSelectorEventId="cocoon:402:intro"
+            />,
+        );
+        expect(controls.startListening).not.toHaveBeenCalled();
+        expect(controls.startConversation).not.toHaveBeenCalled();
+    });
+
     it('does not start a microphone that was already off before opening the translator', () => {
         controls.isRecording = false;
         render(<ControlPanel onOpenSettings={vi.fn()} />);
@@ -194,5 +233,45 @@ describe('ControlPanel microphone toggle', () => {
         } finally {
             vi.unstubAllGlobals();
         }
+    });
+
+    it('keeps the conversation running when the dedicated end dialog is cancelled', () => {
+        const onEndUsage = vi.fn();
+        render(<ControlPanel onOpenSettings={vi.fn()} canEndUsage onEndUsage={onEndUsage} />);
+
+        fireEvent.click(screen.getByRole('button', { name: '영어 프로그램 이용 종료' }));
+        expect(screen.getByRole('dialog', { name: '이용을 종료할까요?' })).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: '계속 대화하기' }));
+
+        expect(onEndUsage).not.toHaveBeenCalled();
+        expect(controls.pauseConversationForUsageEnd).not.toHaveBeenCalled();
+    });
+
+    it('pauses microphone and TTS only after end is confirmed', () => {
+        const onEndUsage = vi.fn(async () => undefined);
+        render(<ControlPanel onOpenSettings={vi.fn()} canEndUsage onEndUsage={onEndUsage} />);
+        fireEvent.click(screen.getByRole('button', { name: '영어 프로그램 이용 종료' }));
+        fireEvent.click(screen.getByRole('button', { name: '이용 종료하기' }));
+
+        expect(controls.pauseConversationForUsageEnd).toHaveBeenCalledTimes(1);
+        expect(onEndUsage).toHaveBeenCalledTimes(1);
+    });
+
+    it('resumes the existing segment when usage is restored', () => {
+        useStore.setState({
+            activeSegmentId: 'segment-1',
+            topicSegments: [{
+                segmentId: 'segment-1', topicId: 'airport', label: '공항', mode: 'roleplay',
+                aiRole: 'staff', userRole: 'traveler', scenarioId: 'airport_documents',
+                scenarioTitle: '탑승 수속', openingLine: 'Passport?', difficultyId: 'intermediate',
+                difficultyLabel: '중급', difficultyPolicyVersion: 1, sequence: 1, occurrence: 1,
+                status: 'active', startedAt: '2026-08-08T00:00:00.000Z',
+            }],
+        });
+        const view = render(<ControlPanel onOpenSettings={vi.fn()} resumeUsageSignal={0} />);
+        view.rerender(<ControlPanel onOpenSettings={vi.fn()} resumeUsageSignal={1} />);
+
+        expect(controls.resumeConversation).toHaveBeenCalledWith('segment-1');
+        expect(controls.clearHistory).not.toHaveBeenCalled();
     });
 });

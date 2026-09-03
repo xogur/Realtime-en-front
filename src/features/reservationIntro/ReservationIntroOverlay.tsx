@@ -22,14 +22,28 @@ function holdBrandLastFrame(video: HTMLVideoElement, brandDurationMs: number) {
 type Props = {
   role: ReservationIntroRole;
   active: ActiveReservationIntro | null;
-  onComplete: (reason: ReservationIntroCompletionReason) => void;
+  onComplete: (reason: ReservationIntroCompletionReason) => void | Promise<void>;
   onExitComplete?: () => void;
 };
 
 export function ReservationIntroOverlay({ role, active, onComplete, onExitComplete }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [brandMediaFailedFor, setBrandMediaFailedFor] = useState<string | null>(null);
+  const [skipPendingEventId, setSkipPendingEventId] = useState<string | null>(null);
   const reduceMotion = useReducedMotion();
+
+  const handleSkip = async () => {
+    if (!active || skipPendingEventId === active.event.eventId) return;
+    const eventId = active.event.eventId;
+    setSkipPendingEventId(eventId);
+    try {
+      await onComplete('skipped');
+    } catch (error) {
+      console.warn('[reservation-intro] skip failed', error);
+    } finally {
+      setSkipPendingEventId((current) => current === eventId ? null : current);
+    }
+  };
 
   useEffect(() => {
     const video = videoRef.current;
@@ -75,6 +89,7 @@ export function ReservationIntroOverlay({ role, active, onComplete, onExitComple
   }
   const assetBase = `/experience/${encodeURIComponent(active.event.assetVersion)}`;
   const brandMediaFailed = brandMediaFailedFor === active.event.eventId;
+  const skipPending = skipPendingEventId === active.event.eventId;
 
   return (
     <AnimatePresence initial={false} onExitComplete={onExitComplete}>
@@ -127,10 +142,12 @@ export function ReservationIntroOverlay({ role, active, onComplete, onExitComple
           />
           <button
             type="button"
-            onClick={() => onComplete('skipped')}
-            className="absolute bottom-10 right-10 rounded-full border border-white/30 bg-black/45 px-7 py-3 text-lg font-bold text-white backdrop-blur-md transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+            onClick={() => void handleSkip()}
+            disabled={skipPending}
+            aria-busy={skipPending}
+            className="absolute bottom-10 right-10 z-10 min-h-12 rounded-full border border-white/30 bg-black/45 px-7 py-3 text-lg font-bold text-white backdrop-blur-md transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-wait disabled:opacity-70"
           >
-            건너뛰기
+            {skipPending ? '건너뛰는 중...' : '건너뛰기'}
           </button>
         </>
       )}

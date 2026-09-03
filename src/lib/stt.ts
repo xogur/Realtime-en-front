@@ -171,6 +171,38 @@ const normalizeSpeech = (value: string): string => value
   .replace(/[^\p{L}\p{N}]+/gu, '')
   .trim();
 
+function normalizeSpeechWithMap(value: string): { normalized: string; originalIndexes: number[] } {
+  let normalized = '';
+  const originalIndexes: number[] = [];
+  Array.from(value.toLowerCase()).forEach((character, index) => {
+    if (!/[\p{L}\p{N}]/u.test(character)) return;
+    normalized += character;
+    originalIndexes.push(index);
+  });
+  return { normalized, originalIndexes };
+}
+
+/**
+ * Keeps a user's answer when Web Speech returns speaker playback and the
+ * answer as one transcript. Returns null when there is no exact playback
+ * span, and an empty string when the transcript is playback only.
+ */
+export function extractPlaybackResidual(recognized: string, activeSpeech: string): string | null {
+  const heard = normalizeSpeechWithMap(recognized);
+  const spoken = normalizeSpeech(activeSpeech);
+  if (heard.normalized.length < 2 || spoken.length < 2) return null;
+  const start = heard.normalized.indexOf(spoken);
+  if (start < 0) return null;
+  const end = start + spoken.length - 1;
+  const originalStart = heard.originalIndexes[start];
+  const originalEnd = heard.originalIndexes[end];
+  if (originalStart === undefined || originalEnd === undefined) return null;
+  return `${recognized.slice(0, originalStart)} ${recognized.slice(originalEnd + 1)}`
+    .replace(/^[\s.,!?~·…'"“”‘’()[\]{}:;_-]+|[\s.,!?~·…'"“”‘’()[\]{}:;_-]+$/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export function isLikelyPlaybackEcho(recognized: string, activeSpeech: string): boolean {
   const heard = normalizeSpeech(recognized);
   const spoken = normalizeSpeech(activeSpeech);

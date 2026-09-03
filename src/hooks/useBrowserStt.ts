@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@/stores/useStore';
 import {
   assembleBrowserSpeechEvent,
+  extractPlaybackResidual,
   getConfiguredBrowserSttConfig,
   isLateBrowserFinal,
   isLikelyPlaybackEcho,
@@ -62,6 +63,10 @@ type BrowserSttOptions = {
 const CONFIG = getConfiguredBrowserSttConfig();
 const RESTART_DELAYS_MS = [50, 150, 500, 1_000];
 const MAX_RESTART_ATTEMPTS = 10;
+const READY_TIMEOUT_MS = 2_500;
+
+export type BrowserSttStatus =
+  | 'idle' | 'acquiring' | 'starting' | 'listening' | 'restarting' | 'unavailable';
 
 type ExtendedEchoCancellationCapabilities = MediaTrackCapabilities & {
   echoCancellation?: Array<boolean | string>;
@@ -134,8 +139,11 @@ export function useBrowserStt(options: BrowserSttOptions) {
   const lastCommitRef = useRef<{ text: string; at: number } | null>(null);
   const speechStartedRef = useRef(false);
   const startRecognitionRef = useRef<() => Promise<boolean>>(async () => false);
+  const readyRef = useRef(false);
+  const readyWaitersRef = useRef(new Set<(ready: boolean) => void>());
   const optionsRef = useRef(options);
   const [isRecording, setLocalRecording] = useState(false);
+  const [status, setStatus] = useState<BrowserSttStatus>('idle');
   const setStoreRecording = useStore((state) => state.setRecording);
 
   const setRecording = useCallback((status: boolean) => {
@@ -144,6 +152,30 @@ export function useBrowserStt(options: BrowserSttOptions) {
       setStoreRecording(status);
     }
   }, [setStoreRecording]);
+
+  const setReady = useCallback((ready: boolean) => {
+    readyRef.current = ready;
+    optionsRef.current.onReadyChange(ready);
+    if (!ready) return;
+    readyWaitersRef.current.forEach((resolve) => resolve(true));
+    readyWaitersRef.current.clear();
+  }, []);
+
+  const waitUntilReady = useCallback((timeoutMs = READY_TIMEOUT_MS): Promise<boolean> => {
+    if (readyRef.current) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (ready: boolean) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        readyWaitersRef.current.delete(finish);
+        resolve(ready);
+      };
+      const timeout = window.setTimeout(() => finish(false), timeoutMs);
+      readyWaitersRef.current.add(finish);
+    });
+  }, []);
 
   useEffect(() => {
     optionsRef.current = options;
@@ -175,7 +207,8 @@ export function useBrowserStt(options: BrowserSttOptions) {
       desiredRef.current = false;
       releaseAudioInput();
       setRecording(false);
-      optionsRef.current.onReadyChange(false);
+      setReady(false);
+      setStatus('unavailable');
       optionsRef.current.onError('STT_UNAVAILABLE');
       optionsRef.current.onUnavailable();
       return;
@@ -186,7 +219,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
       if (!desiredRef.current || recognitionRef.current) return;
       void startRecognitionRef.current();
     }, RESTART_DELAYS_MS[Math.min(attempt, RESTART_DELAYS_MS.length - 1)]);
-  }, [releaseAudioInput, setRecording]);
+  }, [releaseAudioInput, setReady, setRecording]);
 
   const ensureAudioTrack = useCallback(async (): Promise<MediaStreamTrack | null> => {
     const currentTrack = audioTrackRef.current;
@@ -235,7 +268,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
             try { recognition.abort(); } catch { /* already ended */ }
           }
           setRecording(false);
-          optionsRef.current.onReadyChange(false);
+          setReady(false);
           optionsRef.current.onError('MICROPHONE_UNAVAILABLE');
           if (desiredRef.current) scheduleRestart();
         };
@@ -266,7 +299,8 @@ export function useBrowserStt(options: BrowserSttOptions) {
         const code = errorName === 'NotAllowedError' || errorName === 'SecurityError'
           ? 'MICROPHONE_DENIED'
           : 'MICROPHONE_UNAVAILABLE';
-        optionsRef.current.onReadyChange(false);
+        setReady(false);
+        setStatus('unavailable');
         optionsRef.current.onError(code);
         return null;
       }
@@ -278,7 +312,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
     } finally {
       if (audioInputPromiseRef.current === acquisition) audioInputPromiseRef.current = null;
     }
-  }, [releaseAudioInput, scheduleRestart, setRecording]);
+  }, [releaseAudioInput, scheduleRestart, setReady, setRecording]);
 
   const commitTranscript = useCallback((recognition: BrowserSpeechRecognition, text: string) => {
     const transcript = text.replace(/\s+/g, ' ').trim();
@@ -318,7 +352,8 @@ export function useBrowserStt(options: BrowserSttOptions) {
     if (!Recognition) {
       desiredRef.current = false;
       setRecording(false);
-      optionsRef.current.onReadyChange(false);
+      setReady(false);
+      setStatus('unavailable');
       optionsRef.current.onError('BROWSER_STT_UNSUPPORTED');
       return false;
     }
@@ -355,10 +390,12 @@ export function useBrowserStt(options: BrowserSttOptions) {
     }
 
     recognitionRef.current = recognition;
+    setStatus(restartAttemptRef.current > 0 ? 'restarting' : 'starting');
     recognition.onstart = () => {
       if (recognitionRef.current !== recognition) return;
       setRecording(true);
-      optionsRef.current.onReadyChange(true);
+      setStatus('listening');
+      setReady(true);
     };
     recognition.onspeechstart = () => {
       if (recognitionRef.current !== recognition) return;
@@ -380,14 +417,16 @@ export function useBrowserStt(options: BrowserSttOptions) {
     recognition.onresult = (event) => {
       if (recognitionRef.current !== recognition || !desiredRef.current) return;
       const result = assembleBrowserSpeechEvent(event);
-      const finalText = result.finals.join(' ').trim();
+      let finalText = result.finals.join(' ').trim();
       const heard = (result.interim || finalText).trim();
       if (!heard) return;
 
       const playback = optionsRef.current.getPlaybackState();
-      const playbackEcho = playback.isPlaying
-        && Boolean(playback.text)
-        && isLikelyPlaybackEcho(heard, playback.text);
+      const residual = playback.isPlaying && playback.text
+        ? extractPlaybackResidual(heard, playback.text)
+        : null;
+      const playbackEcho = playback.isPlaying && Boolean(playback.text)
+        && residual === null && isLikelyPlaybackEcho(heard, playback.text);
       if (playbackEcho) {
         clearSilenceTimer();
         utteranceRef.current = null;
@@ -399,6 +438,26 @@ export function useBrowserStt(options: BrowserSttOptions) {
           try { recognition.stop(); } catch { /* onend will recycle */ }
         }
         return;
+      }
+
+      if (residual !== null) {
+        if (!residual) {
+          clearSilenceTimer();
+          utteranceRef.current = null;
+          finalPrefixRef.current = '';
+          finalSegmentsRef.current = [];
+          speechStartedRef.current = false;
+          optionsRef.current.onInterimTranscript('');
+          if (finalText) try { recognition.stop(); } catch { /* recycle */ }
+          return;
+        }
+        if (finalText) {
+          finalText = residual;
+          result.finals = [residual];
+          result.finalSegments = [{ resultIndex: event.resultIndex, transcript: residual }];
+        } else {
+          result.interim = residual;
+        }
       }
 
       restartAttemptRef.current = 0;
@@ -484,16 +543,19 @@ export function useBrowserStt(options: BrowserSttOptions) {
         detachRecognition(recognition);
         try { recognition.abort(); } catch { /* already stopped */ }
         releaseAudioInput();
-        optionsRef.current.onReadyChange(false);
+        setReady(false);
+        setStatus('unavailable');
         optionsRef.current.onError(code);
         optionsRef.current.onUnavailable();
         return;
       }
-      optionsRef.current.onReadyChange(false);
+      setReady(false);
       optionsRef.current.onError(code);
     };
     recognition.onend = () => {
       if (recognitionRef.current !== recognition) return;
+      setRecording(false);
+      setReady(false);
       const hasPendingTranscript = Boolean(utteranceRef.current?.text);
       if (!hasPendingTranscript) clearSilenceTimer();
       detachRecognition(recognition);
@@ -506,13 +568,14 @@ export function useBrowserStt(options: BrowserSttOptions) {
         optionsRef.current.onInterimTranscript('');
       }
       if (desiredRef.current) {
+        setStatus('restarting');
         // Chrome periodically ends a healthy recognizer (including after no-speech).
         // Only service/runtime failures should consume the fallback retry budget.
         if (!restartIsFailure) restartAttemptRef.current = 0;
         scheduleRestart();
         return;
       }
-      setRecording(false);
+      setStatus('idle');
     };
 
     try {
@@ -534,6 +597,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
     ensureAudioTrack,
     releaseAudioInput,
     scheduleRestart,
+    setReady,
     setRecording,
   ]);
 
@@ -543,6 +607,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
 
   const prepare = useCallback(async (): Promise<boolean> => {
     desiredRef.current = true;
+    setStatus('acquiring');
     restartAttemptRef.current = 0;
     const generation = audioInputGenerationRef.current;
     const track = await ensureAudioTrack();
@@ -551,6 +616,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
       desiredRef.current = false;
       releaseAudioInput();
     }
+    if (prepared) setStatus('idle');
     return prepared;
   }, [ensureAudioTrack, releaseAudioInput]);
 
@@ -568,9 +634,41 @@ export function useBrowserStt(options: BrowserSttOptions) {
     return started;
   }, [releaseAudioInput]);
 
+  const startAndWaitUntilReady = useCallback(async (timeoutMs = READY_TIMEOUT_MS) => {
+    const started = await start();
+    if (!started) return false;
+    return waitUntilReady(timeoutMs);
+  }, [start, waitUntilReady]);
+
+  const restartAndWaitUntilReady = useCallback(async (timeoutMs = READY_TIMEOUT_MS) => {
+    desiredRef.current = true;
+    setRecording(false);
+    setReady(false);
+    setStatus('restarting');
+    clearSilenceTimer();
+    utteranceRef.current = null;
+    finalPrefixRef.current = '';
+    finalSegmentsRef.current = [];
+    speechStartedRef.current = false;
+    optionsRef.current.onInterimTranscript('');
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = null;
+    const recognition = recognitionRef.current;
+    recognitionRef.current = null;
+    if (recognition) {
+      detachRecognition(recognition);
+      try { recognition.abort(); } catch { /* already stopped */ }
+    }
+    const started = await startRecognitionRef.current();
+    if (!started) return false;
+    return waitUntilReady(timeoutMs);
+  }, [clearSilenceTimer, setReady, setRecording, waitUntilReady]);
+
   const stop = useCallback(async (): Promise<void> => {
     desiredRef.current = false;
     setRecording(false);
+    setReady(false);
+    setStatus('idle');
     clearSilenceTimer();
     if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
     restartTimerRef.current = null;
@@ -586,7 +684,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
       try { recognition.abort(); } catch { /* already stopped */ }
     }
     releaseAudioInput();
-  }, [clearSilenceTimer, releaseAudioInput, setRecording]);
+  }, [clearSilenceTimer, releaseAudioInput, setReady, setRecording]);
 
   useEffect(() => () => {
     desiredRef.current = false;
@@ -599,7 +697,11 @@ export function useBrowserStt(options: BrowserSttOptions) {
       try { recognition.abort(); } catch { /* already stopped */ }
     }
     releaseAudioInput();
+    readyWaitersRef.current.forEach((resolve) => resolve(false));
+    readyWaitersRef.current.clear();
   }, [clearSilenceTimer, releaseAudioInput]);
 
-  return { prepare, start, stop, isRecording };
+  return {
+    prepare, start, startAndWaitUntilReady, restartAndWaitUntilReady, stop, isRecording, status,
+  };
 }

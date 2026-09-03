@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     suggestedSkipReason: null,
     isRecording: true,
     confirm: vi.fn(async () => undefined),
+    submitName: vi.fn(async () => undefined),
     retry: vi.fn(async () => undefined),
     skip: vi.fn(async () => undefined),
   },
@@ -75,5 +76,17 @@ describe('ParticipantNameOverlay', () => {
 
     expect(screen.getByRole('heading', { name: '권태혁님, 환영합니다' })).toBeTruthy();
     expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('routes keyboard input through the same welcome sequence as voice input', () => {
+    render(<ParticipantNameOverlay {...props} />);
+
+    fireEvent.change(screen.getByLabelText('키보드로 이름 입력'), {
+      target: { value: '권태혁' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '입력 완료' }));
+
+    expect(mocks.capture.submitName).toHaveBeenCalledWith('권태혁');
+    expect(props.onConfirm).not.toHaveBeenCalled();
   });
 });
