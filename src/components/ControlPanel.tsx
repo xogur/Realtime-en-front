@@ -10,6 +10,7 @@ import { getConversationTopic, type TopicId } from '@/lib/conversationTopics';
 import { getConversationDifficulty, type DifficultyId } from '@/lib/conversationDifficulties';
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
 import { isTranslatorWindowMessage, TRANSLATOR_WINDOW_MESSAGE } from '@/lib/translator';
+// import { LearningExperience } from '@/features/learning/LearningExperience';
 // import { buildKioskUrl } from '@/lib/kioskIdentity';
 
 interface ControlPanelProps {
@@ -40,6 +41,10 @@ export function ControlPanel({
         sttProvider,
         clearHistory,
         prepareForReservationIntro,
+        // 학습하기 UI를 다시 노출할 때 함께 복구합니다.
+        // startLearningSession,
+        // learningCommand,
+        // beginLearningAttempt,
     } = useVoiceSocket();
     const isConnecting = useStore((state) => state.isConnecting);
     const activeSegmentId = useStore((state) => state.activeSegmentId);
@@ -50,6 +55,7 @@ export function ControlPanel({
     const [isProcessing, setIsProcessing] = useState(false);
     const [isTopicSelectorOpen, setIsTopicSelectorOpen] = useState(false);
     const [isEndDialogOpen, setIsEndDialogOpen] = useState(false);
+    // const [isLearningOpen, setIsLearningOpen] = useState(false);
     const [isEndingUsage, setIsEndingUsage] = useState(false);
     const safeEndChoiceRef = useRef<HTMLButtonElement | null>(null);
     const handledResumeSignalRef = useRef(0);
@@ -258,6 +264,22 @@ export function ControlPanel({
                 </button>
             ) : null}
 
+            {/* 학습하기 기능 임시 비노출
+            <button
+                type="button"
+                onClick={() => {
+                    if (isRecording) stopListening();
+                    setIsTopicSelectorOpen(false);
+                    setIsLearningOpen(true);
+                }}
+                className="p-3 rounded-full border border-white/15 bg-emerald-700/80 text-emerald-50 transition-all hover:bg-emerald-600 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-200"
+                aria-label="말하기 학습 열기"
+                title="말하기 학습"
+            >
+                <BookOpen className="h-6 w-6" />
+            </button>
+            */}
+
             {/* 실제 운영 환경에서는 설정 버튼을 사용하지 않습니다.
             <button
                 onClick={onOpenSettings}
@@ -365,6 +387,16 @@ export function ControlPanel({
             onResume={activeSegment ? handleResume : undefined}
             onClose={() => setIsTopicSelectorOpen(false)}
         />
+        {/* 학습하기 기능 임시 비노출
+        <LearningExperience
+            role="controller"
+            open={isLearningOpen}
+            onClose={() => setIsLearningOpen(false)}
+            onStart={startLearningSession}
+            onCommand={learningCommand}
+            onBeginAttempt={beginLearningAttempt}
+        />
+        */}
         {isEndDialogOpen && typeof document !== 'undefined' ? createPortal(
             <div className="fixed inset-0 z-[2147483647] flex items-center justify-center bg-zinc-950/55 p-6 backdrop-blur-sm">
                 <section

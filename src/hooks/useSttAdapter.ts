@@ -9,7 +9,7 @@ import { useBrowserStt } from './useBrowserStt';
 
 export type SttAdapter = {
   provider: SttProviderName;
-  start: () => Promise<boolean | void>;
+  start: (options?: { requiredAudio?: boolean }) => Promise<boolean | void>;
   stop: () => Promise<void>;
   isRecording: boolean;
 };
@@ -87,10 +87,14 @@ export function useSttAdapter(options: SttAdapterOptions): SttAdapter {
     onUnavailable: handleBrowserUnavailable,
   });
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (startOptions?: { requiredAudio?: boolean }) => {
     desiredRef.current = true;
     const generation = operationGenerationRef.current + 1;
     operationGenerationRef.current = generation;
+    if (startOptions?.requiredAudio) {
+      if (providerRef.current === 'browser') await stopBrowserStt();
+      return startServerStt(generation);
+    }
     if (PROVIDER === 'server') return startServerStt(generation);
 
     selectProvider('browser');

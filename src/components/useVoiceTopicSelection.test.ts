@@ -3,224 +3,131 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVoiceTopicSelection } from './useVoiceTopicSelection';
 
-type SttOptions = {
-  onFinalTranscript: (transcript: {
-    text: string;
-    speechEvidence: { version: 1; provider: 'browser'; finalSegments: string[] };
-  }) => void;
-  onInterimTranscript: (transcript: string) => void;
-  onReadyChange: (ready: boolean) => void;
-  onSpeechStarted: () => void;
+type Options = {
+  language: string;
+  onFinalTranscript: (result: { text: string }) => void;
+  onInterimTranscript: (text: string) => void;
+  onError: (code: string) => void;
 };
-
 const mocks = vi.hoisted(() => ({
-  order: [] as string[],
-  autoReady: true,
-  readyResolver: null as ((ready: boolean) => void) | null,
-  sttOptions: null as SttOptions | null,
-  prepare: vi.fn(async () => {
-    mocks.order.push('prepare');
-    return true;
-  }),
-  start: vi.fn(async () => {
-    mocks.order.push('start');
-    if (mocks.autoReady) {
-      mocks.sttOptions?.onReadyChange(true);
-      return true;
-    }
-    return new Promise<boolean>((resolve) => { mocks.readyResolver = resolve; });
-  }),
-  stop: vi.fn(async () => {
-    mocks.order.push('stop');
-  }),
-  restart: vi.fn(async () => {
-    mocks.order.push('restart');
-    if (mocks.autoReady) mocks.sttOptions?.onReadyChange(true);
-    return true;
-  }),
-  speak: vi.fn(async (text: string) => {
-    mocks.order.push(`speak:${text}`);
-    return true;
-  }),
+  options: null as Options | null,
+  prepare: vi.fn(async () => true),
+  start: vi.fn(async () => true),
+  stop: vi.fn(async () => undefined),
+  speak: vi.fn(async (_text: string) => true),
   cancel: vi.fn(),
 }));
-
 vi.mock('@/hooks/useBrowserStt', () => ({
-  useBrowserStt: (options: SttOptions) => {
-    mocks.sttOptions = options;
-    return {
-      prepare: mocks.prepare,
-      start: mocks.start,
-      startAndWaitUntilReady: mocks.start,
-      restartAndWaitUntilReady: mocks.restart,
-      stop: mocks.stop,
-      isRecording: true,
-      status: 'listening',
-    };
+  useBrowserStt: (options: Options) => {
+    mocks.options = options;
+    return { prepare: mocks.prepare, startAndWaitUntilReady: mocks.start, stop: mocks.stop, isRecording: true, status: 'listening' };
   },
 }));
-
 vi.mock('@/hooks/useBrowserTts', () => ({
-  useBrowserTts: () => ({
-    speak: mocks.speak,
-    cancel: mocks.cancel,
-    isSpeaking: true,
-  }),
+  useBrowserTts: () => ({ speak: mocks.speak, cancel: mocks.cancel, isSpeaking: false }),
 }));
+const props = () => ({ enabled: true, onDifficultySelect: vi.fn(), onSelect: vi.fn() });
 
-const finalTranscript = (text: string) => ({
-  text,
-  speechEvidence: {
-    version: 1 as const,
-    provider: 'browser' as const,
-    finalSegments: [text],
-  },
-});
-
-describe('useVoiceTopicSelection', () => {
+describe('post-prompt browser STT selection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.order.length = 0;
-    mocks.autoReady = true;
-    mocks.readyResolver = null;
-    mocks.sttOptions = null;
-    mocks.speak.mockImplementation(async (text: string) => {
-      mocks.order.push(`speak:${text}`);
-      return true;
-    });
+    mocks.prepare.mockResolvedValue(true);
+    mocks.start.mockResolvedValue(true);
+    mocks.speak.mockResolvedValue(true);
   });
 
-  it('opens STT before starting the difficulty prompt', async () => {
-    renderHook(() => useVoiceTopicSelection({
-      enabled: true,
-      onDifficultySelect: vi.fn(),
-      onSelect: vi.fn(),
-    }));
-
-    await waitFor(() => expect(mocks.start).toHaveBeenCalledOnce());
-    expect(mocks.speak).toHaveBeenCalledWith(expect.stringContaining('대화 난이도'), 'ko-KR');
-    expect(mocks.order.indexOf('start')).toBeLessThan(
-      mocks.order.findIndex((entry) => entry.startsWith('speak:대화 난이도')),
-    );
+  it('does not start recognition or accept transcripts until TTS has finished', async () => {
+    let finishPrompt!: (result: boolean) => void;
+    mocks.speak.mockImplementationOnce(() => new Promise((resolve) => { finishPrompt = resolve; }));
+    const callbacks = props();
+    const { result } = renderHook(() => useVoiceTopicSelection(callbacks));
+    await waitFor(() => expect(result.current.sttStatus).toBe('prompting'));
+    expect(mocks.options?.language).toBe('ko-KR');
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(result.current.isRecording).toBe(false);
+    act(() => mocks.options?.onFinalTranscript({ text: '초급' }));
+    expect(callbacks.onDifficultySelect).not.toHaveBeenCalled();
+    act(() => finishPrompt(true));
+    await waitFor(() => expect(result.current.isRecording).toBe(true));
+    expect(mocks.start).toHaveBeenCalledOnce();
   });
 
-  it('waits for the recognizer ready event before speaking the difficulty prompt', async () => {
-    mocks.autoReady = false;
-    renderHook(() => useVoiceTopicSelection({
-      enabled: true,
-      onDifficultySelect: vi.fn(),
-      onSelect: vi.fn(),
-    }));
-
-    await waitFor(() => expect(mocks.start).toHaveBeenCalledOnce());
-    expect(mocks.speak).not.toHaveBeenCalled();
-
-    act(() => {
-      mocks.sttOptions?.onReadyChange(true);
-      mocks.readyResolver?.(true);
-    });
-    await waitFor(() => expect(mocks.speak).toHaveBeenCalledWith(
-      expect.stringContaining('대화 난이도'),
-      'ko-KR',
-    ));
-  });
-
-  it('moves to topic selection as soon as an exact difficulty interim is heard', async () => {
-    const onDifficultySelect = vi.fn();
-    const { result } = renderHook(() => useVoiceTopicSelection({
-      enabled: true,
-      onDifficultySelect,
-      onSelect: vi.fn(),
-    }));
-    await waitFor(() => expect(result.current.phase).toBe('difficulty'));
-
-    act(() => mocks.sttOptions?.onInterimTranscript('초급'));
-    await waitFor(() => expect(result.current.phase).toBe('topic'), { timeout: 1_000 });
-    expect(onDifficultySelect).toHaveBeenCalledWith('beginner');
-  });
-
-  it('accepts a fast combined answer while the difficulty prompt is playing', async () => {
-    const onDifficultySelect = vi.fn();
-    const onSelect = vi.fn();
-    renderHook(() => useVoiceTopicSelection({
-      enabled: true,
-      onDifficultySelect,
-      onSelect,
-    }));
-
-    await waitFor(() => expect(mocks.start).toHaveBeenCalledOnce());
-    const startIndex = mocks.order.indexOf('start');
-    const promptIndex = mocks.order.findIndex((entry) => entry.startsWith('speak:대화 난이도'));
-    expect(startIndex).toBeGreaterThanOrEqual(0);
-    expect(promptIndex).toBeGreaterThanOrEqual(0);
-    expect(startIndex).toBeLessThan(promptIndex);
-
-    act(() => mocks.sttOptions?.onSpeechStarted());
-    expect(mocks.cancel).toHaveBeenCalled();
-
-    act(() => mocks.sttOptions?.onInterimTranscript('초급으로 음식점 할게요'));
-    await waitFor(() => expect(onSelect).toHaveBeenCalledWith('restaurant', 'beginner'));
-    expect(onDifficultySelect).toHaveBeenCalledWith('beginner');
-    expect(mocks.stop).toHaveBeenCalled();
-  });
-
-  it('prompts for the topic after difficulty and starts on a spoken topic', async () => {
-    const onDifficultySelect = vi.fn();
-    const onSelect = vi.fn();
-    renderHook(() => useVoiceTopicSelection({
-      enabled: true,
-      onDifficultySelect,
-      onSelect,
-    }));
-    await waitFor(() => expect(mocks.start).toHaveBeenCalledOnce());
-
-    act(() => mocks.sttOptions?.onFinalTranscript(finalTranscript('초급으로 할게요')));
-    await waitFor(() => expect(onDifficultySelect).toHaveBeenCalledWith('beginner'));
-    await waitFor(() => expect(mocks.speak).toHaveBeenCalledWith(
-      expect.stringContaining('주제나 상황'),
-      'ko-KR',
-    ));
-    expect(onSelect).not.toHaveBeenCalled();
-
-    act(() => mocks.sttOptions?.onInterimTranscript('음식점이요'));
-    await waitFor(() => expect(onSelect).toHaveBeenCalledWith('restaurant', 'beginner'));
-  });
-
-  it('accepts difficulty and topic while each TTS prompt is still playing', async () => {
-    let finishDifficultyPrompt: ((played: boolean) => void) | undefined;
-    mocks.speak.mockImplementationOnce((text: string) => {
-      mocks.order.push(`speak:${text}`);
-      return new Promise<boolean>((resolve) => {
-        finishDifficultyPrompt = resolve;
-      });
-    });
-    const onDifficultySelect = vi.fn();
-    const onSelect = vi.fn();
-
-    const { result } = renderHook(() => useVoiceTopicSelection({
-      enabled: true,
-      onDifficultySelect,
-      onSelect,
-    }));
-    await waitFor(() => expect(mocks.speak).toHaveBeenCalledWith(
-      expect.stringContaining('대화 난이도'),
-      'ko-KR',
-    ));
-
-    act(() => {
-      mocks.sttOptions?.onSpeechStarted();
-      mocks.sttOptions?.onFinalTranscript(finalTranscript('초급'));
-    });
+  it('keeps interim text visible but waits for final corrections', async () => {
+    const callbacks = props();
+    const { result } = renderHook(() => useVoiceTopicSelection(callbacks));
+    await waitFor(() => expect(result.current.isRecording).toBe(true));
+    act(() => mocks.options?.onInterimTranscript('초급'));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 350)); });
+    expect(result.current.interim).toBe('초급');
+    expect(callbacks.onDifficultySelect).not.toHaveBeenCalled();
+    act(() => mocks.options?.onFinalTranscript({ text: '초급 말고 중급' }));
     await waitFor(() => expect(result.current.phase).toBe('topic'));
-    expect(onDifficultySelect).toHaveBeenCalledWith('beginner');
-    expect(mocks.speak).toHaveBeenCalledWith(expect.stringContaining('주제나 상황'), 'ko-KR');
+    expect(result.current.recognizedSpeech.difficulty).toBe('초급 말고 중급');
+    expect(callbacks.onDifficultySelect).toHaveBeenCalledWith('intermediate');
+    await waitFor(() => expect(mocks.speak).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.isRecording).toBe(true));
+    expect(mocks.start).toHaveBeenCalledTimes(2);
+  });
 
-    act(() => {
-      mocks.sttOptions?.onSpeechStarted();
-      mocks.sttOptions?.onFinalTranscript(finalTranscript('음식점'));
-    });
-    await waitFor(() => expect(onSelect).toHaveBeenCalledWith('restaurant', 'beginner'));
-    expect(finishDifficultyPrompt).toBeTypeOf('function');
-    act(() => finishDifficultyPrompt?.(true));
+  it('retains unmatched recognition through the retry prompt', async () => {
+    const { result } = renderHook(() => useVoiceTopicSelection(props()));
+    await waitFor(() => expect(result.current.isRecording).toBe(true));
+    act(() => mocks.options?.onFinalTranscript({ text: '조금' }));
+    expect(result.current.recognizedSpeech.difficulty).toBe('조금');
+    await waitFor(() => expect(mocks.speak).toHaveBeenCalledTimes(2));
+    expect(result.current.phase).toBe('difficulty');
+    expect(result.current.recognizedSpeech.difficulty).toBe('조금');
+  });
+
+  it('shows final difficulty and topic before launching once', async () => {
+    const callbacks = props();
+    const { result } = renderHook(() => useVoiceTopicSelection(callbacks));
+    await waitFor(() => expect(result.current.isRecording).toBe(true));
+    act(() => mocks.options?.onFinalTranscript({ text: '초급으로 음식점 할게요' }));
+    expect(result.current.recognizedSpeech).toEqual({ difficulty: '초급으로 음식점 할게요', topic: '초급으로 음식점 할게요' });
+    expect(callbacks.onSelect).not.toHaveBeenCalled();
+    await waitFor(() => expect(callbacks.onSelect).toHaveBeenCalledExactlyOnceWith('restaurant', 'beginner'), { timeout: 2000 });
+  });
+
+  it('does not restart listening if the dialog closes during a prompt', async () => {
+    let finishPrompt!: (result: boolean) => void;
+    mocks.speak.mockImplementationOnce(() => new Promise((resolve) => { finishPrompt = resolve; }));
+    const { result } = renderHook(() => useVoiceTopicSelection(props()));
+    await waitFor(() => expect(result.current.sttStatus).toBe('prompting'));
+    await act(async () => { await result.current.stop(); finishPrompt(true); });
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(result.current.phase).toBe('idle');
+  });
+
+  it('cancels a delayed voice selection when the dialog closes', async () => {
+    const callbacks = props();
+    const { result } = renderHook(() => useVoiceTopicSelection(callbacks));
+    await waitFor(() => expect(result.current.isRecording).toBe(true));
+    act(() => mocks.options?.onFinalTranscript({ text: '초급 공항' }));
+    await act(async () => { await result.current.stop(); await new Promise((resolve) => setTimeout(resolve, 1300)); });
+    expect(callbacks.onSelect).not.toHaveBeenCalled();
+    expect(result.current.recognizedSpeech).toEqual({ difficulty: '', topic: '' });
+  });
+
+  it('keeps touch selection available when browser recognition is unsupported', async () => {
+    mocks.start.mockResolvedValue(false);
+    const callbacks = props();
+    const { result } = renderHook(() => useVoiceTopicSelection(callbacks));
+    await waitFor(() => expect(result.current.phase).toBe('unavailable'));
+    expect(result.current.error).toContain('터치');
+    await act(async () => { result.current.selectTopicByTouch('airport', 'advanced'); });
+    expect(callbacks.onSelect).toHaveBeenCalledWith('airport', 'advanced');
+  });
+
+  it('selects numbered difficulty and topic using the current stage', async () => {
+    const callbacks = props();
+    const { result } = renderHook(() => useVoiceTopicSelection(callbacks));
+    await waitFor(() => expect(result.current.isRecording).toBe(true));
+    act(() => mocks.options?.onFinalTranscript({ text: '2번' }));
+    await waitFor(() => expect(result.current.phase).toBe('topic'));
+    expect(callbacks.onDifficultySelect).toHaveBeenCalledWith('intermediate');
+    await waitFor(() => expect(result.current.isRecording).toBe(true));
+    act(() => mocks.options?.onFinalTranscript({ text: '1번' }));
+    await waitFor(() => expect(callbacks.onSelect).toHaveBeenCalledExactlyOnceWith('restaurant', 'intermediate'), { timeout: 2000 });
   });
 });

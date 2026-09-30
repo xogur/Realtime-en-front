@@ -33,10 +33,12 @@ export function useReservationIntro(role: ReservationIntroRole) {
   const [reservationSession, setReservationSession] = useState<ReservationIntroEvent | null>(null);
   const [participantWelcomeName, setParticipantWelcomeName] = useState<string | null>(null);
   const [participantName, setParticipantName] = useState<string | null>(null);
+  const [confirmingEventId, setConfirmingEventId] = useState<string | null>(null);
   const [introPresentationPending, setIntroPresentationPending] = useState(false);
   const [presenceReportRetryToken, setPresenceReportRetryToken] = useState(0);
   const clientReady = useSyncExternalStore(subscribeClientReady, () => true, () => false);
   const reservationSessionRef = useRef<ReservationIntroEvent | null>(null);
+  const participantMutationRevisionRef = useRef(0);
   const activeRef = useRef<ActiveReservationIntro | null>(null);
   const startedAtRef = useRef<number | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -73,6 +75,14 @@ export function useReservationIntro(role: ReservationIntroRole) {
   }, []);
 
   const updateReservationSession = useCallback((value: ReservationIntroEvent | null) => {
+    const current = reservationSessionRef.current;
+    // A participant cannot become pending again within the same reservation.
+    // Polls and presence responses can arrive after a successful confirmation.
+    if (value && current?.eventId === value.eventId
+      && current.participant.status !== 'required'
+      && value.participant.status === 'required') {
+      value = { ...value, participant: current.participant };
+    }
     if (value?.eventId !== reservationSessionRef.current?.eventId) {
       setParticipantWelcomeName(null);
       setParticipantName(null);
@@ -184,19 +194,23 @@ export function useReservationIntro(role: ReservationIntroRole) {
     const poll = async () => {
       if (disposed || requestInFlightRef.current) return;
       requestInFlightRef.current = true;
+      const participantRevision = participantMutationRevisionRef.current;
       try {
         const response = await fetch(getReservationIntroApiUrl(kioskId), {
           cache: 'no-store',
           headers: { Accept: 'application/json' },
         });
         const receivedAtMs = Date.now();
+        if (disposed || participantRevision !== participantMutationRevisionRef.current) return;
         if (response.status === 204) {
           // Cancellation or end-of-reservation is fail-open: restore the normal program.
           startedAtRef.current = null;
           updateActive(null);
           updateReservationSession(null);
         } else if (response.ok) {
-          accept(await response.json() as ReservationIntroEvent, receivedAtMs);
+          const event = await response.json() as ReservationIntroEvent;
+          if (disposed || participantRevision !== participantMutationRevisionRef.current) return;
+          accept(event, receivedAtMs);
         } else if (response.status !== 503) {
           console.warn(`[reservation-intro] poll failed: ${response.status}`);
         }
@@ -377,19 +391,35 @@ export function useReservationIntro(role: ReservationIntroRole) {
     );
     if (!response.ok) throw new Error(`participant update failed: ${response.status}`);
     const updated = await response.json() as ReservationIntroEvent;
+    if (updated.eventId !== session.eventId
+      || reservationSessionRef.current?.eventId !== session.eventId) {
+      throw new Error('The reservation changed while saving the participant name');
+    }
+    participantMutationRevisionRef.current += 1;
     beforeApply?.();
     updateReservationSession(updated);
     return updated;
   }, [reservationSession, updateReservationSession]);
 
   const confirmParticipantName = useCallback(
-    (name: string) => updateParticipant(
-      { action: 'confirm', name },
-      () => {
-        setParticipantName(name);
-        setParticipantWelcomeName(name);
-      },
-    ),
+    async (name: string) => {
+      const eventId = reservationSessionRef.current?.eventId;
+      if (!eventId) throw new Error('No reservation session is active');
+      // A poll may observe the saved name before the POST response arrives.
+      // Keep capture enabled until that response hands off to the welcome phase.
+      setConfirmingEventId(eventId);
+      try {
+        return await updateParticipant(
+          { action: 'confirm', name },
+          () => {
+            setParticipantName(name);
+            setParticipantWelcomeName(name);
+          },
+        );
+      } finally {
+        setConfirmingEventId((current) => current === eventId ? null : current);
+      }
+    },
     [updateParticipant],
   );
   const skipParticipantName = useCallback(
@@ -402,7 +432,10 @@ export function useReservationIntro(role: ReservationIntroRole) {
   const finishIntroPresentation = useCallback(() => {
     setIntroPresentationPending(false);
   }, []);
-  const needsNameCapture = shouldShowParticipantNameOverlay(
+  const needsNameCapture = (!introPresentationPending
+    && confirmingEventId !== null
+    && confirmingEventId === reservationSession?.eventId)
+    || shouldShowParticipantNameOverlay(
     reservationSession,
     participantWelcomeName,
     introPresentationPending,

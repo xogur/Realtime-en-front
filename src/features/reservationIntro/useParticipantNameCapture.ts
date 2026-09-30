@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBrowserStt } from '@/hooks/useBrowserStt';
 import { useBrowserTts } from '@/hooks/useBrowserTts';
-import type { BrowserFinalTranscript } from '@/lib/stt';
 import type { ParticipantSkipReason } from './types';
 import { classifyConfirmation, extractSpokenName } from './participantName';
 
@@ -31,6 +30,7 @@ export function useParticipantNameCapture({
   const [phase, setPhase] = useState<NameCapturePhase>('idle');
   const [candidate, setCandidate] = useState('');
   const [interim, setInterim] = useState('');
+  const [recognizedSpeech, setRecognizedSpeech] = useState({ name: '', confirmation: '' });
   const [error, setError] = useState<string | null>(null);
   const [attempts, setAttempts] = useState(0);
   const [suggestedSkipReason, setSuggestedSkipReason] = useState<ParticipantSkipReason | null>(null);
@@ -46,7 +46,7 @@ export function useParticipantNameCapture({
     startAndWaitUntilReady: (timeoutMs?: number) => Promise<boolean>;
     stop: () => Promise<void>;
   } | null>(null);
-  const finalHandlerRef = useRef<(transcript: BrowserFinalTranscript) => void>(() => undefined);
+  const finalHandlerRef = useRef<(transcript: { text: string }) => void>(() => undefined);
   const actionRef = useRef({ onConfirm, onSkip, onWelcomeComplete });
   const { speak, cancel, isSpeaking } = useBrowserTts('participant-name');
 
@@ -63,14 +63,12 @@ export function useParticipantNameCapture({
     language: 'ko-KR',
     publishRecordingState: false,
     onFinalTranscript: (transcript) => finalHandlerRef.current(transcript),
-    onInterimTranscript: setInterim,
-    onReadyChange: (ready) => {
-      // The recognizer is intentionally started while the prompt is playing so
-      // there is no dead air after TTS. Keep the visual prompt state until the
-      // utterance ends, then switch to the explicit speaking-turn state.
-      if (ready && promptFinishedRef.current) {
-        setPhase(modeRef.current === 'name' ? 'listening' : 'confirming');
-      }
+    onInterimTranscript: (text) => { if (promptFinishedRef.current) setInterim(text); },
+    onReadyChange: () => undefined,
+    onSpeechStarted: () => undefined,
+    onUnavailable: () => {
+      promptFinishedRef.current = false;
+      fail('브라우저 음성 인식을 사용할 수 없어요. 다시 시도하거나 아래에서 이름을 입력해 주세요.');
     },
     onError: (code) => {
       if (code === 'MICROPHONE_DENIED') {
@@ -81,9 +79,9 @@ export function useParticipantNameCapture({
         fail('이 브라우저에서는 음성 이름 입력을 사용할 수 없어요.');
       }
       else if (code === 'MICROPHONE_UNAVAILABLE') fail('마이크를 사용할 수 없어요. 연결 상태를 확인해 주세요.');
+      else if (code === 'STT_UNAVAILABLE') fail('음성 인식 서버에 연결하지 못했어요. 다시 시도하거나 이름을 입력해 주세요.');
+      else if (code === 'STT_NO_RESULT') fail('이름을 잘 듣지 못했어요. 다시 시도하거나 이름을 입력해 주세요.');
     },
-    onUnavailable: () => undefined,
-    onSpeechStarted: cancel,
     getPlaybackState: () => ({ isPlaying: isSpeaking, text: promptTextRef.current }),
   });
   useEffect(() => {
@@ -100,6 +98,7 @@ export function useParticipantNameCapture({
   ) => {
     const turn = turnRef.current + 1;
     turnRef.current = turn;
+    promptFinishedRef.current = false;
     await sttControlsRef.current?.stop();
     if (disposedRef.current || turn !== turnRef.current) return;
     modeRef.current = mode;
@@ -108,15 +107,18 @@ export function useParticipantNameCapture({
     setPhase('preparing');
     const prepared = await sttControlsRef.current?.prepare();
     if (!prepared || disposedRef.current || turn !== turnRef.current) {
-      if (!disposedRef.current) {
+      if (!disposedRef.current && turn === turnRef.current) {
         fail('마이크를 준비하지 못했어요. 연결 상태를 확인하거나 아래에서 이름을 입력해 주세요.');
       }
       return;
     }
     promptFinishedRef.current = false;
-    setPhase('prompting');
-    // Wait for the recognizer's real `onstart`, then play the prompt while the
-    // microphone stays open. Users can answer during TTS without a startup gap.
+    setPhase(text ? 'prompting' : 'preparing');
+    // Permission preparation does not start recognition. Listen only after TTS.
+    if (text) await speak(text, 'ko-KR');
+    if (disposedRef.current || turn !== turnRef.current) return;
+    await delay(250);
+    if (disposedRef.current || turn !== turnRef.current) return;
     const started = await sttControlsRef.current?.startAndWaitUntilReady();
     if (!started || disposedRef.current || turn !== turnRef.current) {
       if (!disposedRef.current && turn === turnRef.current) {
@@ -124,30 +126,38 @@ export function useParticipantNameCapture({
       }
       return;
     }
-    setPhase(mode === 'name' ? 'listening' : 'confirming');
-    await speak(text, 'ko-KR');
     promptFinishedRef.current = true;
-    if (disposedRef.current || turn !== turnRef.current) return;
     setPhase(modeRef.current === 'name' ? 'listening' : 'confirming');
   }, [fail, speak]);
 
-  const retry = useCallback(async (reason: 'generic' | 'unrecognized' = 'generic') => {
-    const nextAttempts = attempts + 1;
+  const retry = useCallback(async (reason: 'generic' | 'unrecognized' | 'immediate' = 'generic') => {
+    const turn = ++turnRef.current;
+    promptFinishedRef.current = false;
+    setPhase('preparing');
+    cancel();
+    await sttControlsRef.current?.stop();
+    if (disposedRef.current || turn !== turnRef.current) return;
+    const nextAttempts = reason === 'immediate' ? 0 : attempts + 1;
     setAttempts(nextAttempts);
     setCandidate('');
     candidateRef.current = '';
     setError(null);
     setSuggestedSkipReason(null);
+    if (reason === 'immediate') {
+      setRecognizedSpeech({ name: '', confirmation: '' });
+      await speakThenListen('', 'name');
+      return;
+    }
     if (nextAttempts >= 3) {
       setSuggestedSkipReason('retry_exhausted');
       fail('이름을 정확히 확인하지 못했어요. 다시 시도하거나 이름 없이 시작해 주세요.');
       return;
     }
     const prompt = reason === 'unrecognized'
-      ? '이름을 정확히 확인하지 못했어요. 이름이나 닉네임만 다시 한번 말씀해 주세요.'
-      : '잘 듣지 못했어요. 이름이나 닉네임을 다시 말씀해 주세요.';
+      ? '이름만 다시 말씀해 주세요.'
+      : '다시 말씀해 주세요.';
     await speakThenListen(prompt, 'name');
-  }, [attempts, fail, speakThenListen]);
+  }, [attempts, cancel, fail, speakThenListen]);
 
   const submitName = useCallback(async (providedName?: string) => {
     const name = providedName?.trim() || candidateRef.current;
@@ -155,6 +165,7 @@ export function useParticipantNameCapture({
     candidateRef.current = name;
     const turn = turnRef.current + 1;
     turnRef.current = turn;
+    promptFinishedRef.current = false;
     setCandidate(name);
     await sttControlsRef.current?.stop();
     cancel();
@@ -182,8 +193,15 @@ export function useParticipantNameCapture({
 
   useEffect(() => {
     finalHandlerRef.current = (transcript) => {
+      if (!enabled || disposedRef.current || !promptFinishedRef.current) return;
+      const turn = ++turnRef.current;
+      promptFinishedRef.current = false;
+      cancel();
+      const stage = modeRef.current;
+      setRecognizedSpeech((current) => ({ ...current, [stage]: transcript.text.trim() }));
       void (async () => {
         await sttControlsRef.current?.stop();
+        if (disposedRef.current || turn !== turnRef.current) return;
         const text = transcript.text.trim();
         setInterim('');
         if (modeRef.current === 'name') {
@@ -197,20 +215,32 @@ export function useParticipantNameCapture({
           setCandidate(normalized);
           setPhase('candidate');
           await speakThenListen(
-            `${normalized}님, 맞으신가요? 맞으면 맞다고, 다르면 다시 말하겠다고 말씀해 주세요.`,
+            `${normalized}님인가요?`,
             'confirmation',
           );
           return;
         }
         const answer = classifyConfirmation(text);
         if (answer === 'yes') await submitCandidate();
-        else if (answer === 'no') await retry();
-        else await speakThenListen('잘 듣지 못했어요. 맞으면 맞다고, 다르면 다시 말하겠다고 말씀해 주세요.', 'confirmation');
+        else {
+          const correctionText = text.replace(/^(?:아니요|아니에요|아닙니다|아뇨|아니)[,\s]+/, '').trim();
+          const correction = extractSpokenName(correctionText);
+          // Explicit restatements can replace the candidate in one utterance.
+          // Do not interpret arbitrary acknowledgements as a new bare name.
+          if (correction?.confidence === 'high') {
+            candidateRef.current = correction.name;
+            setCandidate(correction.name);
+            setRecognizedSpeech((current) => ({ ...current, name: text }));
+            await speakThenListen(`${correction.name}님인가요?`, 'confirmation');
+          } else if (answer === 'no') await retry();
+          else await speakThenListen('이 이름이 맞나요?', 'confirmation');
+        }
       })();
     };
-  }, [retry, speakThenListen, submitCandidate]);
+  }, [cancel, enabled, retry, speakThenListen, submitCandidate]);
 
   const skip = useCallback(async (reason: ParticipantSkipReason = 'user_skipped') => {
+    promptFinishedRef.current = false;
     turnRef.current += 1;
     await sttControlsRef.current?.stop();
     cancel();
@@ -239,10 +269,11 @@ export function useParticipantNameCapture({
       if (cancelled) return;
       setAttempts(0);
       setCandidate('');
+      setRecognizedSpeech({ name: '', confirmation: '' });
       setError(null);
       setSuggestedSkipReason(null);
       void speakThenListen(
-        '안녕하세요. 제가 뭐라고 불러드리면 될까요? 지금 이름이나 닉네임을 말씀해 주세요.',
+        '안녕하세요. 이름이나 닉네임을 말씀해 주세요.',
         'name',
       );
     });
@@ -259,8 +290,9 @@ export function useParticipantNameCapture({
   }, [cancel]);
 
   return {
-    phase, candidate, interim, error, attempts, suggestedSkipReason,
+    phase, candidate, interim, recognizedSpeech, error, attempts, suggestedSkipReason,
     isRecording: stt.isRecording,
+    sttStatus: stt.status,
     confirm: submitCandidate,
     submitName,
     retry,

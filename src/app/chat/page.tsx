@@ -19,6 +19,7 @@ import { ParticipantNameOverlay } from '@/features/reservationIntro/ParticipantN
 import { useReservationFollowup } from '@/features/reservationFollowup/useReservationFollowup';
 import { ReservationEndOverlay } from '@/features/reservationFollowup/ReservationEndOverlay';
 import type { ReservationIntroCompletionReason } from '@/features/reservationIntro/types';
+// import { LearningExperience } from '@/features/learning/LearningExperience';
 
 export default function ChatPopout() {
     const { connect, disconnect } = useVoiceSocket();
@@ -162,6 +163,9 @@ export default function ChatPopout() {
             resumeError={reservationFollowup.resumeError}
             onDismiss={reservationFollowup.dismissUsage}
         />
+        {/* 학습하기 기능 임시 비노출
+        <LearningExperience role="viewer" />
+        */}
         </>
     );
 }

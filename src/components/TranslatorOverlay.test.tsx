@@ -60,6 +60,34 @@ describe('TranslatorOverlay', () => {
     });
   });
 
+  it.each([0.5, 0.75, 1, 1.25, 1.5])('plays translated speech at %s speed', async (rate) => {
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    expect(screen.getByRole('button', { name: '1배속' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.change(screen.getByLabelText('번역할 문장'), { target: { value: '안녕하세요' } });
+    fireEvent.click(screen.getByRole('button', { name: '번역하기' }));
+    await screen.findByText('Hello');
+    fireEvent.click(screen.getByRole('button', { name: `${rate}배속` }));
+    expect(screen.getByRole('button', { name: `${rate}배속` }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: '문장 들어보기' }));
+    await waitFor(() => expect(speak).toHaveBeenCalledOnce());
+    expect(speak.mock.calls[0][0]).toMatchObject({ rate, lang: 'en-US', text: 'Hello' });
+  });
+
+  it('stops current playback on speed change without showing a playback error', async () => {
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('번역할 문장'), { target: { value: '안녕하세요' } });
+    fireEvent.click(screen.getByRole('button', { name: '번역하기' }));
+    await screen.findByText('Hello');
+    fireEvent.click(screen.getByRole('button', { name: '문장 들어보기' }));
+    await waitFor(() => expect(speak).toHaveBeenCalledOnce());
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: '0.5배속' })));
+    expect(cancel).toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '문장 들어보기' }));
+    await waitFor(() => expect(speak).toHaveBeenCalledTimes(2));
+    expect(speak.mock.calls[1][0].rate).toBe(0.5);
+  });
+
   it('does not expose translation provider implementation details', () => {
     render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
 

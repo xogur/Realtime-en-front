@@ -48,6 +48,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
   const [interimText, setInterimText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
+  const [speechRate, setSpeechRate] = useState(1);
   const { speak, cancel: cancelSpeech, isSpeaking } = useBrowserTts('translator');
   const [sentenceType, setSentenceType] = useState<TranslationSentenceType>('original');
   const [showSentenceTypeControls, setShowSentenceTypeControls] = useState(false);
@@ -225,7 +226,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     if (activityTokenRef.current !== activityToken || !isOpen) return;
 
     setInterimText('');
-    const played = await speak(translatedText, SPEECH_LANGUAGE[targetLanguage]);
+    const played = await speak(translatedText, SPEECH_LANGUAGE[targetLanguage], speechRate);
     if (!played && activityTokenRef.current === activityToken) {
       setError('문장을 재생하지 못했습니다.');
     }
@@ -382,6 +383,28 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
                   파파고 번역
                 </a>
               )}
+              <fieldset className="mt-4">
+                <legend className="mb-2 text-sm font-bold text-zinc-600">듣기 속도</legend>
+                <div className="flex flex-wrap gap-2">
+                  {[0.5, 0.75, 1, 1.25, 1.5].map((rate) => (
+                    <button
+                      key={rate}
+                      type="button"
+                      aria-label={`${rate}배속`}
+                      aria-pressed={speechRate === rate}
+                      onClick={() => {
+                        if (rate === speechRate) return;
+                        activityTokenRef.current += 1;
+                        cancelSpeech();
+                        setSpeechRate(rate);
+                      }}
+                      className={`min-h-11 min-w-14 rounded-full border px-3 py-2 font-extrabold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2 ${speechRate === rate ? 'border-blue-600 bg-blue-600 text-white' : 'border-blue-200 bg-white text-blue-700 hover:bg-blue-100'}`}
+                    >
+                      {rate}×
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
               <button
                 type="button"
                 onClick={() => { void handleSpeak(); }}

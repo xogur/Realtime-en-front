@@ -24,6 +24,8 @@ import {
 } from '@/lib/conversationSocketMessages';
 import { isTranslatorWindowMessage, TRANSLATOR_WINDOW_MESSAGE } from '@/lib/translator';
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
+import { useLearningStore } from '@/features/learning/useLearningStore';
+import type { AttemptPurpose, LearningSnapshot } from '@/features/learning/types';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
 const EVALUATION_BATCH_MAX_TURNS = 4;
@@ -109,6 +111,9 @@ type SocketMessage = {
   createdAt?: string;
   isOpening?: boolean;
   segments?: TopicSegment[];
+  lessonSessionId?: string;
+  snapshot?: LearningSnapshot;
+  activeAttempt?: LearningSnapshot['activeAttempt'];
 };
 
 type TurnResultsResponse = {
@@ -581,6 +586,10 @@ export function useVoiceSocket() {
   const isServerSttReadyRef = useRef(false);
   const pendingTopicStartRef = useRef<PendingConversationStart | null>(null);
   const pendingResumeSegmentRef = useRef<string | null>(null);
+  const learningPurposeRef = useRef<AttemptPurpose | null>(null);
+  const learningAttemptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const learningCommandTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingLearningMessageRef = useRef<Record<string, unknown> | null>(null);
 
   const setConnecting = useStore((state) => state.setConnecting);
   const setConnected = useStore((state) => state.setConnected);
@@ -617,6 +626,18 @@ export function useVoiceSocket() {
   const setConversationState = useStore((state) => state.setConversationState);
   const upsertTopicSegment = useStore((state) => state.upsertTopicSegment);
   const setConversationStartStatus = useStore((state) => state.setConversationStartStatus);
+
+  const sendLearningMessage = useCallback((payload: Record<string, unknown>) => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) return false;
+    socketRef.current.send(JSON.stringify(payload));
+    useLearningStore.getState().setCommandPending(true);
+    if (learningCommandTimeoutRef.current) clearTimeout(learningCommandTimeoutRef.current);
+    learningCommandTimeoutRef.current = setTimeout(() => {
+      useLearningStore.getState().setError('서버 응답이 늦어지고 있습니다. 연결을 확인하고 다시 시도해 주세요.');
+      learningCommandTimeoutRef.current = null;
+    }, 8_000);
+    return true;
+  }, []);
 
   const getMessageMetadata = useCallback((data: SocketMessage): ChatMessageMetadata | undefined => {
     const topicId = isTopicId(data.topicId) ? data.topicId : undefined;
@@ -751,13 +772,13 @@ export function useVoiceSocket() {
     return captureSessionId;
   }, []);
 
-  const startSttCapture = useCallback(async () => {
+  const startSttCapture = useCallback(async (captureOptions?: { requiredAudio?: boolean }) => {
     // The control message is placed on the WebSocket before MediaRecorder can
     // produce new binary frames. The backend completes its discard barrier
     // before reading those frames.
     const result = await startSttCaptureOperation({
       sendCaptureState: sendSttCaptureState,
-      startInput: startSttInput,
+      startInput: () => startSttInput(captureOptions),
       getCurrentSessionId: () => sttCaptureSessionIdRef.current,
       getCurrentSocket: () => socketRef.current,
     });
@@ -1459,6 +1480,52 @@ export function useVoiceSocket() {
             break;
           }
           case 'kiosk_session_ready':
+            if (typeof data.sessionEpoch === 'number') {
+              useLearningStore.getState().setSessionEpoch(data.sessionEpoch);
+              const pendingLearning = pendingLearningMessageRef.current;
+              if (pendingLearning) {
+                pendingLearningMessageRef.current = null;
+                sendLearningMessage({ ...pendingLearning, sessionEpoch: data.sessionEpoch });
+              }
+            }
+            break;
+          case 'learning_state':
+            if (learningCommandTimeoutRef.current) clearTimeout(learningCommandTimeoutRef.current);
+            learningCommandTimeoutRef.current = null;
+            if (role === 'controller' && useLearningStore.getState().snapshot?.activeAttempt && !data.activeAttempt) {
+              if (learningAttemptTimeoutRef.current) clearTimeout(learningAttemptTimeoutRef.current);
+              learningAttemptTimeoutRef.current = null;
+              void stopSttCapture();
+              learningPurposeRef.current = null;
+            }
+            useLearningStore.getState().setSnapshot(data as unknown as LearningSnapshot);
+            break;
+          case 'learning_partial_transcript':
+            useLearningStore.getState().setPartialTranscript(data.content ?? '');
+            break;
+          case 'learning_attempt_ready':
+            if (learningCommandTimeoutRef.current) clearTimeout(learningCommandTimeoutRef.current);
+            learningCommandTimeoutRef.current = null;
+            useLearningStore.getState().setCommandPending(false);
+            break;
+          case 'learning_attempt_received':
+            if (learningCommandTimeoutRef.current) clearTimeout(learningCommandTimeoutRef.current);
+            learningCommandTimeoutRef.current = null;
+            if (learningAttemptTimeoutRef.current) clearTimeout(learningAttemptTimeoutRef.current);
+            learningAttemptTimeoutRef.current = null;
+            useLearningStore.getState().setCommandPending(false);
+            if (role === 'controller') void stopSttCapture();
+            learningPurposeRef.current = null;
+            break;
+          case 'learning_error':
+            if (learningCommandTimeoutRef.current) clearTimeout(learningCommandTimeoutRef.current);
+            learningCommandTimeoutRef.current = null;
+            if (learningAttemptTimeoutRef.current) clearTimeout(learningAttemptTimeoutRef.current);
+            learningAttemptTimeoutRef.current = null;
+            if (data.snapshot) useLearningStore.getState().setSnapshot(data.snapshot);
+            useLearningStore.getState().setError(data.content ?? '학습 요청을 처리하지 못했습니다.');
+            if (role === 'controller' && learningPurposeRef.current) void stopSttCapture();
+            learningPurposeRef.current = null;
             break;
           case 'conversation_state':
             if (data.learningSessionId && Array.isArray(data.segments)) {
@@ -1703,6 +1770,11 @@ export function useVoiceSocket() {
         pendingResumeSegmentRef.current = null;
         setConversationStartStatus('error', '서버 연결이 종료되었습니다. 다시 시도해 주세요.');
       }
+      if (pendingLearningMessageRef.current || learningPurposeRef.current) {
+        pendingLearningMessageRef.current = null;
+        learningPurposeRef.current = null;
+        useLearningStore.getState().setError('서버 연결이 종료되었습니다. 다시 연결해 주세요.');
+      }
       useStore.getState().setLiveTranscript('');
       if (roleRef.current === 'controller') {
         discardPendingEvaluations();
@@ -1725,6 +1797,11 @@ export function useVoiceSocket() {
         pendingTopicStartRef.current = null;
         pendingResumeSegmentRef.current = null;
         setConversationStartStatus('error', '서버에 연결하지 못했습니다. 다시 시도해 주세요.');
+      }
+      if (pendingLearningMessageRef.current || learningPurposeRef.current) {
+        pendingLearningMessageRef.current = null;
+        learningPurposeRef.current = null;
+        useLearningStore.getState().setError('서버에 연결하지 못했습니다. 다시 시도해 주세요.');
       }
       clearSupplementaryPolling();
       clearEvaluationBatchStatus();
@@ -1753,6 +1830,7 @@ export function useVoiceSocket() {
     muteTts,
     queueLocalEvaluationBatchTurn,
     scheduleSupplementaryPolling,
+    sendLearningMessage,
     setConnected,
     setConnecting,
     setSttReady,
@@ -1765,6 +1843,7 @@ export function useVoiceSocket() {
     beginSessionReplay,
     finishSessionReplay,
     startSttCapture,
+    stopSttCapture,
     stopSttInput,
     unmuteTts,
   ]);
@@ -1772,6 +1851,12 @@ export function useVoiceSocket() {
   const disconnect = useCallback(() => {
     if (isDisconnecting.current) return;
     isDisconnecting.current = true;
+    if (learningAttemptTimeoutRef.current) clearTimeout(learningAttemptTimeoutRef.current);
+    learningAttemptTimeoutRef.current = null;
+    if (learningCommandTimeoutRef.current) clearTimeout(learningCommandTimeoutRef.current);
+    learningCommandTimeoutRef.current = null;
+    pendingLearningMessageRef.current = null;
+    learningPurposeRef.current = null;
     cleanupSocket();
     activeGenerationIdRef.current = null;
     clearSupplementaryPolling();
@@ -1892,6 +1977,83 @@ export function useVoiceSocket() {
     void stopSttCapture();
   }, [setSttReady, stopSttCapture]);
 
+  const startLearningSession = useCallback((topicId: 'restaurant' | 'airport') => {
+    const message = {
+      type: 'start_learning_session', requestId: crypto.randomUUID(), topicId,
+      sessionEpoch: useLearningStore.getState().sessionEpoch,
+    };
+    if (socketRef.current?.readyState === WebSocket.OPEN && useLearningStore.getState().sessionEpoch !== null) {
+      sendLearningMessage(message);
+    } else {
+      pendingLearningMessageRef.current = message;
+      connect({ role: 'controller', startRecording: false });
+    }
+  }, [connect, sendLearningMessage]);
+
+  const learningCommand = useCallback((action: string, payload?: Record<string, unknown>) => {
+    const state = useLearningStore.getState();
+    if (!state.snapshot) return;
+    const message = {
+      type: 'learning_command', clientCommandId: crypto.randomUUID(),
+      lessonSessionId: state.snapshot.lessonSessionId, expectedRevision: state.snapshot.revision,
+      sessionEpoch: state.sessionEpoch, action, payload,
+    };
+    if (state.sessionEpoch === null || !sendLearningMessage(message)) {
+      pendingLearningMessageRef.current = message;
+      connect({ role: 'controller', startRecording: false });
+    }
+  }, [connect, sendLearningMessage]);
+
+  const beginLearningAttempt = useCallback(async (purpose: AttemptPurpose) => {
+    const state = useLearningStore.getState();
+    if (!state.snapshot) return;
+    if (socketRef.current?.readyState !== WebSocket.OPEN || state.sessionEpoch === null) {
+      useLearningStore.getState().setError('서버 연결을 준비하고 있습니다. 잠시 후 다시 눌러 주세요.');
+      connect({ role: 'controller', startRecording: false });
+      return;
+    }
+    learningPurposeRef.current = purpose;
+    useLearningStore.getState().setCommandPending(true);
+    // WebSocket preserves message order: open the new capture epoch and bind
+    // the attempt before MediaRecorder can emit its first binary frame.
+    const captureEpoch = sendSttCaptureState(true);
+    const attemptId = crypto.randomUUID();
+    const sent = sendLearningMessage({
+      type: 'begin_learning_attempt', clientCommandId: crypto.randomUUID(),
+      lessonSessionId: state.snapshot.lessonSessionId, expectedRevision: state.snapshot.revision,
+      sessionEpoch: state.sessionEpoch, captureEpoch,
+      attemptId, purpose,
+    });
+    if (!sent) {
+      sendSttCaptureState(false);
+      useLearningStore.getState().setError('서버 연결이 끊어졌습니다. 다시 시도해 주세요.');
+      return;
+    }
+    const started = await startSttInput({ requiredAudio: true });
+    if (!started) {
+      sendSttCaptureState(false);
+      sendLearningMessage({
+        type: 'cancel_learning_attempt', clientCommandId: crypto.randomUUID(),
+        lessonSessionId: state.snapshot.lessonSessionId, attemptId,
+        sessionEpoch: state.sessionEpoch,
+      });
+      useLearningStore.getState().setError('학습 녹음을 시작하지 못했습니다. 마이크를 확인해 주세요.');
+      return;
+    }
+    if (learningAttemptTimeoutRef.current) clearTimeout(learningAttemptTimeoutRef.current);
+    learningAttemptTimeoutRef.current = setTimeout(() => {
+      sendSttCaptureState(false);
+      sendLearningMessage({
+        type: 'cancel_learning_attempt', clientCommandId: crypto.randomUUID(),
+        lessonSessionId: state.snapshot?.lessonSessionId, attemptId,
+        sessionEpoch: useLearningStore.getState().sessionEpoch,
+      });
+      useLearningStore.getState().setError('음성 입력 시간이 초과되었습니다. 한 문장씩 다시 말해 주세요.');
+      learningAttemptTimeoutRef.current = null;
+      learningPurposeRef.current = null;
+    }, 15_000);
+  }, [connect, sendLearningMessage, sendSttCaptureState, startSttInput]);
+
   const pauseConversationForUsageEnd = useCallback(() => {
     stopListening();
     flushActiveTts();
@@ -1990,5 +2152,8 @@ export function useVoiceSocket() {
     sttProvider,
     clearHistory,
     prepareForReservationIntro,
+    startLearningSession,
+    learningCommand,
+    beginLearningAttempt,
   };
 }

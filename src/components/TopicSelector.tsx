@@ -8,6 +8,9 @@ import {
   BookOpen,
   ChevronRight,
   Gauge,
+  Hand,
+  Mic,
+  Volume2,
   MessageCircle,
   Palette,
   Plane,
@@ -30,6 +33,7 @@ import {
   type TopicId,
 } from '@/lib/conversationTopics';
 import { useVoiceTopicSelection } from '@/components/useVoiceTopicSelection';
+import { DIFFICULTY_VOICE_ORDER, TOPIC_VOICE_ORDER } from '@/components/voiceTopicSelection';
 import { OnboardingJourney } from '@/components/onboarding/OnboardingJourney';
 
 type TopicSelectorProps = {
@@ -124,11 +128,17 @@ export function TopicSelector({
   const currentTopic = getConversationTopic(currentTopicId);
   const currentDifficulty = getConversationDifficulty(currentDifficultyId);
   const choosingTopic = selectedDifficulty !== null;
-  const preparing = voiceSelection.phase === 'preparing-difficulty';
   const switchingToTopic = voiceSelection.phase === 'switching-to-topic';
   const selectedDifficultyDetail = getConversationDifficulty(selectedDifficulty);
   const launchTopic = getConversationTopic(launchSelection?.topicId);
   const launchDifficulty = getConversationDifficulty(launchSelection?.difficultyId);
+  const listening = voiceSelection.isRecording && voiceSelection.sttStatus === 'listening'
+    && !isBusy && !launchSelection && !switchingToTopic;
+  const announcing = voiceSelection.sttStatus === 'prompting';
+  const voiceLabel = voiceSelection.error ? '터치로 선택'
+    : voiceSelection.phase === 'starting' ? '선택 완료'
+    : listening ? '지금 말씀하세요'
+    : announcing ? '안내 중' : '마이크 준비 중';
 
   return (
     <motion.div
@@ -179,6 +189,59 @@ export function TopicSelector({
             stage={launchSelection ? 'ready' : choosingTopic ? 'topic' : 'difficulty'}
             className="mb-7 max-w-[460px]"
           />
+
+          {!launchSelection && (
+            <div className="mb-4 grid grid-cols-[1fr_auto] gap-3">
+              <div
+                role="status"
+                aria-live="polite"
+                aria-label="말할 타이밍"
+                data-voice-state={listening ? 'listening' : announcing ? 'prompting' : 'waiting'}
+                className={`flex min-h-24 items-center gap-4 rounded-2xl border-2 px-4 py-3 transition-colors sm:px-5 ${listening
+                  ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-600/20'
+                  : 'border-[#d7cfc7] bg-[#eee8e2] text-[#6b625a]'}`}
+              >
+                <motion.span
+                  aria-hidden="true"
+                  animate={listening && !reduceMotion ? { scale: [1, 1.1, 1] } : { scale: 1 }}
+                  transition={{ duration: 1.2, repeat: listening && !reduceMotion ? Infinity : 0 }}
+                  className={`grid h-14 w-14 shrink-0 place-items-center rounded-2xl ${listening ? 'bg-white/20 ring-4 ring-white/15' : 'bg-white/70'}`}
+                >
+                  {voiceSelection.error ? <Hand className="h-8 w-8" /> : announcing ? <Volume2 className="h-8 w-8" /> : <Mic className="h-8 w-8" />}
+                </motion.span>
+                <div className="min-w-0">
+                  <p className="text-lg font-black sm:text-2xl">{voiceLabel}</p>
+                  <div aria-hidden="true" className="mt-2 flex h-5 items-center gap-1">
+                    {[8, 15, 20, 13, 18, 10, 6].map((height, index) => (
+                      <motion.span key={index} className="w-1 rounded-full bg-current"
+                        animate={listening && !reduceMotion ? { height: [4, height, 4], opacity: [0.6, 1, 0.6] } : { height: 4, opacity: 0.35 }}
+                        transition={{ duration: 0.8, delay: index * 0.08, repeat: listening && !reduceMotion ? Infinity : 0 }} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="flex w-24 flex-col items-center justify-center gap-2 rounded-2xl border-2 border-[#4f6b57]/30 bg-white px-2 py-3 text-[#3f5d48] sm:w-28">
+                <Hand aria-hidden="true" className="h-9 w-9" strokeWidth={1.7} />
+                <span className="text-sm font-extrabold">터치 선택</span>
+              </div>
+            </div>
+          )}
+
+          <section aria-label="음성 인식 내용" aria-live="polite" aria-atomic="true" className="mb-6 rounded-2xl border border-[#6f8975]/25 bg-[#edf3ee] px-5 py-4 text-[#3f5d48]">
+            <h3 className="text-sm font-extrabold">이렇게 들었어요</h3>
+            {voiceSelection.interim && (
+              <p className="mt-2 break-words text-lg font-bold"><span className="mr-2 text-sm font-medium">인식 중</span><span>“{voiceSelection.interim}”</span></p>
+            )}
+            {voiceSelection.recognizedSpeech.difficulty && (
+              <p className="mt-2 break-words text-lg font-bold"><span className="mr-2 text-sm font-medium">난이도</span><span>“{voiceSelection.recognizedSpeech.difficulty}”</span></p>
+            )}
+            {voiceSelection.recognizedSpeech.topic && (
+              <p className="mt-2 break-words text-lg font-bold"><span className="mr-2 text-sm font-medium">주제</span><span>“{voiceSelection.recognizedSpeech.topic}”</span></p>
+            )}
+            {!voiceSelection.interim && !voiceSelection.recognizedSpeech.difficulty && !voiceSelection.recognizedSpeech.topic && (
+              <p className="mt-2 text-sm font-medium">말씀하신 내용이 인식되면 여기에 표시됩니다.</p>
+            )}
+          </section>
 
           <AnimatePresence mode="popLayout" initial={false}>
           {launchSelection ? (
@@ -242,42 +305,11 @@ export function TopicSelector({
             >
               {choosingTopic ? '어떤 이야기를 나눌까요?' : '원하는 대화 스타일을 선택하세요'}
             </h2>
-            <p className="mt-2 max-w-[560px] text-sm font-medium leading-6 text-[#6b625a] sm:text-base">
-              {choosingTopic
-                ? 'AI가 선택한 주제에 맞는 첫 질문으로 자연스럽게 대화를 시작해요.'
-                : '편하게 들을 수 있는 속도와 표현 수준을 기준으로 골라주세요.'}
-            </p>
-            <div
-              role="status"
-              aria-live="polite"
-              className="mt-4 flex min-h-11 items-center gap-3 rounded-xl border border-[#6f8975]/25 bg-[#edf3ee] px-4 py-2.5 text-sm font-bold text-[#3f5d48]"
-            >
-              <span aria-hidden="true" className={`h-2.5 w-2.5 rounded-full ${voiceSelection.isRecording ? 'animate-pulse bg-emerald-500' : 'bg-amber-400'}`} />
-              <span>
-                {voiceSelection.error
-                  ?? (preparing
-                    ? '음성 선택을 준비하고 있어요.'
-                    : switchingToTopic
-                      ? '다음 선택을 준비하고 있어요. 화면을 터치해도 괜찮아요.'
-                    : choosingTopic
-                      ? '원하는 주제를 말하거나 화면을 터치해 주세요.'
-                      : '초급, 중급, 고급 중 하나를 말하거나 화면을 터치해 주세요.')}
-                {voiceSelection.interim ? ` · “${voiceSelection.interim}”` : ''}
-              </span>
-            </div>
+            {voiceSelection.error && <p role="alert" className="mt-2 text-sm text-[#784638]">{voiceSelection.error}</p>}
           </header>
 
-          {preparing && (
-            <div className="mt-8 flex min-h-52 items-center justify-center rounded-2xl border border-[#483c2d]/10 bg-white/70 px-6 text-center">
-              <div>
-                <span aria-hidden="true" className="mx-auto block h-3 w-3 animate-pulse rounded-full bg-amber-400" />
-                <p className="mt-4 text-lg font-extrabold text-[#3f3934]">잠시만 기다려 주세요</p>
-                <p className="mt-1 text-sm font-medium text-[#766d65]">말씀하실 수 있도록 준비하고 있어요.</p>
-              </div>
-            </div>
-          )}
 
-          {!preparing && currentTopic && currentDifficulty && onResume && !choosingTopic && (
+          {currentTopic && currentDifficulty && onResume && !choosingTopic && (
             <button
               type="button"
               onClick={() => {
@@ -300,18 +332,22 @@ export function TopicSelector({
             </button>
           )}
 
-          {!preparing && (!choosingTopic ? (
+          {(!choosingTopic ? (
             <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
               {CONVERSATION_DIFFICULTIES.map((difficulty) => (
                 <button
                   type="button"
                   key={difficulty.id}
+                  aria-label={`${difficulty.label}, ${DIFFICULTY_VOICE_ORDER.indexOf(difficulty.id) + 1}번. ${difficulty.description}`}
                   onClick={() => voiceSelection.selectDifficulty(difficulty.id)}
                   disabled={isBusy}
                   className={`${interactiveCardClass} flex min-h-[112px] flex-row items-center gap-4 rounded-2xl border border-[#483c2d]/12 bg-white p-4 shadow-[0_8px_24px_rgba(72,60,45,0.07)] hover:border-[#6f8975]/55 hover:bg-[#f8fbf8] hover:shadow-[0_12px_30px_rgba(72,60,45,0.11)] sm:min-h-[180px] sm:flex-col sm:items-start sm:gap-0 sm:p-5`}
                 >
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#f0ece8] text-[#514a44] transition-colors duration-200 group-hover:bg-[#e2ebe4] group-hover:text-[#3f5d48] sm:h-12 sm:w-12">
                     {DIFFICULTY_ICONS[difficulty.id]}
+                  </span>
+                  <span className="absolute right-3 top-3 grid h-7 w-7 place-items-center rounded-full bg-[#4f6b57] text-sm font-black text-white" aria-label={`${DIFFICULTY_VOICE_ORDER.indexOf(difficulty.id) + 1}번`}>
+                    {DIFFICULTY_VOICE_ORDER.indexOf(difficulty.id) + 1}
                   </span>
                   <span className="min-w-0 flex-1 sm:mt-5 sm:w-full">
                     <span className="block text-xl font-black tracking-[-0.02em] text-[#27221e]">
@@ -322,7 +358,7 @@ export function TopicSelector({
                     </span>
                   </span>
                   <span className="ml-auto flex shrink-0 items-center justify-end text-[#4f6b57] sm:ml-0 sm:mt-auto sm:w-full sm:pt-4">
-                    <ChevronRight className="h-5 w-5 transition-transform duration-200 group-hover:translate-x-0.5" strokeWidth={1.8} />
+                    <Hand aria-hidden="true" className="h-5 w-5" strokeWidth={1.8} />
                   </span>
                 </button>
               ))}
@@ -442,7 +478,10 @@ function TopicButton({ topic, icon, isBusy, onClick, className = '', emphasis }:
         <span className="block text-base font-black tracking-[-0.015em] text-[#27221e]">{topic.label}</span>
         <span className="mt-1 block text-xs font-medium leading-5 text-[#6b625a]">{TOPIC_SHORT_DESCRIPTIONS[topic.id]}</span>
       </span>
-      <ChevronRight className="h-4 w-4 shrink-0 text-[#6f806f] transition-transform duration-200 group-hover:translate-x-0.5" strokeWidth={1.8} />
+      <span className="flex shrink-0 flex-col items-center gap-2 text-[#4f6b57]">
+        <span className="grid h-7 w-7 place-items-center rounded-full bg-[#4f6b57] text-sm font-black text-white" aria-label={`${TOPIC_VOICE_ORDER.indexOf(topic.id) + 1}번`}>{TOPIC_VOICE_ORDER.indexOf(topic.id) + 1}</span>
+        <Hand aria-hidden="true" className="h-4 w-4" />
+      </span>
     </button>
   );
 }

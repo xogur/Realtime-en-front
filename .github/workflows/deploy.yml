@@ -16,6 +16,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Verify frontend
+      run: |
+        npm ci
+        npm test -- --run
+        npm run build
+
     - name: Deploy to Server Directory
       run: |
         # 배포 타겟 디렉토리 설정 (사용자 요청 경로)

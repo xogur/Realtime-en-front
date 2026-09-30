@@ -64,7 +64,6 @@ export function ReservationIntroOverlay({ role, active, onComplete, onExitComple
       }
       void video.play().then(() => {
       }).catch((error: unknown) => {
-        if (role !== 'guide') return;
         if (error instanceof DOMException && error.name === 'AbortError') {
           return;
         }
@@ -73,10 +72,14 @@ export function ReservationIntroOverlay({ role, active, onComplete, onExitComple
           // permits sound; outside the launcher, keep the guide moving without
           // requiring a touch and fall back to muted playback.
           video.muted = true;
-          void video.play().catch(() => onComplete('media_error'));
+          void video.play().catch(() => {
+            if (role === 'guide') onComplete('media_error');
+            else setBrandMediaFailedFor(active.event.eventId);
+          });
           return;
         }
-        onComplete('media_error');
+        if (role === 'guide') onComplete('media_error');
+        else setBrandMediaFailedFor(active.event.eventId);
       });
     };
     if (video.readyState >= 1) syncPlayback();
@@ -109,9 +112,8 @@ export function ReservationIntroOverlay({ role, active, onComplete, onExitComple
           <video
             ref={videoRef}
             className="absolute inset-0 h-full w-full object-cover"
-            src={`${assetBase}/brand-bumper.webm`}
+            src={`${assetBase}/brand-bumper-sound-v1.webm`}
             autoPlay
-            muted
             playsInline
             preload="auto"
             data-playback-state={active.phase === 'guide' ? 'held' : 'playing'}

@@ -58,10 +58,10 @@ export function ParticipantNameOverlay({
 
   const isWelcome = capture.phase === 'welcoming' || capture.phase === 'completed';
   const isLeaving = capture.phase === 'completed';
-  const busy = ['preparing', 'prompting', 'submitting', 'welcoming', 'completed'].includes(capture.phase);
+  const busy = ['preparing', 'submitting', 'welcoming', 'completed'].includes(capture.phase);
   const title = (() => {
     if (capture.phase === 'preparing') return '마이크를 연결하고 있어요';
-    if (capture.phase === 'prompting') return '곧 말할 차례예요';
+    if (capture.phase === 'prompting') return '안내가 끝나면 말씀해 주세요';
     if (capture.phase === 'listening') return '지금 말씀하세요';
     if (capture.phase === 'submitting') return '이름을 저장하고 있어요';
     if (isWelcome) return `${capture.candidate}님, 환영합니다`;
@@ -73,7 +73,9 @@ export function ParticipantNameOverlay({
     if (capture.error) return capture.error;
     if (capture.interim) return `“${capture.interim}”`;
     if (capture.phase === 'preparing') return '잠시만 기다려 주세요. 마이크가 준비되면 안내를 시작합니다.';
-    if (capture.phase === 'prompting') return '안내가 끝나면 바로 이름이나 닉네임을 말씀해 주세요.';
+    if (capture.phase === 'prompting') return capture.candidate
+      ? '안내가 끝나면 “맞아요” 또는 “아니요, 김민서예요”처럼 말씀해 주세요.'
+      : '마이크가 열리면 이름이나 닉네임을 말씀해 주세요.';
     if (capture.phase === 'listening') return '이름이나 편하게 사용할 닉네임을 말해 주세요.';
     if (capture.phase === 'submitting') return '말씀하신 이름을 확인하고 있습니다.';
     if (capture.phase === 'welcoming') return '영어 대화를 시작할 준비가 끝났어요.';
@@ -122,7 +124,7 @@ export function ParticipantNameOverlay({
           duration: reduceMotion ? 0 : isLeaving ? 0.55 : 0.5,
           ease: [0.16, 1, 0.3, 1],
         }}
-        className="relative w-full max-w-xl overflow-hidden rounded-[2rem] border border-white/75 bg-[#fbf8f4]/95 px-7 py-8 text-center shadow-[0_30px_100px_rgba(57,42,31,0.24)] sm:px-12 sm:py-10"
+        className="relative max-h-[calc(100dvh-3rem)] w-full max-w-xl overflow-y-auto rounded-[2rem] border border-white/75 bg-[#fbf8f4]/95 px-7 py-8 text-center shadow-[0_30px_100px_rgba(57,42,31,0.24)] sm:max-h-[calc(100dvh-5rem)] sm:px-12 sm:py-10"
       >
         <OnboardingJourney stage={isWelcome ? 'difficulty' : 'name'} className="mb-8" />
 
@@ -189,11 +191,11 @@ export function ParticipantNameOverlay({
           {capture.isRecording ? (
             <span className="inline-flex items-center gap-2 text-sm font-extrabold text-blue-700">
               <span className="h-2.5 w-2.5 rounded-full bg-blue-600 motion-safe:animate-pulse" aria-hidden="true" />
-              마이크가 열렸습니다
+              <span>마이크가 열렸습니다</span>
             </span>
           ) : (
             <span className="text-sm font-bold text-zinc-500">
-              {capture.phase === 'prompting' ? '안내 중 · 곧 말할 차례' : isWelcome ? '준비 완료' : '음성으로 이름 입력'}
+              {capture.phase === 'prompting' ? '안내 중 · 잠시 후 마이크가 열립니다' : isWelcome ? '준비 완료' : '음성으로 이름 입력'}
             </span>
           )}
         </div>
@@ -214,6 +216,29 @@ export function ParticipantNameOverlay({
         <p aria-live="polite" className={`mx-auto mt-4 min-h-14 max-w-md text-lg font-semibold leading-relaxed ${capture.error ? 'text-red-700' : capture.interim ? 'text-blue-700' : 'text-zinc-600'}`}>
           {description}
         </p>
+
+        <section aria-label="음성 인식 내용" aria-live="polite" aria-atomic="true" className="mt-5 rounded-2xl bg-blue-50 px-5 py-4 text-left text-blue-900 ring-1 ring-blue-100">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-extrabold">이렇게 들었어요</h3>
+            {capture.candidate && !isWelcome && capture.phase !== 'submitting' ? (
+              <button
+                type="button"
+                disabled={capture.phase === 'preparing'}
+                className="rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-extrabold text-blue-800 hover:bg-blue-100 disabled:opacity-45"
+                onClick={() => void capture.retry('immediate')}
+              >이름 수정</button>
+            ) : null}
+          </div>
+          {capture.recognizedSpeech.name && (
+            <p className="mt-2 break-words text-lg font-bold"><span className="mr-2 text-sm font-medium">이름</span><span>“{capture.recognizedSpeech.name}”</span></p>
+          )}
+          {capture.recognizedSpeech.confirmation && (
+            <p className="mt-2 break-words text-lg font-bold"><span className="mr-2 text-sm font-medium">확인 답변</span><span>“{capture.recognizedSpeech.confirmation}”</span></p>
+          )}
+          {!capture.recognizedSpeech.name && !capture.recognizedSpeech.confirmation && (
+            <p className="mt-2 text-sm font-medium">말씀하신 내용이 인식되면 여기에 표시됩니다.</p>
+          )}
+        </section>
 
         {!isWelcome && capture.phase !== 'submitting' ? (
         <div className="mt-7 rounded-2xl bg-white p-4 ring-1 ring-zinc-200">
@@ -266,8 +291,8 @@ export function ParticipantNameOverlay({
           ) : null}
           <button
             type="button"
-            disabled={busy}
-            onClick={() => void capture.retry()}
+            disabled={capture.phase === 'preparing'}
+            onClick={() => void capture.retry('immediate')}
             className="inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-6 py-3.5 text-lg font-extrabold text-zinc-800 transition hover:bg-zinc-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
           >
             <RotateCcw className="h-5 w-5" aria-hidden="true" /> 다시 시도

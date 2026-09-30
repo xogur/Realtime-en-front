@@ -62,7 +62,7 @@ describe('ReservationIntroOverlay', () => {
     const overlay = screen.getByRole('dialog');
     const video = overlay.querySelector('video');
     expect(video).not.toBeNull();
-    expect(video?.getAttribute('src')).toContain('/brand-bumper.webm');
+    expect(video?.getAttribute('src')).toContain('/brand-bumper-sound-v1.webm');
     expect(video?.dataset.playbackState).toBe('held');
     expect(overlay.querySelector('img')).toBeNull();
     expect(HTMLMediaElement.prototype.pause).toHaveBeenCalled();
@@ -81,7 +81,7 @@ describe('ReservationIntroOverlay', () => {
     expect(video?.autoplay).toBe(true);
   });
 
-  it('starts the muted logo animation automatically', () => {
+  it('starts the logo animation with sound automatically', () => {
     const { rerender } = render(
       <ReservationIntroOverlay
         role="avatar"
@@ -92,7 +92,7 @@ describe('ReservationIntroOverlay', () => {
 
     const video = screen.getByRole('dialog').querySelector('video');
     expect(video?.autoplay).toBe(true);
-    expect(video?.muted).toBe(true);
+    expect(video?.muted).toBe(false);
 
     Object.defineProperty(video, 'duration', { value: 5.6, configurable: true });
     Object.defineProperty(video, 'readyState', { value: 4, configurable: true });
@@ -121,6 +121,17 @@ describe('ReservationIntroOverlay', () => {
     await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2));
     expect(video?.muted).toBe(true);
     expect(screen.queryByRole('button', { name: '눌러서 가이드 시작' })).toBeNull();
+  });
+
+  it('keeps the logo moving if the browser blocks sound autoplay', async () => {
+    vi.mocked(HTMLMediaElement.prototype.play)
+      .mockRejectedValueOnce(new DOMException('blocked', 'NotAllowedError'))
+      .mockResolvedValue(undefined);
+    render(<ReservationIntroOverlay role="avatar" active={{ ...active, phase: 'brand', elapsedMs: 0 }} onComplete={vi.fn()} />);
+    const video = screen.getByRole('dialog').querySelector('video')!;
+    fireEvent.loadedMetadata(video);
+    await waitFor(() => expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(2));
+    expect(video.muted).toBe(true);
   });
 
   it('fades the intro out before revealing the English program', async () => {

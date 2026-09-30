@@ -76,7 +76,7 @@ function cancelOwnedSpeech(owner: BrowserTtsOwner) {
   settleActive(false);
 }
 
-async function speakOwned(owner: BrowserTtsOwner, text: string, language: string) {
+async function speakOwned(owner: BrowserTtsOwner, text: string, language: string, rate?: number) {
   if (typeof window === 'undefined' || !text.trim()
     || !('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) return false;
 
@@ -94,7 +94,9 @@ async function speakOwned(owner: BrowserTtsOwner, text: string, language: string
     };
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = language;
-    utterance.rate = language.toLowerCase().startsWith('ko') ? 1 : 0.98;
+    utterance.rate = rate !== undefined && Number.isFinite(rate)
+      ? Math.min(10, Math.max(0.1, rate))
+      : language.toLowerCase().startsWith('ko') ? 1 : 0.98;
     utterance.pitch = 1;
     const voice = selectPreferredVoice(voices, language);
     if (voice) utterance.voice = voice;
@@ -138,7 +140,7 @@ export function useBrowserTts(owner: BrowserTtsOwner = 'default') {
 
   const cancel = useCallback(() => cancelOwnedSpeech(owner), [owner]);
   const speak = useCallback(
-    (text: string, language = 'ko-KR') => speakOwned(owner, text, language),
+    (text: string, language = 'ko-KR', rate?: number) => speakOwned(owner, text, language, rate),
     [owner],
   );
   const playback = getBrowserTtsPlaybackState();

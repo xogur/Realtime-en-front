@@ -1,5 +1,11 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Guided speaking mode
+
+The book button on the controller opens a server-authoritative speaking lesson. The controller can select a restaurant or airport lesson, listen, request hints, and record an attempt. The viewer receives the same `learning_state` snapshots but exposes no write controls.
+
+Learning attempts always request the existing server PCM recorder (`requiredAudio`) even when free talk prefers browser Web Speech. No learning-specific environment variables are required; the existing `NEXT_PUBLIC_WS_URL` also determines the learning HTTP origin.
+
 ## Getting Started - 
 
 First, run the development server:

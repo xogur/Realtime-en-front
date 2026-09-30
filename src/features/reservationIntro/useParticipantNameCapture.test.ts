@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useParticipantNameCapture } from './useParticipantNameCapture';
 
 type SttOptions = {
+  language: string;
+  publishRecordingState: boolean;
+  onInterimTranscript: (text: string) => void;
   onFinalTranscript: (transcript: {
     text: string;
     speechEvidence: { version: 1; provider: 'browser'; finalSegments: string[] };
@@ -65,11 +68,41 @@ const transcript = (text: string) => ({
 describe('useParticipantNameCapture', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.speak.mockImplementation(async (text: string) => { mocks.order.push(`speak:${text}`); return true; });
+    mocks.cancel.mockReset();
     mocks.order.length = 0;
     mocks.sttOptions = null;
   });
 
-  it('prepares the microphone and starts listening during TTS with no post-prompt gap', async () => {
+  it('ignores speech during TTS and accepts a direct correction after listening starts', async () => {
+    let finishInitial!: (played: boolean) => void;
+    mocks.speak.mockImplementation(async (text: string) => {
+      if (text.startsWith('안녕하세요.')) return new Promise<boolean>((resolve) => { finishInitial = resolve; });
+      return true;
+    });
+    mocks.cancel.mockImplementation(() => finishInitial?.(false));
+    const onConfirm = vi.fn(async () => undefined);
+    const { result } = renderHook(() => useParticipantNameCapture({
+      enabled: true, eventId: 'cocoon:barge-in:intro', onConfirm,
+      onSkip: vi.fn(async () => undefined), onWelcomeComplete: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.phase).toBe('prompting'));
+    expect(mocks.start).not.toHaveBeenCalled();
+    act(() => mocks.sttOptions?.onFinalTranscript(transcript('김민수입니다')));
+    expect(result.current.candidate).toBe('');
+    act(() => finishInitial(true));
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+    act(() => mocks.sttOptions?.onFinalTranscript(transcript('김민수입니다')));
+    await waitFor(() => expect(result.current.phase).toBe('confirming'));
+    expect(result.current.candidate).toBe('김민수');
+    act(() => mocks.sttOptions?.onFinalTranscript(transcript('아니요, 김민서예요')));
+    await waitFor(() => expect(result.current.candidate).toBe('김민서'));
+    expect(result.current.attempts).toBe(0);
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(mocks.speak).toHaveBeenLastCalledWith('김민서님인가요?', 'ko-KR');
+  });
+
+  it('prepares permission first and starts Korean browser recognition after TTS', async () => {
     const onConfirm = vi.fn(async () => undefined);
     const { result } = renderHook(() => useParticipantNameCapture({
       enabled: true,
@@ -86,21 +119,70 @@ describe('useParticipantNameCapture', () => {
     expect(prepareIndex).toBeGreaterThanOrEqual(0);
     expect(promptIndex).toBeGreaterThan(prepareIndex);
     expect(startIndex).toBeGreaterThan(prepareIndex);
-    expect(startIndex).toBeLessThan(promptIndex);
+    expect(startIndex).toBeGreaterThan(promptIndex);
+    expect(mocks.sttOptions).toMatchObject({ language: 'ko-KR', publishRecordingState: false });
     expect(result.current.phase).toBe('listening');
 
     act(() => mocks.sttOptions?.onFinalTranscript(transcript('내 이름은 권태혁이라고 해')));
     await waitFor(() => expect(mocks.speak).toHaveBeenCalledWith(
-      '권태혁님, 맞으신가요? 맞으면 맞다고, 다르면 다시 말하겠다고 말씀해 주세요.',
+      '권태혁님인가요?',
       'ko-KR',
     ));
 
+    await waitFor(() => expect(result.current.phase).toBe('confirming'));
     act(() => mocks.sttOptions?.onFinalTranscript(transcript('오케이, 그렇게 해줘')));
     await waitFor(() => expect(onConfirm).toHaveBeenCalledWith('권태혁'));
+    expect(result.current.recognizedSpeech.name).toBe('내 이름은 권태혁이라고 해');
+    expect(result.current.recognizedSpeech.confirmation).toBe('오케이, 그렇게 해줘');
     await waitFor(() => expect(mocks.speak).toHaveBeenCalledWith(
       '권태혁님, 환영합니다. 이제 영어 대화를 시작할게요.',
       'ko-KR',
     ));
+  });
+
+  it('waits for the echo tail and never starts recognition after the overlay closes', async () => {
+    vi.useFakeTimers();
+    const { result, rerender, unmount } = renderHook(({ enabled }) => useParticipantNameCapture({
+      enabled, eventId: 'cocoon:closed:intro', onConfirm: vi.fn(async () => undefined),
+      onSkip: vi.fn(async () => undefined), onWelcomeComplete: vi.fn(),
+    }), { initialProps: { enabled: true } });
+    try {
+      await act(async () => { await vi.advanceTimersByTimeAsync(249); });
+      expect(result.current.phase).toBe('prompting');
+      expect(mocks.start).not.toHaveBeenCalled();
+      act(() => mocks.sttOptions?.onInterimTranscript('안내 에코'));
+      expect(result.current.interim).toBe('');
+      rerender({ enabled: false });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(mocks.start).not.toHaveBeenCalled();
+    } finally { unmount(); vi.useRealTimers(); }
+  });
+
+  it('stops confirmation TTS and listens for a replacement name without another prompt', async () => {
+    let finishConfirmation!: (played: boolean) => void;
+    mocks.speak.mockImplementation(async (text: string) => {
+      if (text === '김민수님인가요?') return new Promise<boolean>((resolve) => { finishConfirmation = resolve; });
+      return true;
+    });
+    mocks.cancel.mockImplementation(() => finishConfirmation?.(false));
+    const { result } = renderHook(() => useParticipantNameCapture({
+      enabled: true, eventId: 'cocoon:instant-retry:intro', onConfirm: vi.fn(async () => undefined),
+      onSkip: vi.fn(async () => undefined), onWelcomeComplete: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.phase).toBe('listening'));
+    act(() => mocks.sttOptions?.onFinalTranscript(transcript('김민수입니다')));
+    await waitFor(() => expect(result.current.phase).toBe('prompting'));
+    const promptCount = mocks.speak.mock.calls.length;
+    const cancelCount = mocks.cancel.mock.calls.length;
+    await act(async () => { await result.current.retry('immediate'); });
+    expect(mocks.cancel.mock.calls.length).toBeGreaterThan(cancelCount);
+    expect(mocks.speak).toHaveBeenCalledTimes(promptCount);
+    expect(result.current.phase).toBe('listening');
+    expect(result.current.candidate).toBe('');
+    expect(result.current.recognizedSpeech).toEqual({ name: '', confirmation: '' });
+    act(() => mocks.sttOptions?.onFinalTranscript(transcript('김민서입니다')));
+    await waitFor(() => expect(result.current.candidate).toBe('김민서'));
+    expect(mocks.speak).toHaveBeenLastCalledWith('김민서님인가요?', 'ko-KR');
   });
 
   it('asks again instead of reading an unrecognized sentence as a name', async () => {
@@ -117,7 +199,7 @@ describe('useParticipantNameCapture', () => {
     act(() => mocks.sttOptions?.onFinalTranscript(transcript('오늘 날씨가 정말 좋아요')));
 
     await waitFor(() => expect(mocks.speak).toHaveBeenCalledWith(
-      '이름을 정확히 확인하지 못했어요. 이름이나 닉네임만 다시 한번 말씀해 주세요.',
+      '이름만 다시 말씀해 주세요.',
       'ko-KR',
     ));
     expect(mocks.speak).not.toHaveBeenCalledWith(
@@ -142,7 +224,7 @@ describe('useParticipantNameCapture', () => {
     )));
 
     await waitFor(() => expect(mocks.speak).toHaveBeenCalledWith(
-      '권태혁님, 맞으신가요? 맞으면 맞다고, 다르면 다시 말하겠다고 말씀해 주세요.',
+      '권태혁님인가요?',
       'ko-KR',
     ));
     expect(mocks.speak).not.toHaveBeenCalledWith(

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ParticipantNameOverlay } from './ParticipantNameOverlay';
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     phase: 'listening',
     candidate: '',
     interim: '',
+    recognizedSpeech: { name: '', confirmation: '' },
     error: null as string | null,
     attempts: 0,
     suggestedSkipReason: null,
@@ -40,6 +41,7 @@ describe('ParticipantNameOverlay', () => {
       phase: 'listening',
       candidate: '',
       interim: '',
+      recognizedSpeech: { name: '', confirmation: '' },
       error: null,
       isRecording: true,
     });
@@ -64,6 +66,54 @@ describe('ParticipantNameOverlay', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '이 이름으로 확정' }));
     expect(mocks.capture.confirm).toHaveBeenCalledOnce();
+  });
+
+  it('allows immediate voice correction even while the name confirmation TTS is playing', () => {
+    Object.assign(mocks.capture, { phase: 'prompting', candidate: '김민수', isRecording: false });
+    render(<ParticipantNameOverlay {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: '이름 수정' }));
+    expect(mocks.capture.retry).toHaveBeenCalledWith('immediate');
+    expect(mocks.capture.submitName).not.toHaveBeenCalled();
+  });
+
+  it('retries voice capture without another spoken prompt', () => {
+    render(<ParticipantNameOverlay {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: '다시 시도' }));
+    expect(mocks.capture.retry).toHaveBeenCalledWith('immediate');
+  });
+
+  it('shows the raw name and confirmation transcripts, not just the parsed name', () => {
+    Object.assign(mocks.capture, {
+      phase: 'confirming', candidate: '민수',
+      recognizedSpeech: { name: '제 이름은 민수입니다.', confirmation: '네 맞아요.' },
+    });
+    render(<ParticipantNameOverlay {...props} />);
+    expect(screen.getByRole('region', { name: '음성 인식 내용' })).toBeTruthy();
+    expect(screen.getByText('“제 이름은 민수입니다.”')).toBeTruthy();
+    expect(screen.getByText('“네 맞아요.”')).toBeTruthy();
+  });
+
+  it('transitions from listening through recognition and confirmation without crashing', async () => {
+    const { rerender } = render(<ParticipantNameOverlay {...props} />);
+    for (const phase of ['candidate', 'preparing', 'confirming', 'submitting', 'welcoming', 'completed']) {
+      Object.assign(mocks.capture, { phase, candidate: '테스트', isRecording: phase === 'confirming' });
+      rerender(<ParticipantNameOverlay {...props} />);
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 400)); });
+      expect(screen.getByRole('dialog')).toBeTruthy();
+    }
+  });
+
+  it('survives translation wrapping the recording label before a name is recognized', () => {
+    const { rerender } = render(<ParticipantNameOverlay {...props} />);
+    const label = screen.getByText('마이크가 열렸습니다');
+    // Browser translators replace React-owned text nodes with wrapper elements.
+    const text = [...label.childNodes].find((node) => node.nodeType === Node.TEXT_NODE)!;
+    const translated = document.createElement('font');
+    translated.textContent = text.textContent;
+    label.replaceChild(translated, text);
+    Object.assign(mocks.capture, { phase: 'candidate', candidate: '테스트', isRecording: false });
+    rerender(<ParticipantNameOverlay {...props} />);
+    expect(screen.getByRole('dialog')).toBeTruthy();
   });
 
   it('shows the welcome state before revealing the English program', () => {
