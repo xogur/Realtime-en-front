@@ -1,5 +1,6 @@
 import type { DifficultyId } from '@/lib/conversationDifficulties';
 import type { TopicId } from '@/lib/conversationTopics';
+import type { ConversationMode } from './ModeSelector';
 
 const DIFFICULTY_KEYWORDS: Record<DifficultyId, readonly string[]> = {
   beginner: ['초급', '기초', '입문', '쉬운', '쉽게', '쉬워', '쉬움', 'beginner', 'easy'],
@@ -62,6 +63,16 @@ function spokenNumber(text: string): number | null {
   if (!match) return null;
   const numbers: Record<string, number> = { 일: 1, 이: 2, 삼: 3, 사: 4, 오: 5, 육: 6, 칠: 7, 첫: 1, 두: 2, 세: 3, 네: 4, 다섯: 5, 여섯: 6, 일곱: 7 };
   return numbers[match[1]] ?? Number(match[1]);
+}
+
+export function parseSpokenModeSelection(text: string): ConversationMode | null {
+  const normalized = normalize(text);
+  const number = spokenNumber(normalized);
+  if (number) return number === 1 ? 'free_talk' : number === 2 ? 'learning' : null;
+  return findChoice(normalized, {
+    free_talk: ['프리토킹', '자유 대화', '자유롭게 대화', 'free talk', 'free talking'],
+    learning: ['학습모드', '학습', 'learning mode', 'learning'],
+  });
 }
 
 export function parseSpokenConversationSelection(text: string, stage?: 'difficulty' | 'topic'): {

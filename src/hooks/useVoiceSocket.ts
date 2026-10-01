@@ -7,6 +7,7 @@ import {
 } from '@/stores/useStore';
 import { useAudioPlayer } from './useAudioPlayer';
 import { useSttAdapter } from './useSttAdapter';
+import { MISSION_GUIDE_AUDIO_RELEASE_EVENT, type SetMissionGuideAudio } from '@/features/missionLearning/useMissionGuideAudio';
 import type { Emotion, TtsAudioChunk, TtsVisemeTimeline } from '@/lib/lipsync/types';
 import { speechEvidenceMatchesText } from '@/lib/missionText';
 import { getKioskIdFromLocation, withKioskSessionParams, type KioskRole } from '@/lib/kioskIdentity';
@@ -26,6 +27,8 @@ import { isTranslatorWindowMessage, TRANSLATOR_WINDOW_MESSAGE } from '@/lib/tran
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
 import { useLearningStore } from '@/features/learning/useLearningStore';
 import type { AttemptPurpose, LearningSnapshot } from '@/features/learning/types';
+import { parseMissionEntry, useMissionLearningStore } from '@/features/missionLearning/store';
+import type { MissionSnapshot } from '@/features/missionLearning/types';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
 const EVALUATION_BATCH_MAX_TURNS = 4;
@@ -114,6 +117,12 @@ type SocketMessage = {
   lessonSessionId?: string;
   snapshot?: LearningSnapshot;
   activeAttempt?: LearningSnapshot['activeAttempt'];
+  playbackId?: string;
+  sessionId?: string;
+  active?: boolean;
+  accepted?: boolean;
+  captureEpoch?: number;
+  captureActive?: boolean;
 };
 
 type TurnResultsResponse = {
@@ -566,6 +575,11 @@ export function useVoiceSocket() {
   const isDisconnecting = useRef(false);
   const activeGenerationIdRef = useRef<string | null>(null);
   const sttCaptureSessionIdRef = useRef(0);
+  const guideAudioRef = useRef<{
+    playbackId: string; sessionId: string; shouldResume: boolean; stopped: Promise<void>;
+  } | null>(null);
+  const guideAudioRequestsRef = useRef(new Map<string, { settle: (accepted: boolean) => void; timer: number }>());
+  const viewerGuideAudioRef = useRef<{ sessionId: string; playbackId: string } | null>(null);
   const ttsPlaybackGenerationIdRef = useRef<string | null>(null);
   const translatorTtsGateRef = useRef<TranslatorTtsGate>('normal');
   const translatorShouldResumeCaptureRef = useRef(false);
@@ -701,17 +715,20 @@ export function useVoiceSocket() {
   );
 
   const handleSttAudioData = useCallback((pcmData: Int16Array) => {
+    if (guideAudioRef.current) return;
     if (socketRef.current?.readyState !== WebSocket.OPEN) return;
     socketRef.current.send(buildAudioPacket(pcmData, useStore.getState().isPlaying));
   }, []);
 
   const handleBrowserFinalTranscript = useCallback((transcript: BrowserFinalTranscript) => {
+    if (guideAudioRef.current) return;
     useStore.getState().setLiveTranscript('');
     if (socketRef.current?.readyState !== WebSocket.OPEN) return;
     socketRef.current.send(buildBrowserTranscriptMessage(transcript));
   }, []);
 
   const handleBrowserInterimTranscript = useCallback((transcript: string) => {
+    if (guideAudioRef.current) return;
     useStore.getState().setLiveTranscript(transcript);
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(buildBrowserPartialTranscriptMessage(transcript));
@@ -719,6 +736,7 @@ export function useVoiceSocket() {
   }, []);
 
   const handleBrowserSpeechStarted = useCallback(() => {
+    if (guideAudioRef.current) return;
     if (!useStore.getState().isPlaying) return;
     flushActiveTts();
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -773,6 +791,7 @@ export function useVoiceSocket() {
   }, []);
 
   const startSttCapture = useCallback(async (captureOptions?: { requiredAudio?: boolean }) => {
+    if (guideAudioRef.current) return 'superseded' as const;
     // The control message is placed on the WebSocket before MediaRecorder can
     // produce new binary frames. The backend completes its discard barrier
     // before reading those frames.
@@ -797,6 +816,98 @@ export function useVoiceSocket() {
     // PCM chunk emitted during local teardown is rejected.
     await stopSttCaptureOperation(sendSttCaptureState, stopSttInput);
   }, [sendSttCaptureState, stopSttInput]);
+
+  const clearGuideAudioRequests = useCallback(() => {
+    if (viewerGuideAudioRef.current) {
+      window.dispatchEvent(new CustomEvent(MISSION_GUIDE_AUDIO_RELEASE_EVENT, { detail: viewerGuideAudioRef.current }));
+      viewerGuideAudioRef.current = null;
+    }
+    guideAudioRequestsRef.current.forEach(({ settle, timer }) => {
+      window.clearTimeout(timer);
+      settle(false);
+    });
+    guideAudioRequestsRef.current.clear();
+    guideAudioRef.current = null;
+  }, []);
+
+  const setMissionGuideAudio = useCallback<SetMissionGuideAudio>((active, sessionId, playbackId) => {
+    const socket = socketRef.current;
+    if (roleRef.current !== 'viewer' || socket?.readyState !== WebSocket.OPEN) return Promise.resolve(false);
+    if (!active) {
+      if (viewerGuideAudioRef.current?.playbackId === playbackId) viewerGuideAudioRef.current = null;
+      try {
+        socket.send(JSON.stringify({ type: 'mission_guide_audio', active, sessionId, playbackId }));
+        return Promise.resolve(true);
+      } catch { return Promise.resolve(false); }
+    }
+    // One guide owns browser TTS at a time; do not grow an unbounded request queue.
+    if (guideAudioRequestsRef.current.size > 0 || viewerGuideAudioRef.current) return Promise.resolve(false);
+    return new Promise((settle) => {
+      viewerGuideAudioRef.current = { sessionId, playbackId };
+      const timer = window.setTimeout(() => {
+        guideAudioRequestsRef.current.delete(playbackId);
+        if (socket.readyState === WebSocket.OPEN) {
+          try { socket.send(JSON.stringify({ type: 'mission_guide_audio', active: false, sessionId, playbackId })); }
+          catch { /* Disconnected leases expire on the server too. */ }
+        }
+        settle(false);
+      }, 10_000);
+      guideAudioRequestsRef.current.set(playbackId, { settle, timer });
+      try { socket.send(JSON.stringify({ type: 'mission_guide_audio', active, sessionId, playbackId })); }
+      catch {
+        window.clearTimeout(timer);
+        guideAudioRequestsRef.current.delete(playbackId);
+        viewerGuideAudioRef.current = null;
+        settle(false);
+      }
+    });
+  }, []);
+
+  const handleMissionGuideAudio = useCallback(async (data: SocketMessage) => {
+    if (roleRef.current === 'viewer') {
+      if (data.active === false && data.playbackId === viewerGuideAudioRef.current?.playbackId) {
+        window.dispatchEvent(new CustomEvent(MISSION_GUIDE_AUDIO_RELEASE_EVENT, { detail: viewerGuideAudioRef.current }));
+        viewerGuideAudioRef.current = null;
+      }
+      return;
+    }
+    if (roleRef.current !== 'controller' || typeof data.playbackId !== 'string' || !data.playbackId
+      || data.playbackId.length > 128 || typeof data.sessionId !== 'string' || !data.sessionId
+      || data.sessionId.length > 128 || typeof data.active !== 'boolean') return;
+    if (typeof data.captureEpoch === 'number' && Number.isSafeInteger(data.captureEpoch)
+      && data.captureEpoch >= 0 && data.captureEpoch < Number.MAX_SAFE_INTEGER) {
+      sttCaptureSessionIdRef.current = Math.max(sttCaptureSessionIdRef.current, data.captureEpoch);
+    }
+    if (data.active) {
+      if (guideAudioRef.current?.playbackId === data.playbackId) return;
+      const shouldResume = guideAudioRef.current?.shouldResume ?? useStore.getState().isRecording;
+      // Server has already closed and discarded this epoch before relaying the lease.
+      // Local stop must not create another competing backend capture transition.
+      const lease = {
+        playbackId: data.playbackId, sessionId: data.sessionId, shouldResume,
+        stopped: Promise.resolve(),
+      };
+      guideAudioRef.current = lease;
+      lease.stopped = stopSttInput();
+      useStore.getState().setLiveTranscript('');
+      isSttCaptureReadyRef.current = false;
+      setSttReady(false);
+      flushActiveTts();
+      return;
+    }
+    const lease = guideAudioRef.current;
+    if (!lease || lease.playbackId !== data.playbackId) return;
+    await lease.stopped;
+    if (guideAudioRef.current !== lease) return;
+    guideAudioRef.current = null;
+    const snapshot = useMissionLearningStore.getState().snapshot;
+    if (lease.shouldResume && data.captureActive === true && !guideAudioRef.current
+      && snapshot?.stage === 'ROLEPLAY' && snapshot.sessionId === lease.sessionId
+      && translatorTtsGateRef.current !== 'translator-open'
+      && socketRef.current?.readyState === WebSocket.OPEN) {
+      await startSttCapture();
+    }
+  }, [flushActiveTts, setSttReady, startSttCapture, stopSttInput]);
 
   const suspendTtsForTranslator = useCallback(() => {
     if (translatorTtsGateRef.current === 'translator-open') return;
@@ -937,6 +1048,7 @@ export function useVoiceSocket() {
 
   const handleTtsChunk = useCallback(
     (data: SocketMessage) => {
+      if (guideAudioRef.current) return;
       if (!canPlayConversationTts(translatorTtsGateRef.current)) return;
       bindActiveGenerationToPendingUser(data);
       if (!isCurrentGeneration(data)) return;
@@ -1452,6 +1564,18 @@ export function useVoiceSocket() {
         }
 
         switch (data.type) {
+          case 'mission_guide_audio_ready': {
+            const request = data.playbackId ? guideAudioRequestsRef.current.get(data.playbackId) : undefined;
+            if (request && data.playbackId) {
+              window.clearTimeout(request.timer);
+              guideAudioRequestsRef.current.delete(data.playbackId);
+              request.settle(data.accepted === true);
+            }
+            break;
+          }
+          case 'mission_guide_audio':
+            await handleMissionGuideAudio(data);
+            break;
           case 'session_replay_start':
             isReplayingSessionRef.current = true;
             sessionReplaySequenceRef.current += 1;
@@ -1526,6 +1650,20 @@ export function useVoiceSocket() {
             useLearningStore.getState().setError(data.content ?? '학습 요청을 처리하지 못했습니다.');
             if (role === 'controller' && learningPurposeRef.current) void stopSttCapture();
             learningPurposeRef.current = null;
+            break;
+          case 'learning_mission_state':
+            if (typeof (data as Record<string, unknown>).sessionId === 'string'
+              && typeof (data as Record<string, unknown>).revision === 'number') {
+              useMissionLearningStore.getState().pushSnapshot(data as unknown as MissionSnapshot);
+            }
+            break;
+          case 'learning_mission_entry': {
+            const entry = parseMissionEntry(data as Record<string, unknown>);
+            if (entry) useMissionLearningStore.getState().setEntry(entry);
+            break;
+          }
+          case 'learning_mission_error':
+            console.warn('[MissionLearning]', data.code, data.content);
             break;
           case 'conversation_state':
             if (data.learningSessionId && Array.isArray(data.segments)) {
@@ -1603,10 +1741,12 @@ export function useVoiceSocket() {
             );
             break;
           case 'tts_segment_start':
+            if (guideAudioRef.current) break;
             if (!canPlayConversationTts(translatorTtsGateRef.current)) break;
             handleSegmentStart(data);
             break;
           case 'tts_viseme_timeline':
+            if (guideAudioRef.current) break;
             if (!canPlayConversationTts(translatorTtsGateRef.current)) break;
             handleSegmentTimeline(data);
             break;
@@ -1614,6 +1754,7 @@ export function useVoiceSocket() {
             handleTtsChunk(data);
             break;
           case 'tts_segment_end':
+            if (guideAudioRef.current) break;
             if (!canPlayConversationTts(translatorTtsGateRef.current)) break;
             handleSegmentEnd(data);
             break;
@@ -1757,6 +1898,7 @@ export function useVoiceSocket() {
     };
 
     ws.onclose = () => {
+      clearGuideAudioRequests();
       isConnecting.current = false;
       isSttCaptureReadyRef.current = false;
       isServerSttReadyRef.current = false;
@@ -1784,6 +1926,7 @@ export function useVoiceSocket() {
     };
 
     ws.onerror = (error) => {
+      clearGuideAudioRequests();
       console.error('Voice Socket Error:', error);
       isConnecting.current = false;
       isSttCaptureReadyRef.current = false;
@@ -1810,12 +1953,14 @@ export function useVoiceSocket() {
     socketRef.current = ws;
   }, [
     addMessage,
+    clearGuideAudioRequests,
     clearEvaluationBatchStatus,
     clearSupplementaryPolling,
     discardPendingEvaluations,
     flushActiveTts,
     fetchSupplementaryTurnResults,
     handleEvaluationBatchStatus,
+    handleMissionGuideAudio,
     handleFinalAssistantAnswer,
     handlePartialAssistantAnswer,
     handleSegmentEnd,
@@ -1857,6 +2002,7 @@ export function useVoiceSocket() {
     learningCommandTimeoutRef.current = null;
     pendingLearningMessageRef.current = null;
     learningPurposeRef.current = null;
+    clearGuideAudioRequests();
     cleanupSocket();
     activeGenerationIdRef.current = null;
     clearSupplementaryPolling();
@@ -1872,7 +2018,7 @@ export function useVoiceSocket() {
     useStore.getState().setLiveTranscript('');
     void stopSttInput();
     isDisconnecting.current = false;
-  }, [cleanupSocket, clearSupplementaryPolling, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, setSttReady, stopSttInput]);
+  }, [cleanupSocket, clearGuideAudioRequests, clearSupplementaryPolling, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, setSttReady, stopSttInput]);
 
   const startListening = useCallback(() => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -1971,6 +2117,7 @@ export function useVoiceSocket() {
   }, [connect, sendPendingResume, setConversationStartStatus, startSttCapture]);
 
   const stopListening = useCallback(() => {
+    if (guideAudioRef.current) guideAudioRef.current.shouldResume = false;
     useStore.getState().setLiveTranscript('');
     isSttCaptureReadyRef.current = false;
     setSttReady(false);
@@ -1989,6 +2136,25 @@ export function useVoiceSocket() {
       connect({ role: 'controller', startRecording: false });
     }
   }, [connect, sendLearningMessage]);
+
+  // Mission roleplay: open the microphone first, then let the server voice the avatar's opening.
+  const startLearningRoleplay = useCallback((sessionId: string) => {
+    const send = () => {
+      if (socketRef.current?.readyState !== WebSocket.OPEN) return;
+      // Like conversation_started in free talk: the opening is a new generation, so drop the
+      // binding to the previous mission's last reply or its TTS chunks are ignored.
+      activeGenerationIdRef.current = null;
+      flushActiveTts();
+      socketRef.current.send(JSON.stringify({ type: 'start_learning_roleplay', sessionId }));
+    };
+    if (TEXT_ONLY_TEST_MODE) {
+      send();
+      return;
+    }
+    void startSttCapture().then((result) => {
+      if (result !== 'superseded') send();
+    });
+  }, [flushActiveTts, startSttCapture]);
 
   const learningCommand = useCallback((action: string, payload?: Record<string, unknown>) => {
     const state = useLearningStore.getState();
@@ -2155,5 +2321,7 @@ export function useVoiceSocket() {
     startLearningSession,
     learningCommand,
     beginLearningAttempt,
+    startLearningRoleplay,
+    setMissionGuideAudio,
   };
 }

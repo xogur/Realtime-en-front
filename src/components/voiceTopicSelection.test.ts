@@ -2,7 +2,22 @@ import { describe, expect, it } from 'vitest';
 import {
   parseDirectSpokenDifficultySelection,
   parseSpokenConversationSelection,
+  parseSpokenModeSelection,
 } from './voiceTopicSelection';
+
+describe('parseSpokenModeSelection', () => {
+  it.each([
+    ['프리 토킹 할게요', 'free_talk'], ['free talk please', 'free_talk'],
+    ['학습 모드로 할게요', 'learning'], ['learning mode', 'learning'],
+    ['1번', 'free_talk'], ['두 번째', 'learning'],
+    ['프리토킹 말고 학습모드', 'learning'], ['학습모드는 아니고 프리토킹', 'free_talk'],
+  ])('recognizes one mode from %s', (text, expected) => {
+    expect(parseSpokenModeSelection(text)).toBe(expected);
+  });
+  it.each(['프리토킹 학습모드', '학습모드 말고', '그냥 할게요', '3번'])('rejects ambiguous or unsupported modes: %s', (text) => {
+    expect(parseSpokenModeSelection(text)).toBeNull();
+  });
+});
 
 describe('parseSpokenConversationSelection', () => {
   it('extracts a difficulty and topic from a fast combined answer', () => {

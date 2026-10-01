@@ -1,5 +1,20 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Project startup settings
+
+The sibling `RealtimeVoiceChat` repository holds the project's shared
+`.env.prod` and `compose.prod.yml`. That Compose file defines both `app` and
+`frontend`, along with the local AI services. For local frontend development,
+this repository's ignored `.env.local` sets `NEXT_PUBLIC_WS_URL`. The backend's
+`Start-AiRuntime.ps1` selects local or NIPA AI from the shared `.env.prod`;
+its NIPA path starts the backend separately from the full-stack Compose file.
+`NEXT_PUBLIC_WS_URL` is baked into a Next.js image, so changing the browser
+WebSocket URL requires rebuilding the frontend image.
+
+## Mode selection (learning mode)
+
+When `NEXT_PUBLIC_MISSION_LEARNING_ENABLED=true`, the controller asks for a mode before free talk: free talk opens the existing difficulty and topic selector unchanged, and learning mode opens the mission entry. The learning card is enabled only when the backend `GET /api/mission-learning/home` reports `enabled: true` (backend `MISSION_LEARNING_ENABLED=true`). With the frontend flag unset, the mode step is skipped. The flag is baked into the Next.js build (Dockerfile build arg). Design: `../docs/02-design/features/learning-mission-mode.design.md`.
+
 ## Guided speaking mode
 
 The book button on the controller opens a server-authoritative speaking lesson. The controller can select a restaurant or airport lesson, listen, request hints, and record an attempt. The viewer receives the same `learning_state` snapshots but exposes no write controls.

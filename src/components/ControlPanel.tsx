@@ -6,6 +6,11 @@ import { Keyboard, LogOut, Mic, MicOff, Trash2, Loader2 } from 'lucide-react';
 // import { Settings, MessageSquare } from 'lucide-react';
 import { useVoiceSocket } from '@/hooks/useVoiceSocket';
 import { TopicSelector } from '@/components/TopicSelector';
+import { ModeSelector, type ConversationMode } from '@/components/ModeSelector';
+import { getMissionHome, setMissionEntry } from '@/features/missionLearning/api';
+import { useMissionLearningStore } from '@/features/missionLearning/store';
+import { useMissionLearningAvailability } from '@/features/missionLearning/useMissionLearningAvailability';
+import { useMissionRoleplayVoice } from '@/features/missionLearning/useMissionRoleplayVoice';
 import { getConversationTopic, type TopicId } from '@/lib/conversationTopics';
 import { getConversationDifficulty, type DifficultyId } from '@/lib/conversationDifficulties';
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
@@ -30,6 +35,7 @@ export function ControlPanel({
     participantName = null,
 }: ControlPanelProps) {
     const {
+        connect,
         startListening,
         startConversation,
         resumeConversation,
@@ -41,6 +47,7 @@ export function ControlPanel({
         sttProvider,
         clearHistory,
         prepareForReservationIntro,
+        startLearningRoleplay,
         // 학습하기 UI를 다시 노출할 때 함께 복구합니다.
         // startLearningSession,
         // learningCommand,
@@ -54,6 +61,35 @@ export function ControlPanel({
     const reservationIntroEventId = useStore((state) => state.reservationIntroEventId);
     const [isProcessing, setIsProcessing] = useState(false);
     const [isTopicSelectorOpen, setIsTopicSelectorOpen] = useState(false);
+    const [entryStep, setEntryStep] = useState<'mode' | null>(null);
+    const [modeError, setModeError] = useState<string | null>(null);
+    const learningAvailability = useMissionLearningAvailability();
+    const missionEntry = useMissionLearningStore((state) => state.entry);
+    const handledMissionEntrySeqRef = useRef(0);
+    useMissionRoleplayVoice({
+        enabled: learningAvailability === 'available',
+        startLearningRoleplay,
+        startListening,
+        stopListening,
+    });
+
+    // The avatar screen must stay connected while learning runs on the guide screen,
+    // including after a reload in the middle of a mission.
+    const connectForLearning = useCallback(() => {
+        if (!isConnected) connect({ role: 'controller', startRecording: false });
+    }, [connect, isConnected]);
+    useEffect(() => {
+        if (learningAvailability !== 'available' || isConnected) return;
+        let cancelled = false;
+        getMissionHome()
+            .then((home) => {
+                if (!cancelled && (home.entry?.open || home.activeSession)) connectForLearning();
+            })
+            .catch(() => undefined);
+        return () => {
+            cancelled = true;
+        };
+    }, [connectForLearning, isConnected, learningAvailability]);
     const [isEndDialogOpen, setIsEndDialogOpen] = useState(false);
     // const [isLearningOpen, setIsLearningOpen] = useState(false);
     const [isEndingUsage, setIsEndingUsage] = useState(false);
@@ -74,35 +110,78 @@ export function ControlPanel({
         && !isConnecting
         && conversationStartStatus === 'error';
 
+    // Mode choice comes first only when the build enables learning mode.
+    const openConversationEntry = useCallback(() => {
+        if (learningAvailability === 'disabled') {
+            setIsTopicSelectorOpen(true);
+        } else {
+            setEntryStep('mode');
+        }
+    }, [learningAvailability]);
+
+    const closeConversationEntry = useCallback(() => {
+        setIsTopicSelectorOpen(false);
+        setEntryStep(null);
+    }, []);
+
+    const handleSelectMode = useCallback((mode: ConversationMode) => {
+        setModeError(null);
+        if (mode === 'learning') {
+            if (learningAvailability !== 'available') return;
+            // The learning screen itself runs on the guide display (/chat).
+            if (isRecording) stopListening();
+            setEntryStep(null);
+            connectForLearning();
+            setMissionEntry(true).catch(() => {
+                setModeError('학습모드를 열지 못했어요. 잠시 후 다시 시도해 주세요.');
+                setEntryStep('mode');
+            });
+            return;
+        }
+        setEntryStep(null);
+        setIsTopicSelectorOpen(true);
+    }, [connectForLearning, isRecording, learningAvailability, stopListening]);
+
+    // "모드 다시 선택" on the guide display brings the mode choice back here.
+    useEffect(() => {
+        if (!missionEntry || missionEntry.seq <= handledMissionEntrySeqRef.current) return;
+        // The first entry is the state replayed on connect, not a new request.
+        const isReplay = handledMissionEntrySeqRef.current === 0;
+        handledMissionEntrySeqRef.current = missionEntry.seq;
+        if (isReplay || missionEntry.open || missionEntry.returnTo !== 'mode') return;
+        const timer = window.setTimeout(() => setEntryStep('mode'), 0);
+        return () => window.clearTimeout(timer);
+    }, [missionEntry]);
+
     useEffect(() => useStore.subscribe((state, previousState) => {
         if (
             state.conversationStartStatus === 'opening'
             && previousState.conversationStartStatus !== 'opening'
         ) {
-            setIsTopicSelectorOpen(false);
+            closeConversationEntry();
         }
-    }), []);
+    }), [closeConversationEntry]);
 
     useEffect(() => {
         if (!reservationIntroEventId || preparedReservationIntroRef.current === reservationIntroEventId) {
             return;
         }
         preparedReservationIntroRef.current = reservationIntroEventId;
-        setIsTopicSelectorOpen(false);
+        closeConversationEntry();
         resumeAfterTranslatorRef.current = false;
         prepareForReservationIntro();
-    }, [prepareForReservationIntro, reservationIntroEventId]);
+    }, [closeConversationEntry, prepareForReservationIntro, reservationIntroEventId]);
 
     useEffect(() => {
         if (resumeUsageSignal <= 0 || handledResumeSignalRef.current === resumeUsageSignal) return;
         handledResumeSignalRef.current = resumeUsageSignal;
-        setIsTopicSelectorOpen(false);
+        closeConversationEntry();
         if (activeSegment) {
             resumeConversation(activeSegment.segmentId);
         } else {
-            setIsTopicSelectorOpen(true);
+            openConversationEntry();
         }
-    }, [activeSegment, resumeConversation, resumeUsageSignal]);
+    }, [activeSegment, closeConversationEntry, openConversationEntry, resumeConversation, resumeUsageSignal]);
 
     useEffect(() => {
         if (
@@ -111,8 +190,8 @@ export function ControlPanel({
         ) return;
 
         handledTopicSelectorEventRef.current = openTopicSelectorEventId;
-        setIsTopicSelectorOpen(true);
-    }, [openTopicSelectorEventId]);
+        openConversationEntry();
+    }, [openConversationEntry, openTopicSelectorEventId]);
 
     useEffect(() => {
         if (!isEndDialogOpen) return;
@@ -150,7 +229,7 @@ export function ControlPanel({
         if (isProcessing || isConnecting) return;
 
         if (TEXT_ONLY_TEST_MODE) {
-            setIsTopicSelectorOpen(true);
+            openConversationEntry();
             return;
         }
 
@@ -159,9 +238,9 @@ export function ControlPanel({
             stopListening();
             setTimeout(() => setIsProcessing(false), 500);
         } else {
-            setIsTopicSelectorOpen(true);
+            openConversationEntry();
         }
-    }, [isConnected, isRecording, stopListening, isProcessing, isConnecting]);
+    }, [isConnected, isRecording, stopListening, isProcessing, isConnecting, openConversationEntry]);
 
     const handleSelectTopic = useCallback((topicId: TopicId, difficultyId: DifficultyId) => {
         startConversation(topicId, difficultyId);
@@ -193,7 +272,7 @@ export function ControlPanel({
             isTranslatorOpenRef.current = nextOpen;
 
             if (nextOpen) {
-                setIsTopicSelectorOpen(false);
+                closeConversationEntry();
                 resumeAfterTranslatorRef.current = isRecording;
                 if (isRecording) stopListening();
                 return;
@@ -216,7 +295,7 @@ export function ControlPanel({
             channel?.removeEventListener('message', handleTranslatorMessage);
             channel?.close();
         };
-    }, [isRecording, startListening, stopListening]);
+    }, [closeConversationEntry, isRecording, startListening, stopListening]);
 
     return (
         <>
@@ -241,7 +320,7 @@ export function ControlPanel({
             <button
                 onClick={() => {
                     if (window.confirm('Reset all conversation history? This cannot be undone.')) {
-                        setIsTopicSelectorOpen(false);
+                        closeConversationEntry();
                         clearHistory();
                     }
                 }}
@@ -386,6 +465,14 @@ export function ControlPanel({
             onSelect={handleSelectTopic}
             onResume={activeSegment ? handleResume : undefined}
             onClose={() => setIsTopicSelectorOpen(false)}
+        />
+        <ModeSelector
+            isOpen={entryStep === 'mode'}
+            learningAvailability={learningAvailability}
+            participantName={participantName}
+            error={modeError}
+            onSelect={handleSelectMode}
+            onClose={closeConversationEntry}
         />
         {/* 학습하기 기능 임시 비노출
         <LearningExperience

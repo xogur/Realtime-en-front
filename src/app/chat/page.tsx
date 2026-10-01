@@ -19,10 +19,14 @@ import { ParticipantNameOverlay } from '@/features/reservationIntro/ParticipantN
 import { useReservationFollowup } from '@/features/reservationFollowup/useReservationFollowup';
 import { ReservationEndOverlay } from '@/features/reservationFollowup/ReservationEndOverlay';
 import type { ReservationIntroCompletionReason } from '@/features/reservationIntro/types';
+import { LearningModeEntry } from '@/features/missionLearning/LearningModeEntry';
+import { setMissionEntry } from '@/features/missionLearning/api';
+import { MISSION_LEARNING_ENABLED } from '@/features/missionLearning/config';
+import { isTerminalSnapshot, useMissionLearningStore } from '@/features/missionLearning/store';
 // import { LearningExperience } from '@/features/learning/LearningExperience';
 
 export default function ChatPopout() {
-    const { connect, disconnect } = useVoiceSocket();
+    const { connect, disconnect, setMissionGuideAudio } = useVoiceSocket();
     useChatSync(false);
     const socketControlsRef = useRef({ connect, disconnect });
     const translatorChannelRef = useRef<BroadcastChannel | null>(null);
@@ -31,6 +35,18 @@ export default function ChatPopout() {
     const reservationIntro = useReservationIntro('guide');
     const completeReservationIntro = reservationIntro.complete;
     const reservationFollowup = useReservationFollowup();
+    // Learning mode is chosen on the avatar screen and runs here on the guide screen.
+    const missionEntry = useMissionLearningStore((state) => state.entry);
+    const missionSnapshot = useMissionLearningStore((state) => state.snapshot);
+    const learningOpen = MISSION_LEARNING_ENABLED && (
+        Boolean(missionEntry?.open)
+        || (missionSnapshot !== null && !isTerminalSnapshot(missionSnapshot))
+    );
+    const closeLearning = useCallback((returnTo: 'mode' | null) => {
+        void setMissionEntry(false, returnTo).catch((error) => {
+            console.warn('[MissionLearning] could not close the learning screen', error);
+        });
+    }, []);
 
     useEffect(() => {
         socketControlsRef.current = { connect, disconnect };
@@ -166,6 +182,12 @@ export default function ChatPopout() {
         {/* 학습하기 기능 임시 비노출
         <LearningExperience role="viewer" />
         */}
+        <LearningModeEntry
+            setGuideAudio={setMissionGuideAudio}
+            isOpen={learningOpen && !reservationIntro.active && !reservationFollowup.locked}
+            onBack={() => closeLearning('mode')}
+            onClose={() => closeLearning(null)}
+        />
         </>
     );
 }

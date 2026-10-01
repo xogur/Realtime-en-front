@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 const VOICE_LOAD_TIMEOUT_MS = 800;
-export type BrowserTtsOwner = 'participant-name' | 'topic-selector' | 'translator' | 'default';
+export type BrowserTtsOwner = 'participant-name' | 'topic-selector' | 'mode-selector' | 'translator' | 'mission-learning' | 'default';
 export type BrowserTtsPlaybackState = 'idle' | 'queued' | 'speaking';
 
 type ActiveSpeech = {
