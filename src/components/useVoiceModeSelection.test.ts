@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVoiceModeSelection } from './useVoiceModeSelection';
 
 type Options = {
@@ -24,6 +24,18 @@ vi.mock('@/hooks/useBrowserTts', () => ({
 }));
 
 describe('voice mode selection', () => {
+  afterEach(() => vi.useRealTimers());
+  it('does not announce a stale prompt after slow microphone preparation', async () => {
+    vi.useFakeTimers();
+    let prepare!: (ready: boolean) => void;
+    mocks.prepare.mockImplementationOnce(() => new Promise(resolve => { prepare = resolve; }));
+    const { result } = renderHook(() => useVoiceModeSelection({ enabled: true, learningReady: true, onSelect: vi.fn() }));
+    await act(async () => vi.advanceTimersByTimeAsync(6000));
+    expect(result.current.status).toBe('unavailable');
+    await act(async () => prepare(true));
+    expect(mocks.speak).not.toHaveBeenCalled();
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.prepare.mockResolvedValue(true);

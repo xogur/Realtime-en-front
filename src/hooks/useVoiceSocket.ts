@@ -13,6 +13,7 @@ import { speechEvidenceMatchesText } from '@/lib/missionText';
 import { getKioskIdFromLocation, withKioskSessionParams, type KioskRole } from '@/lib/kioskIdentity';
 import {
   buildBrowserPartialTranscriptMessage,
+  MICROPHONE_START_TIMEOUT_MS,
   buildBrowserTranscriptMessage,
   type BrowserFinalTranscript,
   type SpeechEvidenceV1,
@@ -587,7 +588,7 @@ export function useVoiceSocket() {
   const sttCaptureSessionIdRef = useRef(0);
   const sttInputOperationRef = useRef(0);
   const guidedCaptureRef = useRef<{ guidedSessionId: string; nodeId: string; attemptId: string; controllerEpoch: number; captureEpoch: number } | null>(null);
-  const guidedMicRef = useRef<{ sessionId: string; attemptId: string; active: boolean; starting: boolean; manualStop: boolean; operation: number; retryConsumed: boolean } | null>(null);
+  const guidedMicRef = useRef<{ sessionId: string; attemptId: string; active: boolean; starting: boolean; manualStop: boolean; failed: boolean; operation: number; retryConsumed: boolean } | null>(null);
   const guidedRoleAudioRef = useRef<{ sessionId: string; nodeId: string; attemptId: string; playbackId: string; generationComplete: boolean } | null>(null);
   const guidedTtsQuarantineRef = useRef(false);
   const guidedFreeTalkRequestedRef = useRef(false);
@@ -630,6 +631,11 @@ export function useVoiceSocket() {
     const g = snapshot?.guided;
     if (roleRef.current !== 'controller' || !g || isGuidedTerminal(snapshot)
       || g.phase === 'DEMO' || g.phase === 'RECAP' || typeof g.controllerEpoch !== 'number') return;
+    if (status === 'ERROR' && guidedMicRef.current?.sessionId === snapshot!.sessionId) {
+      // Latch before publishing: a store render can otherwise start another
+      // capture while the server is still processing this failure.
+      guidedMicRef.current.failed = true;
+    }
     const data = { type: 'guided_capture_status', sessionId: snapshot!.sessionId, nodeId: g.nodeId,
       attemptId: g.attemptId, controllerEpoch: g.controllerEpoch, captureEpoch: sttCaptureSessionIdRef.current, status };
     useGuidedLearningStore.getState().receiveCaptureStatus(data);
@@ -1018,7 +1024,7 @@ export function useVoiceSocket() {
     const snapshot = useMissionLearningStore.getState().snapshot;
     const guided = useGuidedLearningStore.getState().snapshot;
     const guidedReady = guided?.sessionId === lease.sessionId && guided.guided?.inputState === 'READY'
-      && guided.guided.audioOwner === 'NONE' && !guidedMicRef.current?.manualStop;
+      && guided.guided.audioOwner === 'NONE' && !guidedMicRef.current?.manualStop && !guidedMicRef.current?.failed;
     if (lease.shouldResume && data.captureActive === true && !guideAudioRef.current
       && (guidedReady || (snapshot?.stage === 'ROLEPLAY' && snapshot.sessionId === lease.sessionId))
       && translatorTtsGateRef.current !== 'translator-open'
@@ -2289,7 +2295,7 @@ export function useVoiceSocket() {
   const startListening = useCallback(() => {
     const mic = guidedMicRef.current;
     if (mic && !mic.manualStop && (mic.active || mic.starting)) return;
-    if (mic) mic.manualStop = false;
+    if (mic) { mic.manualStop = false; mic.failed = false; }
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       const operation = mic ? ++mic.operation : 0;
       if (mic) mic.starting = true;
@@ -2400,7 +2406,7 @@ export function useVoiceSocket() {
     const snapshot = useGuidedLearningStore.getState().snapshot;
     if (!guidedMicRef.current && snapshot) guidedMicRef.current = {
       sessionId: snapshot.sessionId, attemptId: snapshot.guided?.attemptId ?? '',
-      active: false, starting: false, manualStop: true, operation: 0, retryConsumed: false,
+      active: false, starting: false, manualStop: true, failed: false, operation: 0, retryConsumed: false,
     };
     const mic = guidedMicRef.current;
     if (mic) { mic.manualStop = true; mic.active = false; mic.starting = false; mic.operation++; }
@@ -2434,11 +2440,13 @@ export function useVoiceSocket() {
     const changedScope = !state || state.sessionId !== sessionId || state.attemptId !== attemptId;
     if (changedScope) {
       state = { sessionId, attemptId, active: false, starting: false,
-        manualStop: state?.sessionId === sessionId ? state.manualStop : false, operation: 0, retryConsumed: false };
+        manualStop: state?.sessionId === sessionId ? state.manualStop : false,
+        failed: state?.sessionId === sessionId ? state.failed : false, operation: 0, retryConsumed: false };
       guidedMicRef.current = state;
     }
     if (!state) return;
-    if (resumeRequested && !state.retryConsumed) { state.manualStop = false; state.retryConsumed = true; }
+    if (resumeRequested && !state.retryConsumed) { state.manualStop = false; state.failed = false; state.retryConsumed = true; }
+    if (active && state.failed) return;
     if (state.manualStop || guideAudioRef.current) active = false;
     if (!changedScope && (active ? state.active || state.starting : !state.active && !state.starting)) return;
     state.active = false;
@@ -2448,10 +2456,12 @@ export function useVoiceSocket() {
     const deadline = active ? window.setTimeout(() => {
       if (!current()) return;
       state.operation += 1; state.starting = false; state.active = false;
+      state.failed = true;
+      console.warn('Guided microphone preparation timed out', { timeoutMs: MICROPHONE_START_TIMEOUT_MS });
       sendSttCaptureState(false);
       void stopSttInput();
       publishGuidedCaptureStatus('ERROR');
-    }, 8000) : null;
+    }, MICROPHONE_START_TIMEOUT_MS) : null;
     guidedCaptureRef.current = null;
     void (async () => {
       try {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getConfiguredSttProvider,
+  MICROPHONE_START_TIMEOUT_MS,
   type BrowserFinalTranscript,
   type SttProviderName,
 } from '@/lib/stt';
@@ -67,7 +68,7 @@ export function useSttAdapter(options: SttAdapterOptions): SttAdapter {
           void stopRecording();
         }
         resolve(false);
-      }, 8000);
+      }, MICROPHONE_START_TIMEOUT_MS);
     })]).finally(() => { if (timer) clearTimeout(timer); });
     if (!desiredRef.current || generation !== operationGenerationRef.current) {
       return false;
@@ -146,7 +147,7 @@ export function useSttAdapter(options: SttAdapterOptions): SttAdapter {
             void (providerRef.current === 'browser' ? stopBrowserStt() : stopRecording());
           }
           resolve(false);
-        }, 8000);
+        }, MICROPHONE_START_TIMEOUT_MS);
       })]);
     } finally { if (timer) clearTimeout(timer); }
   }, [startInput, stopBrowserStt, stopRecording]);

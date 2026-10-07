@@ -3,6 +3,7 @@
 import { act, cleanup, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSttAdapter } from './useSttAdapter';
+import { MICROPHONE_START_TIMEOUT_MS } from '@/lib/stt';
 
 const mocks = vi.hoisted(() => ({
   startBrowser: vi.fn(),
@@ -52,6 +53,21 @@ const makeOptions = () => ({
 });
 
 describe('useSttAdapter browser provider', () => {
+  it('accepts a physical device that reopens in twenty seconds', async () => {
+    vi.useFakeTimers();
+    let ready!: (value: boolean) => void;
+    mocks.startServer.mockImplementationOnce(() => new Promise(resolve => { ready = resolve; }));
+    const options = makeOptions();
+    const { result } = renderHook(() => useSttAdapter(options));
+    let pending!: ReturnType<typeof result.current.start>;
+    act(() => { pending = result.current.start({ requiredAudio: true }); });
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+    expect(options.onError).not.toHaveBeenCalled();
+    await act(async () => ready(true));
+    await expect(pending).resolves.toBe(true);
+    expect(options.onReadyChange).toHaveBeenCalledWith(true);
+    vi.useRealTimers();
+  });
   it('bounds required server-device start and invalidates a delayed permission result', async () => {
     vi.useFakeTimers();
     let ready!: (value: boolean) => void;
@@ -60,7 +76,7 @@ describe('useSttAdapter browser provider', () => {
     const { result } = renderHook(() => useSttAdapter(options));
     let pending!: ReturnType<typeof result.current.start>;
     act(() => { pending = result.current.start({ requiredAudio: true }); });
-    await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(MICROPHONE_START_TIMEOUT_MS); });
     expect(options.onError).toHaveBeenCalledWith('MICROPHONE_START_TIMEOUT');
     await expect(pending).resolves.toBe(false);
     await act(async () => ready(true));

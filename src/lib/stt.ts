@@ -65,6 +65,10 @@ export function getConfiguredSttProvider(): SttProviderName {
   return resolveSttProvider(process.env.NEXT_PUBLIC_STT_PROVIDER);
 }
 
+// Physical Windows devices measured 10–20s to reopen after track.stop().
+// Keep one bounded budget across the adapter and guided capture coordinator.
+export const MICROPHONE_START_TIMEOUT_MS = 30_000;
+
 export function getBrowserSttConfig(
   environment: Record<string, string | undefined>,
 ): BrowserSttConfig {

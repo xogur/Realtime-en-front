@@ -8,6 +8,16 @@ import { guidedFixture } from './fixtures';
 import { useGuidedLearningStore } from './store';
 
 describe('guided practice UI', () => {
+  it.each([
+    ['VOICE_NOT_READY', '마이크 또는 음성 연결을 준비하지 못했어요.'],
+    ['NO_SPEECH', '말소리가 들리지 않았어요.'],
+    ['NO_FINAL', '말씀을 끝까지 인식하지 못했어요.'],
+  ] as const)('distinguishes recovery reason %s', (reason, message) => {
+    const s = guidedFixture();
+    s.guided = { ...s.guided!, recoveryReason: reason, inputState: 'LOCKED' };
+    render(<GuidedPracticeView snapshot={s} busy={false} onCommand={vi.fn()} onPlay={vi.fn()} />);
+    expect(screen.getByText(new RegExp(message))).toBeTruthy();
+  });
   it('projects recap transition payloads and disables duplicate handoff actions', () => {
     const command = vi.fn();
     const s = guidedFixture({ stage: 'SUMMARY', allowedActions: ['REPLAY_LESSON', 'START_NEXT_LESSON', 'BEGIN_FREE_TALK'], recap: { observations: [], freeTalkAvailable: true, nextLessons: [{ id: 'request_intermediate', titleKo: '이유를 붙여 부탁하기' }] } });

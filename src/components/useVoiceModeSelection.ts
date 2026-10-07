@@ -7,6 +7,7 @@ import type { ConversationMode } from './ModeSelector';
 import { parseSpokenModeSelection } from './voiceTopicSelection';
 
 const MODE_PROMPT = '안내가 끝나면 프리토킹 또는 학습모드라고 말씀해 주세요. 1번, 2번이나 터치로도 선택할 수 있어요.';
+const PROMPT_PREPARATION_TIMEOUT_MS = 5000;
 
 type Props = {
   enabled: boolean;
@@ -72,12 +73,19 @@ export function useVoiceModeSelection({ enabled, learningReady, onSelect }: Prop
     cancel();
     await sttRef.current?.stop();
     if (!current()) return;
-    const prepared = await sttRef.current?.prepare();
+    // Mode guidance is only useful at entry. A slow device reopen must not
+    // turn into an announcement after the user has moved on with touch.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const prepared = await Promise.race([
+      sttRef.current?.prepare(),
+      new Promise<false>(resolve => { timer = setTimeout(() => resolve(false), PROMPT_PREPARATION_TIMEOUT_MS); }),
+    ]).finally(() => { if (timer) clearTimeout(timer); });
     if (!current()) return;
     if (!prepared) { failToTouch(); return; }
     setStatus('prompting');
-    await speak(text, 'ko-KR');
+    const spoken = await speak(text, 'ko-KR');
     if (!current()) return;
+    if (!spoken) { failToTouch(); return; }
     await new Promise((resolve) => window.setTimeout(resolve, 250));
     if (!current()) return;
     const ready = await sttRef.current?.startAndWaitUntilReady();

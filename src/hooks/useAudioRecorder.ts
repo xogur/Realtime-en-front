@@ -15,6 +15,7 @@ export function useAudioRecorder() {
     const isRecordingRef = useRef(false);
     const operationIdRef = useRef(0);
     const cleanupPromiseRef = useRef<Promise<void>>(Promise.resolve());
+    const startupRef = useRef<{ phase: string; startedAt: number } | null>(null);
 
     const isRecording = useStore((state) => state.isRecording);
     const setRecording = useStore((state) => state.setRecording);
@@ -75,6 +76,8 @@ export function useAudioRecorder() {
         if (isStartingRef.current) return false;
 
         isStartingRef.current = true;
+        const startup = { phase: 'cleanup', startedAt: performance.now() };
+        startupRef.current = startup;
         const operationId = operationIdRef.current + 1;
         operationIdRef.current = operationId;
 
@@ -82,6 +85,7 @@ export function useAudioRecorder() {
             await cleanupPromiseRef.current;
             if (operationId !== operationIdRef.current) return false;
 
+            startup.phase = 'getUserMedia';
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
                     sampleRate: { ideal: 48000 },
@@ -106,6 +110,7 @@ export function useAudioRecorder() {
                 };
             });
 
+            startup.phase = 'AudioContext';
             const AudioContextCtor = window.AudioContext || (window as WindowWithAudioContext).webkitAudioContext;
             if (!AudioContextCtor) {
                 throw new Error('AudioContext is not available in this browser.');
@@ -124,6 +129,7 @@ export function useAudioRecorder() {
                 await actx.resume();
             }
 
+            startup.phase = 'AudioWorklet';
             await actx.audioWorklet.addModule('/audio-processor.js');
             if (operationId !== operationIdRef.current) {
                 stream.getTracks().forEach((track) => track.stop());
@@ -173,19 +179,32 @@ export function useAudioRecorder() {
             workletRef.current = worklet;
             isRecordingRef.current = true;
             setRecording(true);
+            console.info('Microphone capture ready', { elapsedMs: Math.round(performance.now() - startup.startedAt) });
             return true;
         } catch (err) {
             if (operationId !== operationIdRef.current) return false;
-            console.error('Mic access denied or AudioContext failed:', err);
+            console.warn('Microphone capture failed', {
+                phase: startup.phase,
+                error: err instanceof Error ? err.name : 'UnknownError',
+                elapsedMs: Math.round(performance.now() - startup.startedAt),
+            });
             await queueAudioCleanup();
             if (operationId === operationIdRef.current) setRecording(false);
             return false;
         } finally {
             if (operationId === operationIdRef.current) isStartingRef.current = false;
+            if (startupRef.current === startup) startupRef.current = null;
         }
     }, [queueAudioCleanup, setRecording]);
 
     const stopRecording = useCallback(async () => {
+        if (startupRef.current) {
+            console.info('Microphone preparation cancelled', {
+                phase: startupRef.current.phase,
+                elapsedMs: Math.round(performance.now() - startupRef.current.startedAt),
+            });
+            startupRef.current = null;
+        }
         operationIdRef.current += 1;
         isStartingRef.current = false;
         setRecording(false);

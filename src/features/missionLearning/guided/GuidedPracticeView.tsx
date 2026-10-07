@@ -38,10 +38,13 @@ export function GuidedPracticeView({ snapshot, busy, onCommand, onPlay, onCoach 
     ? (can('NEXT_NODE') ? '대화를 들어 보고, 준비되면 ‘내 말로 바꾸기’를 눌러 주세요.' : '대화를 들어 보세요.')
     : g.outcome ? (can('NEXT_NODE') ? '이번 시도를 확인했어요. ‘다음으로’를 눌러 계속해요.' : retryLabel)
     : g.voiceStarted === false ? '마이크를 연결하고 있어요.' : inputLabels.LOCKED;
-  const statusLabel = g.recoveryReason ? `말씀을 확인하지 못해 잠시 멈췄어요. ${retryLabel}`
+  const statusLabel = g.recoveryReason === 'VOICE_NOT_READY' ? `마이크 또는 음성 연결을 준비하지 못했어요. 아바타 화면의 마이크 권한과 연결을 확인하고 ${retryLabel}`
+    : g.recoveryReason === 'NO_SPEECH' ? `말소리가 들리지 않았어요. ${retryLabel}`
+    : g.recoveryReason ? `말씀을 끝까지 인식하지 못했어요. ${retryLabel}`
     : g.audioOwner !== 'NONE' ? '먼저 듣고, 끝난 뒤 말해 보세요.'
     : status === 'ERROR' ? `마이크를 켜지 못했어요. 마이크 권한을 확인하고 ${retryLabel}`
     : status === 'STOPPED' ? `마이크가 꺼져 있어요. ${retryLabel}`
+    : status === 'PREPARING' ? '마이크를 연결하고 있어요. 잠시 기다려 주세요.'
     : g.turnStatus === 'ASSESSING' ? '말씀을 확인하고 있어요.'
     : listening ? '듣고 있어요. 내 말로 말해 보세요.'
     : g.inputState === 'LOCKED' ? lockedLabel : inputLabels[g.inputState];

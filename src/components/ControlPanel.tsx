@@ -70,6 +70,7 @@ export function ControlPanel({
     const learningAvailability = useMissionLearningAvailability();
     const missionEntry = useMissionLearningStore((state) => state.entry);
     const guidedSnapshot = useGuidedLearningStore((state) => state.snapshot);
+    const learningEntryActive = Boolean(missionEntry?.open || (guidedSnapshot && !isGuidedTerminal(guidedSnapshot)));
     const handledMissionEntrySeqRef = useRef(0);
     useMissionRoleplayVoice({
         enabled: learningAvailability === 'available',
@@ -119,17 +120,26 @@ export function ControlPanel({
 
     // Mode choice comes first only when the build enables learning mode.
     const openConversationEntry = useCallback(() => {
+        if (learningEntryActive) return;
         if (learningAvailability === 'disabled') {
             setIsTopicSelectorOpen(true);
         } else {
             setEntryStep('mode');
         }
-    }, [learningAvailability]);
+    }, [learningAvailability, learningEntryActive]);
 
     const closeConversationEntry = useCallback(() => {
         setIsTopicSelectorOpen(false);
         setEntryStep(null);
     }, []);
+
+    useEffect(() => {
+        if (!learningEntryActive) return;
+        // Retire the hidden entry too, so ending a lesson cannot resurrect its
+        // old prompt unless the guide explicitly requests mode selection.
+        const timer = window.setTimeout(closeConversationEntry, 0);
+        return () => window.clearTimeout(timer);
+    }, [closeConversationEntry, learningEntryActive]);
 
     const handleSelectMode = useCallback((mode: ConversationMode) => {
         setModeError(null);
@@ -465,7 +475,7 @@ export function ControlPanel({
             </div>
         </motion.div>
         <TopicSelector
-            isOpen={isTopicSelectorOpen}
+            isOpen={isTopicSelectorOpen && !learningEntryActive}
             participantName={participantName}
             currentTopicId={activeSegment?.topicId}
             currentDifficultyId={activeSegment?.difficultyId}
@@ -476,7 +486,7 @@ export function ControlPanel({
             onClose={() => setIsTopicSelectorOpen(false)}
         />
         <ModeSelector
-            isOpen={entryStep === 'mode'}
+            isOpen={entryStep === 'mode' && !learningEntryActive}
             learningAvailability={learningAvailability}
             participantName={participantName}
             error={modeError}

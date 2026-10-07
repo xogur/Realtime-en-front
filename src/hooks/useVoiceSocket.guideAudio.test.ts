@@ -333,7 +333,7 @@ describe('mission guide audio WebSocket control', () => {
     expect(mocks.start).toHaveBeenCalledTimes(3);
   });
 
-  it('reports a failed guided mic start and can recover on the same attempt', async () => {
+  it('keeps a failed guided start closed until an explicit retry', async () => {
     const { result, socket } = await controller();
     await act(async () => socket.emit(guidedFixture()));
     mocks.start.mockResolvedValueOnce(false);
@@ -342,7 +342,24 @@ describe('mission guide audio WebSocket control', () => {
     await act(async () => undefined);
     expect(socket.sent.map(v => typeof v === 'string' ? JSON.parse(v) : null)).toContainEqual(expect.objectContaining({ type: 'guided_capture_status', status: 'ERROR' }));
     act(() => result.current.syncGuidedCapture(true, 'guided-one', 'attempt-one'));
+    await act(async () => undefined);
+    expect(mocks.start).toHaveBeenCalledTimes(2);
+    act(() => result.current.syncGuidedCapture(true, 'guided-one', 'attempt-one', true));
     await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(3));
+  });
+
+  it('allows a physical microphone to reopen after the old eight-second deadline', async () => {
+    const { result, socket } = await controller();
+    await act(async () => socket.emit(guidedFixture()));
+    vi.useFakeTimers();
+    let finish!: (ready: boolean) => void;
+    mocks.start.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await act(async () => result.current.syncGuidedCapture(true, 'guided-one', 'attempt-one'));
+    const before = socket.sent.length;
+    await act(async () => vi.advanceTimersByTimeAsync(20_000));
+    expect(socket.sent.slice(before).map(v => typeof v === 'string' ? JSON.parse(v) : null))
+      .not.toContainEqual(expect.objectContaining({ type: 'guided_capture_status', status: 'ERROR' }));
+    await act(async () => finish(true));
   });
 
   it('drops free-talk and stale-attempt PCM while guided, and plays only the scoped role lease', async () => {
@@ -375,7 +392,7 @@ describe('mission guide audio WebSocket control', () => {
     expect(useGuidedLearningStore.getState().partialTranscript).toBe('Can I have water');
   });
 
-  it('recovers after a failed role-lease microphone resume instead of retaining active=true', async () => {
+  it('recovers on explicit retry after a failed role-lease microphone resume', async () => {
     const { result, socket } = await controller();
     await act(async () => socket.emit(guidedFixture()));
     act(() => result.current.syncGuidedCapture(true, 'guided-one', 'attempt-one'));
@@ -385,6 +402,9 @@ describe('mission guide audio WebSocket control', () => {
     await act(async () => socket.emit({ ...guideEvent(false), sessionId: 'guided-one' }));
     expect(mocks.start).toHaveBeenCalledTimes(3);
     act(() => result.current.syncGuidedCapture(true, 'guided-one', 'attempt-one'));
+    await act(async () => undefined);
+    expect(mocks.start).toHaveBeenCalledTimes(3);
+    act(() => result.current.syncGuidedCapture(true, 'guided-one', 'attempt-one', true));
     await waitFor(() => expect(mocks.start).toHaveBeenCalledTimes(4));
   });
 

@@ -7,6 +7,8 @@ import { useStore } from '@/stores/useStore';
 import type { MissionLearningAvailability } from '@/features/missionLearning/useMissionLearningAvailability';
 import { useMissionLearningStore } from '@/features/missionLearning/store';
 import type { MissionSnapshot } from '@/features/missionLearning/types';
+import { useGuidedLearningStore } from '@/features/missionLearning/guided/store';
+import { guidedFixture } from '@/features/missionLearning/guided/fixtures';
 
 const mocks = vi.hoisted(() => ({
   useVoiceSocket: vi.fn(),
@@ -44,6 +46,8 @@ const controls = {
   clearHistory: vi.fn(),
   prepareForReservationIntro: vi.fn(),
   startLearningRoleplay: vi.fn(),
+  startGuidedLearningVoice: vi.fn(() => true),
+  syncGuidedCapture: vi.fn(),
   connect: vi.fn(),
   isConnected: true,
   isSttReady: true,
@@ -64,6 +68,7 @@ describe('ControlPanel mode selection', () => {
     mocks.getMissionHome.mockResolvedValue({ entry: null, activeSession: null });
     controls.isConnected = true;
     useMissionLearningStore.setState({ entry: null, snapshot: null });
+    useGuidedLearningStore.setState({ snapshot: null, error: null });
     useStore.setState({
       isConnecting: false,
       topicSegments: [],
@@ -77,6 +82,22 @@ describe('ControlPanel mode selection', () => {
   it('asks for a mode before the free-talk selector', () => {
     openEntry();
     expect(screen.getByRole('dialog', { name: '원하는 모드를 선택하세요' })).toBeTruthy();
+    expect(screen.queryByRole('dialog', { name: '원하는 대화 스타일을 선택하세요' })).toBeNull();
+  });
+
+  it('closes an old mode prompt when another screen opens learning', async () => {
+    openEntry();
+    await act(async () => useMissionLearningStore.setState({ entry: { open: true, seq: 2, returnTo: null } }));
+    expect(screen.queryByRole('dialog', { name: '원하는 모드를 선택하세요' })).toBeNull();
+    await act(async () => new Promise(resolve => setTimeout(resolve, 10)));
+    await act(async () => useMissionLearningStore.setState({ entry: { open: false, seq: 3, returnTo: null } }));
+    expect(screen.queryByRole('dialog', { name: '원하는 모드를 선택하세요' })).toBeNull();
+  });
+
+  it('ignores a late entry event while a guided lesson is already active', () => {
+    useGuidedLearningStore.setState({ snapshot: guidedFixture() });
+    render(<ControlPanel onOpenSettings={vi.fn()} openTopicSelectorEventId="late-intro" />);
+    expect(screen.queryByRole('dialog', { name: '원하는 모드를 선택하세요' })).toBeNull();
     expect(screen.queryByRole('dialog', { name: '원하는 대화 스타일을 선택하세요' })).toBeNull();
   });
 
