@@ -64,6 +64,7 @@ function isSnapshot(value: unknown): value is MissionSnapshot {
   if (!value || typeof value !== 'object') return false;
   const snapshot = value as Record<string, unknown>;
   return snapshot.type === 'learning_mission_state'
+    && (snapshot.contractVersion === undefined || snapshot.contractVersion === 1)
     && typeof snapshot.sessionId === 'string'
     && typeof snapshot.revision === 'number'
     && typeof snapshot.stage === 'string'

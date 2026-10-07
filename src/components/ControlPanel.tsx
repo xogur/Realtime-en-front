@@ -11,6 +11,8 @@ import { getMissionHome, setMissionEntry } from '@/features/missionLearning/api'
 import { useMissionLearningStore } from '@/features/missionLearning/store';
 import { useMissionLearningAvailability } from '@/features/missionLearning/useMissionLearningAvailability';
 import { useMissionRoleplayVoice } from '@/features/missionLearning/useMissionRoleplayVoice';
+import { useGuidedLessonVoice } from '@/features/missionLearning/guided/useGuidedLessonVoice';
+import { isGuidedTerminal, useGuidedLearningStore } from '@/features/missionLearning/guided/store';
 import { getConversationTopic, type TopicId } from '@/lib/conversationTopics';
 import { getConversationDifficulty, type DifficultyId } from '@/lib/conversationDifficulties';
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
@@ -48,6 +50,8 @@ export function ControlPanel({
         clearHistory,
         prepareForReservationIntro,
         startLearningRoleplay,
+        startGuidedLearningVoice,
+        syncGuidedCapture,
         // 학습하기 UI를 다시 노출할 때 함께 복구합니다.
         // startLearningSession,
         // learningCommand,
@@ -65,6 +69,7 @@ export function ControlPanel({
     const [modeError, setModeError] = useState<string | null>(null);
     const learningAvailability = useMissionLearningAvailability();
     const missionEntry = useMissionLearningStore((state) => state.entry);
+    const guidedSnapshot = useGuidedLearningStore((state) => state.snapshot);
     const handledMissionEntrySeqRef = useRef(0);
     useMissionRoleplayVoice({
         enabled: learningAvailability === 'available',
@@ -72,6 +77,8 @@ export function ControlPanel({
         startListening,
         stopListening,
     });
+    useGuidedLessonVoice({ enabled: learningAvailability === 'available', connected: isConnected,
+        startVoice: startGuidedLearningVoice, syncCapture: syncGuidedCapture });
 
     // The avatar screen must stay connected while learning runs on the guide screen,
     // including after a reload in the middle of a mission.
@@ -237,10 +244,12 @@ export function ControlPanel({
             setIsProcessing(true);
             stopListening();
             setTimeout(() => setIsProcessing(false), 500);
+        } else if (isConnected && guidedSnapshot && !isGuidedTerminal(guidedSnapshot)) {
+            startListening();
         } else {
             openConversationEntry();
         }
-    }, [isConnected, isRecording, stopListening, isProcessing, isConnecting, openConversationEntry]);
+    }, [isConnected, isRecording, stopListening, startListening, guidedSnapshot, isProcessing, isConnecting, openConversationEntry]);
 
     const handleSelectTopic = useCallback((topicId: TopicId, difficultyId: DifficultyId) => {
         startConversation(topicId, difficultyId);

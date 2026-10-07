@@ -1,0 +1,152 @@
+/* Guided learning motion. Decorative only: every state is also shown as text. */
+
+@keyframes guided-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes guided-dialog-in {
+  0% { opacity: 0; transform: translateY(28px) scale(0.955); filter: blur(6px); }
+  60% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes guided-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes guided-slide-left {
+  from { opacity: 0; transform: translateX(-18px) scale(0.97); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes guided-slide-right {
+  from { opacity: 0; transform: translateX(18px) scale(0.97); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes guided-pop {
+  0% { opacity: 0; transform: scale(0.6); }
+  55% { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes guided-ring {
+  0% { transform: scale(1); opacity: 0.55; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+
+@keyframes guided-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+@keyframes guided-eq {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+@keyframes guided-dot {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.35; }
+  40% { transform: translateY(-5px); opacity: 1; }
+}
+
+@keyframes guided-caret {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes guided-shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+
+@keyframes guided-busy {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(330%); }
+}
+
+@keyframes guided-float-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(30px, 18px) scale(1.08); }
+}
+
+@keyframes guided-float-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-26px, -14px) scale(1.1); }
+}
+
+@keyframes guided-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
+@keyframes guided-confetti {
+  0% { opacity: 0; transform: translate(0, 0) rotate(0deg) scale(0.4); }
+  12% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--gx), var(--gy)) rotate(var(--gr)) scale(1); }
+}
+
+@keyframes guided-sparkle {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.2); }
+  30% { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--gx), var(--gy)) scale(1); }
+}
+
+@keyframes guided-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(52, 81, 60, 0.32); }
+  50% { box-shadow: 0 0 0 8px rgba(52, 81, 60, 0); }
+}
+
+.guided-fade-in { animation: guided-fade-in 320ms ease-out both; }
+.guided-dialog-in { animation: guided-dialog-in 620ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.guided-rise { animation: guided-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.guided-slide-left { animation: guided-slide-left 480ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.guided-slide-right { animation: guided-slide-right 480ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.guided-pop { animation: guided-pop 560ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.guided-ring { animation: guided-ring 1.8s cubic-bezier(0.2, 0.6, 0.35, 1) infinite; }
+.guided-breathe { animation: guided-breathe 2.4s ease-in-out infinite; }
+.guided-eq { animation: guided-eq 0.9s ease-in-out infinite; transform-origin: bottom; }
+.guided-dot { animation: guided-dot 1.2s ease-in-out infinite; }
+.guided-caret { animation: guided-caret 1s steps(1) infinite; }
+.guided-shake { animation: guided-shake 420ms ease-in-out both; }
+.guided-glow { animation: guided-glow 2.2s ease-out infinite; }
+.guided-float-a { animation: guided-float-a 14s ease-in-out infinite; }
+.guided-float-b { animation: guided-float-b 17s ease-in-out infinite; }
+.guided-confetti { animation: guided-confetti 1.6s cubic-bezier(0.15, 0.7, 0.3, 1) both; }
+.guided-sparkle { animation: guided-sparkle 900ms ease-out both; }
+
+.guided-shimmer {
+  background: linear-gradient(90deg, #f1ebe4 0%, #faf6f2 45%, #f1ebe4 90%);
+  background-size: 200% 100%;
+  animation: guided-shimmer 1.6s linear infinite;
+}
+
+.guided-busy-bar { animation: guided-busy 1.1s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+
+/* Hover lift for tappable cards. Kept on transform/shadow only. */
+.guided-lift {
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 220ms ease, border-color 200ms ease, background-color 200ms ease;
+}
+.guided-lift:not(:disabled):hover { transform: translateY(-3px); box-shadow: 0 14px 30px -12px rgba(47, 74, 55, 0.35); }
+.guided-lift:not(:disabled):active { transform: translateY(0) scale(0.985); }
+
+.guided-scroll { scrollbar-width: thin; scrollbar-color: rgba(72, 60, 45, 0.25) transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  .guided-fade-in, .guided-dialog-in, .guided-rise, .guided-slide-left, .guided-slide-right,
+  .guided-pop, .guided-shake, .guided-confetti, .guided-sparkle {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+  }
+  .guided-ring, .guided-breathe, .guided-eq, .guided-dot, .guided-caret, .guided-glow,
+  .guided-float-a, .guided-float-b, .guided-shimmer, .guided-busy-bar {
+    animation: none !important;
+  }
+  .guided-confetti, .guided-sparkle { display: none; }
+  .guided-lift, .guided-lift:hover { transition: none; transform: none; }
+}

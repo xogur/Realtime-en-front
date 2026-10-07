@@ -49,6 +49,7 @@ type BrowserSpeechWindow = Window & {
 };
 
 type BrowserSttOptions = {
+  onUtteranceAborted?: (reason: 'NO_SPEECH' | 'NO_FINAL' | 'VOICE_NOT_READY') => void;
   language?: string;
   publishRecordingState?: boolean;
   onFinalTranscript: (transcript: BrowserFinalTranscript) => void;
@@ -316,7 +317,11 @@ export function useBrowserStt(options: BrowserSttOptions) {
 
   const commitTranscript = useCallback((recognition: BrowserSpeechRecognition, text: string) => {
     const transcript = text.replace(/\s+/g, ' ').trim();
-    if (!transcript) return;
+    if (!transcript) {
+      if (speechStartedRef.current && desiredRef.current) optionsRef.current.onUtteranceAborted?.('NO_FINAL');
+      speechStartedRef.current = false;
+      return;
+    }
     const capturedSegments = finalSegmentsRef.current.map(({ transcript: segment }) => (
       segment.replace(/\s+/g, ' ').trim()
     )).filter(Boolean);
@@ -524,11 +529,17 @@ export function useBrowserStt(options: BrowserSttOptions) {
     };
     recognition.onerror = (event) => {
       if (recognitionRef.current !== recognition) return;
+      if (event.error === 'aborted' && desiredRef.current && speechStartedRef.current) {
+        optionsRef.current.onUtteranceAborted?.('NO_FINAL'); speechStartedRef.current = false;
+        clearSilenceTimer(); utteranceRef.current = null; finalPrefixRef.current = ''; finalSegmentsRef.current = [];
+        optionsRef.current.onInterimTranscript('');
+      }
       const code = mapBrowserSpeechError(event.error);
       if (!code) return;
       restartIsFailure = code === 'STT_UNAVAILABLE';
       optionsRef.current.onInterimTranscript('');
       if (code === 'STT_NO_RESULT') {
+        if (speechStartedRef.current && desiredRef.current) optionsRef.current.onUtteranceAborted?.('NO_SPEECH');
         clearSilenceTimer();
         utteranceRef.current = null;
         finalPrefixRef.current = '';
@@ -537,6 +548,8 @@ export function useBrowserStt(options: BrowserSttOptions) {
         return;
       }
       if (code === 'MICROPHONE_DENIED' || code === 'MICROPHONE_UNAVAILABLE') {
+        if (speechStartedRef.current) optionsRef.current.onUtteranceAborted?.('VOICE_NOT_READY');
+        speechStartedRef.current = false;
         desiredRef.current = false;
         setRecording(false);
         recognitionRef.current = null;
@@ -561,6 +574,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
       detachRecognition(recognition);
       recognitionRef.current = null;
       if (!hasPendingTranscript) {
+        if (speechStartedRef.current && desiredRef.current) optionsRef.current.onUtteranceAborted?.('NO_FINAL');
         utteranceRef.current = null;
         finalPrefixRef.current = '';
         finalSegmentsRef.current = [];

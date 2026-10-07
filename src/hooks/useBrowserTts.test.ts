@@ -2,7 +2,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { selectPreferredVoice, useBrowserTts } from './useBrowserTts';
+import { selectPreferredVoice, selectSpeakerVoice, useBrowserTts } from './useBrowserTts';
 
 function voice(name: string, lang: string, isDefault = false): SpeechSynthesisVoice {
   return {
@@ -37,9 +37,41 @@ describe('selectPreferredVoice', () => {
   });
 });
 
+describe('selectSpeakerVoice', () => {
+  const voice = (name: string, lang = 'en-US') => ({ name, lang, default: false }) as SpeechSynthesisVoice;
+  it('gives the second speaker an opposite-gender voice when one is installed', () => {
+    const installed = [voice('Microsoft Aria Online (Natural)'), voice('Microsoft Jenny Online (Natural)'), voice('Microsoft Guy Online (Natural)')];
+    expect(selectSpeakerVoice(installed, 'en-US', 0).voice?.name).toBe('Microsoft Aria Online (Natural)');
+    expect(selectSpeakerVoice(installed, 'en-US', 1)).toEqual({ voice: installed[2], pitch: 1 });
+  });
+  it('falls back to another voice, then to a pitch shift with only one voice', () => {
+    expect(selectSpeakerVoice([voice('Voice A'), voice('Voice B')], 'en-US', 1).voice?.name).toBe('Voice B');
+    expect(selectSpeakerVoice([voice('Voice A')], 'en-US', 1)).toMatchObject({ pitch: 0.82 });
+  });
+});
+
 describe('useBrowserTts', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it('fails guided speech without a matching voice and cancels pending voice loading', async () => {
+    vi.useFakeTimers();
+    const synthesis = { cancel: vi.fn(), speak: vi.fn(), getVoices: vi.fn(() => [] as SpeechSynthesisVoice[]), addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    vi.stubGlobal('speechSynthesis', synthesis);
+    vi.stubGlobal('SpeechSynthesisUtterance', class { constructor(public text: string) {} });
+    const { result } = renderHook(() => useBrowserTts('mission-learning'));
+    let playback!: Promise<boolean>;
+    act(() => { playback = result.current.speak('Water, please.', 'en-US', undefined, true); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+    await expect(playback).resolves.toBe(false);
+    expect(synthesis.speak).not.toHaveBeenCalled();
+    act(() => { playback = result.current.speak('Tea, please.', 'en-US', undefined, true); result.current.cancel(); });
+    synthesis.getVoices.mockReturnValue([voice('English', 'en-US')]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(800); });
+    await expect(playback).resolves.toBe(false);
+    expect(synthesis.speak).not.toHaveBeenCalled();
   });
 
   it('queues speech immediately when the browser voice list is still loading', () => {

@@ -15,6 +15,7 @@ export type SttAdapter = {
 };
 
 type SttAdapterOptions = {
+  onUtteranceAborted?: (reason: 'NO_SPEECH' | 'NO_FINAL' | 'VOICE_NOT_READY') => void;
   onAudioData: (pcm: Int16Array) => void;
   onFinalTranscript: (transcript: BrowserFinalTranscript) => void;
   onInterimTranscript: (transcript: string) => void;
@@ -56,9 +57,19 @@ export function useSttAdapter(options: SttAdapterOptions): SttAdapter {
   const startServerStt = useCallback(async (generation = operationGenerationRef.current) => {
     if (!desiredRef.current || generation !== operationGenerationRef.current) return false;
     selectProvider('server');
-    const started = await startRecording();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const started = await Promise.race([startRecording(), new Promise<false>(resolve => {
+      timer = setTimeout(() => {
+        if (desiredRef.current && generation === operationGenerationRef.current) {
+          desiredRef.current = false; operationGenerationRef.current += 1;
+          optionsRef.current.onReadyChange(false);
+          optionsRef.current.onError('MICROPHONE_START_TIMEOUT');
+          void stopRecording();
+        }
+        resolve(false);
+      }, 8000);
+    })]).finally(() => { if (timer) clearTimeout(timer); });
     if (!desiredRef.current || generation !== operationGenerationRef.current) {
-      if (started) await stopRecording();
       return false;
     }
     optionsRef.current.onReadyChange(started);
@@ -87,7 +98,7 @@ export function useSttAdapter(options: SttAdapterOptions): SttAdapter {
     onUnavailable: handleBrowserUnavailable,
   });
 
-  const start = useCallback(async (startOptions?: { requiredAudio?: boolean }) => {
+  const startInput = useCallback(async (startOptions?: { requiredAudio?: boolean }) => {
     desiredRef.current = true;
     const generation = operationGenerationRef.current + 1;
     operationGenerationRef.current = generation;
@@ -117,6 +128,28 @@ export function useSttAdapter(options: SttAdapterOptions): SttAdapter {
     if (!desiredRef.current || generation !== operationGenerationRef.current) return false;
     return startServerStt(generation);
   }, [selectProvider, startBrowserStt, startServerStt, stopBrowserStt]);
+
+  const start = useCallback(async (startOptions?: { requiredAudio?: boolean }) => {
+    const pending = startInput(startOptions);
+    const generation = operationGenerationRef.current;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([pending, new Promise<false>(resolve => {
+        timer = setTimeout(() => {
+          if (operationGenerationRef.current === generation) {
+            desiredRef.current = false;
+            operationGenerationRef.current += 1;
+            optionsRef.current.onReadyChange(false);
+            optionsRef.current.onError('MICROPHONE_START_TIMEOUT');
+            // stop invalidates the recorder's operation immediately. Its existing
+            // cleanup promise remains the barrier for every subsequent start.
+            void (providerRef.current === 'browser' ? stopBrowserStt() : stopRecording());
+          }
+          resolve(false);
+        }, 8000);
+      })]);
+    } finally { if (timer) clearTimeout(timer); }
+  }, [startInput, stopBrowserStt, stopRecording]);
 
   const stop = useCallback(async () => {
     desiredRef.current = false;

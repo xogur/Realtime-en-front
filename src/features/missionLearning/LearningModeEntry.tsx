@@ -14,6 +14,7 @@ import { startReadAloudRecording, type ReadAloudRecording } from './readAloudRec
 import { useMissionLearningStore } from './store';
 import { useMissionLearning } from './useMissionLearning';
 import { useMissionGuideAudio, type SetMissionGuideAudio } from './useMissionGuideAudio';
+import { GuidedLearningEntry } from './guided/GuidedLearningEntry';
 import type {
   AgeBand, FeedbackItem, LearningLevel, MissionExpression, MissionLearningHomeDetail, MissionSnapshot,
 } from './types';
@@ -52,6 +53,11 @@ export function LearningModeEntry({ isOpen, onBack, onClose, setGuideAudio }: Le
   const [editingProfile, setEditingProfile] = useState(false);
 
   if (!isOpen) return null;
+
+  // Keep active v1 lessons on their original contract until they finish.
+  if (learning.home?.capabilities?.guidedV2 === true && !learning.snapshot) {
+    return <GuidedLearningEntry onBack={onBack} onClose={onClose} setGuideAudio={setGuideAudio} />;
+  }
 
   const { status, home, snapshot, busy, error } = learning;
   const speak = (text: string, slow = false) => void tts.speak(text, slow);

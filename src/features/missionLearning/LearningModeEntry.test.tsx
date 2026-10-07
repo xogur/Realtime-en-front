@@ -17,6 +17,7 @@ const api = vi.hoisted(() => ({
   assessPronunciation: vi.fn(),
 }));
 vi.mock('./api', () => api);
+vi.mock('./guided/GuidedLearningEntry', () => ({ GuidedLearningEntry: () => <div>가이드형 영어 학습 v2</div> }));
 const recorder = vi.hoisted(() => ({ startReadAloudRecording: vi.fn() }));
 vi.mock('./readAloudRecorder', () => recorder);
 const speak = vi.hoisted(() => vi.fn());
@@ -76,6 +77,13 @@ describe('LearningModeEntry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useMissionLearningStore.setState({ entry: null, snapshot: null });
+  });
+
+  it('uses v2 only when the server capability allows it', async () => {
+    api.getMissionHome.mockResolvedValue({ ...homeWithoutProfile, capabilities: { guidedV2: true } });
+    render(<LearningModeEntry isOpen onBack={vi.fn()} onClose={vi.fn()} />);
+    expect(await screen.findByText('가이드형 영어 학습 v2')).toBeTruthy();
+    expect(screen.queryByText('초등학생')).toBeNull();
   });
 
   it('follows snapshots pushed from the server and returns to the list when the session ends', async () => {

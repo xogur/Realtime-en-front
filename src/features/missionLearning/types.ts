@@ -109,6 +109,7 @@ export type PronunciationResult = {
 };
 
 export type MissionLearningHomeDetail = {
+  capabilities?: { guidedV2?: boolean };
   enabled: boolean;
   contractVersion: number;
   contentVersion: string;

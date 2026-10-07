@@ -15,6 +15,8 @@ type ActiveSpeech = {
 };
 
 let activeSpeech: ActiveSpeech | null = null;
+let pendingSpeechOwner: BrowserTtsOwner | null = null;
+let speechGeneration = 0;
 const listeners = new Set<() => void>();
 
 function emitChange() { listeners.forEach((listener) => listener()); }
@@ -44,6 +46,27 @@ export function selectPreferredVoice(voices: SpeechSynthesisVoice[], language: s
     .sort((left, right) => voiceScore(right, language) - voiceScore(left, language))[0];
 }
 
+const MALE_VOICE = /\b(guy|david|mark|andrew|brian|christopher|eric|roger|steffan|davis|tony|jason|ryan|george|james|daniel|thomas|liam|male)\b/i;
+const FEMALE_VOICE = /\b(aria|jenny|zira|michelle|ana|emma|ava|sonia|libby|susan|hazel|samantha|karen|moira|natasha|clara|female)\b/i;
+const voiceGender = (voice: SpeechSynthesisVoice) => MALE_VOICE.test(voice.name) ? 'male' : FEMALE_VOICE.test(voice.name) ? 'female' : null;
+
+/**
+ * Picks a voice for one speaker of a dialogue. Variant 0 is the preferred voice;
+ * variant 1 prefers an opposite-gender voice, then any other voice, so two
+ * speakers stay distinguishable. A pitch shift is the last resort.
+ */
+export function selectSpeakerVoice(voices: SpeechSynthesisVoice[], language: string, variant: number) {
+  const ranked = voices
+    .filter((voice) => languageMatches(voice, language))
+    .sort((left, right) => voiceScore(right, language) - voiceScore(left, language));
+  const primary = ranked[0];
+  if (!primary || variant <= 0) return { voice: primary, pitch: 1 };
+  const gender = voiceGender(primary);
+  const contrast = gender && ranked.find((voice) => voiceGender(voice) && voiceGender(voice) !== gender);
+  const alternate = contrast || ranked.find((voice) => voice.name !== primary.name);
+  return alternate ? { voice: alternate, pitch: 1 } : { voice: primary, pitch: 0.82 };
+}
+
 async function loadVoices(synthesis: SpeechSynthesis): Promise<SpeechSynthesisVoice[]> {
   const current = synthesis.getVoices();
   if (current.length > 0) return current;
@@ -71,20 +94,26 @@ function settleActive(result: boolean) {
 }
 
 function cancelOwnedSpeech(owner: BrowserTtsOwner) {
+  if (pendingSpeechOwner === owner) { speechGeneration += 1; pendingSpeechOwner = null; }
   if (!activeSpeech || activeSpeech.owner !== owner) return;
   window.speechSynthesis?.cancel();
   settleActive(false);
 }
 
-async function speakOwned(owner: BrowserTtsOwner, text: string, language: string, rate?: number) {
+async function speakOwned(owner: BrowserTtsOwner, text: string, language: string, rate?: number, requireVoice = false, voiceVariant = 0) {
   if (typeof window === 'undefined' || !text.trim()
     || !('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) return false;
+  const generation = ++speechGeneration;
+  pendingSpeechOwner = owner;
 
   if (activeSpeech) {
     window.speechSynthesis.cancel();
     settleActive(false);
   }
-  const voices = window.speechSynthesis.getVoices();
+  const voices = requireVoice ? await loadVoices(window.speechSynthesis) : window.speechSynthesis.getVoices();
+  if (generation !== speechGeneration) return false;
+  pendingSpeechOwner = null;
+  if (requireVoice && !selectPreferredVoice(voices, language)) return false;
   return new Promise<boolean>((resolve) => {
     let settled = false;
     const settle = (result: boolean) => {
@@ -97,8 +126,8 @@ async function speakOwned(owner: BrowserTtsOwner, text: string, language: string
     utterance.rate = rate !== undefined && Number.isFinite(rate)
       ? Math.min(10, Math.max(0.1, rate))
       : language.toLowerCase().startsWith('ko') ? 1 : 0.98;
-    utterance.pitch = 1;
-    const voice = selectPreferredVoice(voices, language);
+    const { voice, pitch } = selectSpeakerVoice(voices, language, voiceVariant);
+    utterance.pitch = pitch;
     if (voice) utterance.voice = voice;
     utterance.onstart = () => {
       if (activeSpeech?.utterance !== utterance) return;
@@ -140,7 +169,7 @@ export function useBrowserTts(owner: BrowserTtsOwner = 'default') {
 
   const cancel = useCallback(() => cancelOwnedSpeech(owner), [owner]);
   const speak = useCallback(
-    (text: string, language = 'ko-KR', rate?: number) => speakOwned(owner, text, language, rate),
+    (text: string, language = 'ko-KR', rate?: number, requireVoice = false, voiceVariant = 0) => speakOwned(owner, text, language, rate, requireVoice, voiceVariant),
     [owner],
   );
   const playback = getBrowserTtsPlaybackState();

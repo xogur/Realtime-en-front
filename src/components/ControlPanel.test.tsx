@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ControlPanel } from './ControlPanel';
 import { useStore } from '@/stores/useStore';
+import { useGuidedLearningStore } from '@/features/missionLearning/guided/store';
+import { guidedFixture } from '@/features/missionLearning/guided/fixtures';
 
 const { mockUseVoiceSocket } = vi.hoisted(() => ({ mockUseVoiceSocket: vi.fn() }));
 
@@ -13,6 +15,8 @@ const controls = {
     connect: vi.fn(),
     disconnect: vi.fn(),
     startListening: vi.fn(),
+    startGuidedLearningVoice: vi.fn(() => true),
+    syncGuidedCapture: vi.fn(),
     startConversation: vi.fn(),
     resumeConversation: vi.fn(),
     stopListening: vi.fn(),
@@ -27,6 +31,7 @@ const controls = {
 describe('ControlPanel microphone toggle', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        useGuidedLearningStore.setState({ snapshot: null, error: null });
         Object.assign(controls, {
             isConnected: true,
             isSttReady: true,
@@ -57,6 +62,15 @@ describe('ControlPanel microphone toggle', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Turn microphone on' }));
         expect(screen.getByRole('dialog', { name: '원하는 대화 스타일을 선택하세요' })).toBeTruthy();
         expect(controls.startListening).not.toHaveBeenCalled();
+    });
+
+    it('restarts the microphone within the active guided lesson without opening mode speech', () => {
+        controls.isRecording = false;
+        useGuidedLearningStore.setState({ snapshot: guidedFixture() });
+        render(<ControlPanel onOpenSettings={vi.fn()} />);
+        fireEvent.click(screen.getByRole('button', { name: 'Turn microphone on' }));
+        expect(controls.startListening).toHaveBeenCalledOnce();
+        expect(screen.queryByText('어떤 대화를 해볼까요?')).toBeNull();
     });
 
     it('starts a conversation with the selected difficulty and topic', async () => {

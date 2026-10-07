@@ -29,6 +29,7 @@ import { useLearningStore } from '@/features/learning/useLearningStore';
 import type { AttemptPurpose, LearningSnapshot } from '@/features/learning/types';
 import { parseMissionEntry, useMissionLearningStore } from '@/features/missionLearning/store';
 import type { MissionSnapshot } from '@/features/missionLearning/types';
+import { isGuidedTerminal, useGuidedLearningStore } from '@/features/missionLearning/guided/store';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
 const EVALUATION_BATCH_MAX_TURNS = 4;
@@ -123,6 +124,13 @@ type SocketMessage = {
   accepted?: boolean;
   captureEpoch?: number;
   captureActive?: boolean;
+  nodeId?: string;
+  attemptId?: string;
+  controllerEpoch?: number;
+  guidedSessionId?: string;
+  guidedNodeId?: string;
+  guidedAttemptId?: string;
+  guidedPlaybackId?: string;
 };
 
 type TurnResultsResponse = {
@@ -357,15 +365,17 @@ export async function startSttCaptureOperation<T>({
   startInput,
   getCurrentSessionId,
   getCurrentSocket,
+  isOperationCurrent = () => true,
 }: {
   sendCaptureState: (active: boolean) => number;
   startInput: () => Promise<boolean | void>;
   getCurrentSessionId: () => number;
   getCurrentSocket: () => T;
+  isOperationCurrent?: () => boolean;
 }): Promise<SttCaptureStartResult> {
   const initiatingSocket = getCurrentSocket();
   const requestedSessionId = sendCaptureState(true);
-  const requestIsCurrent = () => isCurrentSttCaptureRequest(
+  const requestIsCurrent = () => isOperationCurrent() && isCurrentSttCaptureRequest(
     requestedSessionId,
     getCurrentSessionId(),
     initiatingSocket,
@@ -575,10 +585,20 @@ export function useVoiceSocket() {
   const isDisconnecting = useRef(false);
   const activeGenerationIdRef = useRef<string | null>(null);
   const sttCaptureSessionIdRef = useRef(0);
+  const sttInputOperationRef = useRef(0);
+  const guidedCaptureRef = useRef<{ guidedSessionId: string; nodeId: string; attemptId: string; controllerEpoch: number; captureEpoch: number } | null>(null);
+  const guidedMicRef = useRef<{ sessionId: string; attemptId: string; active: boolean; starting: boolean; manualStop: boolean; operation: number; retryConsumed: boolean } | null>(null);
+  const guidedRoleAudioRef = useRef<{ sessionId: string; nodeId: string; attemptId: string; playbackId: string; generationComplete: boolean } | null>(null);
+  const guidedTtsQuarantineRef = useRef(false);
+  const guidedFreeTalkRequestedRef = useRef(false);
+  const guidedHandoffRef = useRef<{ sessionId: string; id: string; socket: WebSocket } | null>(null);
+  const completedGuidedHandoffRef = useRef<string | null>(null);
+  const completedGuidedHandoffRequestRef = useRef<string | null>(null);
   const guideAudioRef = useRef<{
     playbackId: string; sessionId: string; shouldResume: boolean; stopped: Promise<void>;
   } | null>(null);
   const guideAudioRequestsRef = useRef(new Map<string, { settle: (accepted: boolean) => void; timer: number }>());
+  const guideReleaseRequestsRef = useRef(new Map<string, { sessionId: string; settle: (accepted: boolean) => void; timer: number; promise: Promise<boolean> }>());
   const viewerGuideAudioRef = useRef<{ sessionId: string; playbackId: string } | null>(null);
   const ttsPlaybackGenerationIdRef = useRef<string | null>(null);
   const translatorTtsGateRef = useRef<TranslatorTtsGate>('normal');
@@ -604,6 +624,17 @@ export function useVoiceSocket() {
   const learningAttemptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const learningCommandTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingLearningMessageRef = useRef<Record<string, unknown> | null>(null);
+
+  const publishGuidedCaptureStatus = useCallback((status: 'PREPARING' | 'LISTENING' | 'STOPPED' | 'ERROR') => {
+    const snapshot = useGuidedLearningStore.getState().snapshot;
+    const g = snapshot?.guided;
+    if (roleRef.current !== 'controller' || !g || isGuidedTerminal(snapshot)
+      || g.phase === 'DEMO' || g.phase === 'RECAP' || typeof g.controllerEpoch !== 'number') return;
+    const data = { type: 'guided_capture_status', sessionId: snapshot!.sessionId, nodeId: g.nodeId,
+      attemptId: g.attemptId, controllerEpoch: g.controllerEpoch, captureEpoch: sttCaptureSessionIdRef.current, status };
+    useGuidedLearningStore.getState().receiveCaptureStatus(data);
+    if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify(data));
+  }, []);
 
   const setConnecting = useStore((state) => state.setConnecting);
   const setConnected = useStore((state) => state.setConnected);
@@ -671,6 +702,10 @@ export function useVoiceSocket() {
     activeSpeechTextRef.current = '';
     ttsPlaybackGenerationIdRef.current = null;
     if (socketRef.current?.readyState === WebSocket.OPEN) {
+      if (guidedRoleAudioRef.current?.generationComplete) {
+        socketRef.current.send(JSON.stringify({ type: 'guided_role_audio_complete', playbackId: guidedRoleAudioRef.current.playbackId, success: true }));
+        guidedRoleAudioRef.current = null;
+      }
       socketRef.current.send(JSON.stringify({ type: 'tts_stop' }));
     }
   }, []);
@@ -704,6 +739,10 @@ export function useVoiceSocket() {
 
   const flushActiveTts = useCallback(
     (responseId?: string) => {
+      if (guidedRoleAudioRef.current) {
+        if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({ type: 'guided_role_audio_complete', playbackId: guidedRoleAudioRef.current.playbackId, success: false }));
+        guidedRoleAudioRef.current = null;
+      }
       activeSpeechTextRef.current = '';
       ttsPlaybackGenerationIdRef.current = null;
       clearQueue(responseId);
@@ -716,19 +755,45 @@ export function useVoiceSocket() {
 
   const handleSttAudioData = useCallback((pcmData: Int16Array) => {
     if (guideAudioRef.current) return;
+    if (useGuidedLearningStore.getState().error) return;
+    const guided = useGuidedLearningStore.getState().snapshot;
+    if (guided && !isGuidedTerminal(guided) && (!['READY', 'PROCESSING'].includes(guided.guided?.inputState ?? '') || guided.guided?.audioOwner !== 'NONE' || guidedMicRef.current?.manualStop)) return;
     if (socketRef.current?.readyState !== WebSocket.OPEN) return;
     socketRef.current.send(buildAudioPacket(pcmData, useStore.getState().isPlaying));
   }, []);
 
   const handleBrowserFinalTranscript = useCallback((transcript: BrowserFinalTranscript) => {
     if (guideAudioRef.current) return;
+    if (useGuidedLearningStore.getState().error) return;
     useStore.getState().setLiveTranscript('');
     if (socketRef.current?.readyState !== WebSocket.OPEN) return;
+    const guided = useGuidedLearningStore.getState().snapshot;
+    if (guided && !isGuidedTerminal(guided)) {
+      const context = guidedCaptureRef.current;
+      guidedCaptureRef.current = null;
+      if (!context || context.guidedSessionId !== guided.sessionId || context.attemptId !== guided.guided?.attemptId
+        || context.nodeId !== guided.guided.nodeId || context.captureEpoch !== sttCaptureSessionIdRef.current
+        || !['READY', 'PROCESSING'].includes(guided.guided.inputState) || guided.guided.audioOwner !== 'NONE' || guidedMicRef.current?.manualStop) return;
+      socketRef.current.send(JSON.stringify({ ...JSON.parse(buildBrowserTranscriptMessage(transcript)), ...context }));
+      return;
+    }
     socketRef.current.send(buildBrowserTranscriptMessage(transcript));
   }, []);
 
   const handleBrowserInterimTranscript = useCallback((transcript: string) => {
     if (guideAudioRef.current) return;
+    if (useGuidedLearningStore.getState().error) return;
+    const guided = useGuidedLearningStore.getState().snapshot;
+    if (guided && !isGuidedTerminal(guided)) {
+      const context = guidedCaptureRef.current;
+      if (!context || context.guidedSessionId !== guided.sessionId || context.attemptId !== guided.guided?.attemptId
+        || context.nodeId !== guided.guided.nodeId || context.captureEpoch !== sttCaptureSessionIdRef.current
+        || !['READY', 'PROCESSING'].includes(guided.guided.inputState) || guided.guided.audioOwner !== 'NONE'
+        || guidedMicRef.current?.manualStop) return;
+      useGuidedLearningStore.getState().receivePartial({ ...context, sessionId: context.guidedSessionId, content: transcript });
+      if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({ ...JSON.parse(buildBrowserPartialTranscriptMessage(transcript)), ...context }));
+      return;
+    }
     useStore.getState().setLiveTranscript(transcript);
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(buildBrowserPartialTranscriptMessage(transcript));
@@ -737,6 +802,19 @@ export function useVoiceSocket() {
 
   const handleBrowserSpeechStarted = useCallback(() => {
     if (guideAudioRef.current) return;
+    const guided = useGuidedLearningStore.getState().snapshot;
+    if (guided && !isGuidedTerminal(guided)) {
+      guidedCaptureRef.current = null;
+      const g = guided.guided;
+      if (!g || g.inputState !== 'READY' || g.audioOwner !== 'NONE' || !g.voiceStarted
+        || typeof g.controllerEpoch !== 'number' || guidedMicRef.current?.manualStop
+        || socketRef.current?.readyState !== WebSocket.OPEN) return;
+      const context = { guidedSessionId: guided.sessionId, nodeId: g.nodeId, attemptId: g.attemptId,
+        controllerEpoch: g.controllerEpoch, captureEpoch: sttCaptureSessionIdRef.current };
+      guidedCaptureRef.current = context;
+      socketRef.current.send(JSON.stringify({ type: 'guided_capture_start', ...context }));
+      return;
+    }
     if (!useStore.getState().isPlaying) return;
     flushActiveTts();
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -753,10 +831,23 @@ export function useVoiceSocket() {
     );
     setSttReady(fullyReady);
     setConnecting(ready && sttProviderRef.current === 'server' ? !fullyReady : false);
-  }, [setConnecting, setSttReady]);
+    if (ready) publishGuidedCaptureStatus(fullyReady ? 'LISTENING' : 'PREPARING');
+  }, [publishGuidedCaptureStatus, setConnecting, setSttReady]);
 
   const handleBrowserSttError = useCallback((code: string) => {
     console.error('Browser STT error:', code);
+    if (guidedMicRef.current) { guidedMicRef.current.active = false; guidedMicRef.current.starting = false; }
+    publishGuidedCaptureStatus('ERROR');
+  }, [publishGuidedCaptureStatus]);
+
+  const handleUtteranceAborted = useCallback((reason: 'NO_SPEECH' | 'NO_FINAL' | 'VOICE_NOT_READY') => {
+    const context = guidedCaptureRef.current;
+    guidedCaptureRef.current = null;
+    if (!context || guidedMicRef.current?.manualStop || socketRef.current?.readyState !== WebSocket.OPEN) return;
+    const s = useGuidedLearningStore.getState().snapshot;
+    if (s?.sessionId !== context.guidedSessionId || s.guided?.attemptId !== context.attemptId
+      || s.guided.nodeId !== context.nodeId || sttCaptureSessionIdRef.current !== context.captureEpoch) return;
+    socketRef.current.send(JSON.stringify({ type: 'guided_capture_cancel', ...context, reason }));
   }, []);
 
   const getPlaybackState = useCallback(() => ({
@@ -776,6 +867,7 @@ export function useVoiceSocket() {
     onReadyChange: handleBrowserSttReadyChange,
     onError: handleBrowserSttError,
     onSpeechStarted: handleBrowserSpeechStarted,
+    onUtteranceAborted: handleUtteranceAborted,
     getPlaybackState,
   });
 
@@ -792,6 +884,7 @@ export function useVoiceSocket() {
 
   const startSttCapture = useCallback(async (captureOptions?: { requiredAudio?: boolean }) => {
     if (guideAudioRef.current) return 'superseded' as const;
+    const operation = sttInputOperationRef.current;
     // The control message is placed on the WebSocket before MediaRecorder can
     // produce new binary frames. The backend completes its discard barrier
     // before reading those frames.
@@ -800,6 +893,7 @@ export function useVoiceSocket() {
       startInput: () => startSttInput(captureOptions),
       getCurrentSessionId: () => sttCaptureSessionIdRef.current,
       getCurrentSocket: () => socketRef.current,
+      isOperationCurrent: () => sttInputOperationRef.current === operation,
     });
     if (result === 'started' && translatorTtsGateRef.current === 'waiting-next-turn') {
       translatorShouldResumeCaptureRef.current = false;
@@ -808,10 +902,13 @@ export function useVoiceSocket() {
         'capture-boundary-ready',
       );
     }
+    if (result === 'started') publishGuidedCaptureStatus(useStore.getState().isSttReady ? 'LISTENING' : 'PREPARING');
+    else if (result === 'failed') publishGuidedCaptureStatus('ERROR');
     return result;
-  }, [sendSttCaptureState, startSttInput]);
+  }, [publishGuidedCaptureStatus, sendSttCaptureState, startSttInput]);
 
   const stopSttCapture = useCallback(async () => {
+    guidedCaptureRef.current = null;
     // Close the backend epoch first so any final browser callback or trailing
     // PCM chunk emitted during local teardown is rejected.
     await stopSttCaptureOperation(sendSttCaptureState, stopSttInput);
@@ -827,21 +924,30 @@ export function useVoiceSocket() {
       settle(false);
     });
     guideAudioRequestsRef.current.clear();
+    guideReleaseRequestsRef.current.forEach(({ settle, timer }) => { window.clearTimeout(timer); settle(false); });
+    guideReleaseRequestsRef.current.clear();
     guideAudioRef.current = null;
   }, []);
 
-  const setMissionGuideAudio = useCallback<SetMissionGuideAudio>((active, sessionId, playbackId) => {
+  const setMissionGuideAudio = useCallback<SetMissionGuideAudio>((active, sessionId, playbackId, playbackSucceeded = false, cancelRole) => {
     const socket = socketRef.current;
     if (roleRef.current !== 'viewer' || socket?.readyState !== WebSocket.OPEN) return Promise.resolve(false);
     if (!active) {
       if (viewerGuideAudioRef.current?.playbackId === playbackId) viewerGuideAudioRef.current = null;
-      try {
-        socket.send(JSON.stringify({ type: 'mission_guide_audio', active, sessionId, playbackId }));
-        return Promise.resolve(true);
-      } catch { return Promise.resolve(false); }
+      const existing = guideReleaseRequestsRef.current.get(playbackId);
+      if (existing) return existing.sessionId === sessionId ? existing.promise : Promise.resolve(false);
+      if (guideReleaseRequestsRef.current.size >= 2) return Promise.resolve(false);
+      let settle!: (accepted: boolean) => void;
+      const promise = new Promise<boolean>(resolve => { settle = resolve; });
+      const timer = window.setTimeout(() => { guideReleaseRequestsRef.current.delete(playbackId); settle(false); }, 10_000);
+      guideReleaseRequestsRef.current.set(playbackId, { sessionId, settle, timer, promise });
+      try { socket.send(JSON.stringify({ type: 'mission_guide_audio', active, sessionId, playbackId, playbackSucceeded,
+        ...(cancelRole ? { cancelRole: true, nodeId: cancelRole.nodeId, attemptId: cancelRole.attemptId } : {}) })); }
+      catch { window.clearTimeout(timer); guideReleaseRequestsRef.current.delete(playbackId); settle(false); }
+      return promise;
     }
     // One guide owns browser TTS at a time; do not grow an unbounded request queue.
-    if (guideAudioRequestsRef.current.size > 0 || viewerGuideAudioRef.current) return Promise.resolve(false);
+    if (guideAudioRequestsRef.current.size > 0 || guideReleaseRequestsRef.current.size > 0 || viewerGuideAudioRef.current) return Promise.resolve(false);
     return new Promise((settle) => {
       viewerGuideAudioRef.current = { sessionId, playbackId };
       const timer = window.setTimeout(() => {
@@ -888,6 +994,15 @@ export function useVoiceSocket() {
         stopped: Promise.resolve(),
       };
       guideAudioRef.current = lease;
+      // A ROLE lease can arrive with a server epoch older than a locally sent
+      // start still in flight. Cancel that local operation without sending a
+      // competing capture reset or reporting an intentional stop as failure.
+      sttInputOperationRef.current += 1;
+      if (guidedMicRef.current?.sessionId === data.sessionId) {
+        guidedMicRef.current.operation += 1;
+        guidedMicRef.current.active = false;
+        guidedMicRef.current.starting = false;
+      }
       lease.stopped = stopSttInput();
       useStore.getState().setLiveTranscript('');
       isSttCaptureReadyRef.current = false;
@@ -901,13 +1016,27 @@ export function useVoiceSocket() {
     if (guideAudioRef.current !== lease) return;
     guideAudioRef.current = null;
     const snapshot = useMissionLearningStore.getState().snapshot;
+    const guided = useGuidedLearningStore.getState().snapshot;
+    const guidedReady = guided?.sessionId === lease.sessionId && guided.guided?.inputState === 'READY'
+      && guided.guided.audioOwner === 'NONE' && !guidedMicRef.current?.manualStop;
     if (lease.shouldResume && data.captureActive === true && !guideAudioRef.current
-      && snapshot?.stage === 'ROLEPLAY' && snapshot.sessionId === lease.sessionId
+      && (guidedReady || (snapshot?.stage === 'ROLEPLAY' && snapshot.sessionId === lease.sessionId))
       && translatorTtsGateRef.current !== 'translator-open'
       && socketRef.current?.readyState === WebSocket.OPEN) {
-      await startSttCapture();
+      const mic = guidedReady ? guidedMicRef.current : null;
+      const operation = mic ? ++mic.operation : 0;
+      if (mic) mic.starting = true;
+      try {
+        const result = await startSttCapture();
+        if (mic && guidedMicRef.current === mic && mic.operation === operation) {
+          mic.starting = false; mic.active = result === 'started';
+        }
+      } catch {
+        if (mic && guidedMicRef.current === mic && mic.operation === operation) { mic.starting = false; mic.active = false; }
+        publishGuidedCaptureStatus('ERROR');
+      }
     }
-  }, [flushActiveTts, setSttReady, startSttCapture, stopSttInput]);
+  }, [flushActiveTts, publishGuidedCaptureStatus, setSttReady, startSttCapture, stopSttInput]);
 
   const suspendTtsForTranslator = useCallback(() => {
     if (translatorTtsGateRef.current === 'translator-open') return;
@@ -1046,9 +1175,25 @@ export function useVoiceSocket() {
     [assignLatestPendingUserTurnId, getGenerationId],
   );
 
+  const canAcceptGuidedRoleEvent = useCallback((data: SocketMessage) => {
+      const guided = useGuidedLearningStore.getState().snapshot;
+      if (guided || guidedTtsQuarantineRef.current) {
+        const lease = guidedRoleAudioRef.current;
+        const g = guided?.guided;
+        if (useGuidedLearningStore.getState().error || isGuidedTerminal(guided) || !g || !lease
+          || guideAudioRef.current?.playbackId !== lease.playbackId
+          || lease.sessionId !== guided.sessionId || lease.nodeId !== g.nodeId || lease.attemptId !== g.attemptId
+          || data.guidedSessionId !== lease.sessionId || data.guidedNodeId !== lease.nodeId
+          || data.guidedAttemptId !== lease.attemptId || data.guidedPlaybackId !== lease.playbackId) return false;
+      }
+      else if (data.guidedSessionId !== undefined) return false;
+      return true;
+  }, []);
+
   const handleTtsChunk = useCallback(
     (data: SocketMessage) => {
-      if (guideAudioRef.current) return;
+      if (!canAcceptGuidedRoleEvent(data)) return;
+      if (guideAudioRef.current && guideAudioRef.current.playbackId !== guidedRoleAudioRef.current?.playbackId) return;
       if (!canPlayConversationTts(translatorTtsGateRef.current)) return;
       bindActiveGenerationToPendingUser(data);
       if (!isCurrentGeneration(data)) return;
@@ -1071,11 +1216,12 @@ export function useVoiceSocket() {
       ttsPlaybackGenerationIdRef.current = getGenerationId(data);
       playPcmChunk(chunk);
     },
-    [bindActiveGenerationToPendingUser, getGenerationId, isCurrentGeneration, playPcmChunk],
+    [bindActiveGenerationToPendingUser, canAcceptGuidedRoleEvent, getGenerationId, isCurrentGeneration, playPcmChunk],
   );
 
   const handlePartialAssistantAnswer = useCallback(
     (data: SocketMessage) => {
+      if (!canAcceptGuidedRoleEvent(data)) return;
       bindActiveGenerationToPendingUser(data);
       if (!isCurrentGeneration(data)) return;
       if (shouldIgnorePartialAssistantAnswer(
@@ -1089,11 +1235,12 @@ export function useVoiceSocket() {
       useStore.getState().setEmotion(emotion);
       useStore.getState().setPartialMessage(displayMessage);
     },
-    [bindActiveGenerationToPendingUser, getGenerationId, isCurrentGeneration],
+    [bindActiveGenerationToPendingUser, canAcceptGuidedRoleEvent, getGenerationId, isCurrentGeneration],
   );
 
   const handleFinalAssistantAnswer = useCallback(
     (data: SocketMessage) => {
+      if (!canAcceptGuidedRoleEvent(data)) return;
       bindActiveGenerationToPendingUser(data);
       if (!isCurrentGeneration(data)) return;
 
@@ -1102,7 +1249,9 @@ export function useVoiceSocket() {
       if (generationId) finalizedAssistantGenerationIdsRef.current.add(generationId);
       const { emotion, displayMessage } = parseTaggedEmotion(rawText);
       const turnId = getTurnId(data) ?? undefined;
-      addMessage(
+      // Guided ROLE lines belong to the lesson screen; keeping them out of the
+      // chat timeline stops them from reappearing after the free-talk handoff.
+      if (data.guidedSessionId === undefined) addMessage(
         'assistant',
         formatAssistantDisplayMessage(displayMessage, data.korean_content),
         turnId,
@@ -1118,6 +1267,7 @@ export function useVoiceSocket() {
     [
       addMessage,
       bindActiveGenerationToPendingUser,
+      canAcceptGuidedRoleEvent,
       getGenerationId,
       getMessageMetadata,
       getTurnId,
@@ -1453,6 +1603,7 @@ export function useVoiceSocket() {
 
   const handleSegmentStart = useCallback(
     (data: SocketMessage) => {
+      if (!canAcceptGuidedRoleEvent(data)) return;
       if (!isCurrentGeneration(data)) return;
       if (!data.segment_id || !data.response_id) return;
       if (data.text?.trim()) {
@@ -1466,11 +1617,12 @@ export function useVoiceSocket() {
         emotion: data.emotion ? EMOTION_TAG_MAP[data.emotion] ?? 'neutral' : undefined,
       });
     },
-    [isCurrentGeneration, upsertTtsSegment],
+    [canAcceptGuidedRoleEvent, isCurrentGeneration, upsertTtsSegment],
   );
 
   const handleSegmentTimeline = useCallback(
     (data: SocketMessage) => {
+      if (!canAcceptGuidedRoleEvent(data)) return;
       if (!isCurrentGeneration(data)) return;
       const timeline = data.timeline;
       if (!timeline?.segmentId) return;
@@ -1482,16 +1634,17 @@ export function useVoiceSocket() {
       });
       setLipSyncMode('timeline');
     },
-    [isCurrentGeneration, patchTtsSegment, setLipSyncMode],
+    [canAcceptGuidedRoleEvent, isCurrentGeneration, patchTtsSegment, setLipSyncMode],
   );
 
   const handleSegmentEnd = useCallback(
     (data: SocketMessage) => {
+      if (!canAcceptGuidedRoleEvent(data)) return;
       if (!isCurrentGeneration(data)) return;
       if (!data.segment_id) return;
       patchTtsSegment(data.segment_id, {});
     },
-    [isCurrentGeneration, patchTtsSegment],
+    [canAcceptGuidedRoleEvent, isCurrentGeneration, patchTtsSegment],
   );
 
   const connect = useCallback((options?: ConnectOptions) => {
@@ -1564,6 +1717,14 @@ export function useVoiceSocket() {
         }
 
         switch (data.type) {
+          case 'mission_guide_audio_released': {
+            const pending = data.playbackId ? guideReleaseRequestsRef.current.get(data.playbackId) : undefined;
+            if (pending && pending.sessionId === data.sessionId && data.playbackId) {
+              window.clearTimeout(pending.timer); guideReleaseRequestsRef.current.delete(data.playbackId);
+              pending.settle(data.accepted === true);
+            }
+            break;
+          }
           case 'mission_guide_audio_ready': {
             const request = data.playbackId ? guideAudioRequestsRef.current.get(data.playbackId) : undefined;
             if (request && data.playbackId) {
@@ -1652,11 +1813,79 @@ export function useVoiceSocket() {
             learningPurposeRef.current = null;
             break;
           case 'learning_mission_state':
+            if ((data as Record<string, unknown>).contractVersion !== undefined && (data as Record<string, unknown>).contractVersion !== 1) {
+              const previousGuided = useGuidedLearningStore.getState().snapshot;
+              if (useGuidedLearningStore.getState().pushSnapshot(data)) {
+                guidedTtsQuarantineRef.current = true;
+                const snapshot = useGuidedLearningStore.getState().snapshot;
+                // A new step or attempt discards whatever the previous one queued,
+                // even when its ROLE lease was already released.
+                if (role === 'controller' && previousGuided && !isGuidedTerminal(previousGuided)
+                  && (previousGuided.sessionId !== snapshot?.sessionId || previousGuided.guided?.nodeId !== snapshot?.guided?.nodeId
+                    || previousGuided.guided?.attemptId !== snapshot?.guided?.attemptId)) flushActiveTts();
+                if (guidedHandoffRef.current && (snapshot?.sessionId !== guidedHandoffRef.current.sessionId
+                  || snapshot.handoff?.status === 'FAILED'
+                  || isGuidedTerminal(snapshot) && snapshot.handoff?.status !== 'COMPLETE')) guidedHandoffRef.current = null;
+                const lease = guidedRoleAudioRef.current;
+                if (lease && (snapshot?.sessionId !== lease.sessionId || snapshot?.guided?.nodeId !== lease.nodeId
+                  || snapshot?.guided?.attemptId !== lease.attemptId)) flushActiveTts();
+              }
+              {
+                const state = useGuidedLearningStore.getState();
+                const snapshot = state.snapshot;
+                const grant = snapshot?.handoff;
+                if (!state.error && role === 'controller' && snapshot && grant && ['PREPARED', 'STARTING'].includes(grant.status)
+                  && (guidedHandoffRef.current?.id !== grant.id || guidedHandoffRef.current.socket !== ws)) {
+                  guidedHandoffRef.current = { sessionId: snapshot.sessionId, id: grant.id, socket: ws };
+                  ws.send(JSON.stringify({ type: 'consume_guided_handoff', sessionId: snapshot.sessionId, handoffId: grant.id }));
+                }
+                if (role === 'viewer' && snapshot && grant?.status === 'COMPLETE' && isGuidedTerminal(snapshot)) {
+                  guidedTtsQuarantineRef.current = false;
+                  state.reconcileHome(null);
+                }
+              }
+              break;
+            }
             if (typeof (data as Record<string, unknown>).sessionId === 'string'
               && typeof (data as Record<string, unknown>).revision === 'number') {
               useMissionLearningStore.getState().pushSnapshot(data as unknown as MissionSnapshot);
             }
             break;
+          case 'guided_role_audio': {
+            useGuidedLearningStore.getState().receiveRoleAudio(data as Record<string, unknown>);
+            if (roleRef.current !== 'controller' || typeof data.playbackId !== 'string') break;
+            const message = data as Record<string, unknown>;
+            if (message.active === false) {
+              if (guidedRoleAudioRef.current?.playbackId === data.playbackId) guidedRoleAudioRef.current = null;
+            } else if (message.generationComplete === true && guidedRoleAudioRef.current?.playbackId === data.playbackId) {
+              if (message.synthesisSucceeded !== true) { flushActiveTts(); break; }
+              guidedRoleAudioRef.current.generationComplete = true;
+              if (!useStore.getState().isPlaying) notifyTtsPlaybackStopped();
+            } else if (message.active === true) {
+              const snapshot = useGuidedLearningStore.getState().snapshot;
+              const g = snapshot?.guided;
+              if (!snapshot || !g || snapshot.sessionId !== data.sessionId || g.nodeId !== data.nodeId
+                || g.attemptId !== data.attemptId) break;
+              activeGenerationIdRef.current = null;
+              guidedRoleAudioRef.current = { sessionId: data.sessionId!, nodeId: data.nodeId!, attemptId: data.attemptId!, playbackId: data.playbackId, generationComplete: false };
+            }
+            break;
+          }
+          case 'guided_partial_transcript':
+            useGuidedLearningStore.getState().receivePartial(data as unknown as Record<string, unknown>);
+            break;
+          case 'guided_capture_status':
+            useGuidedLearningStore.getState().receiveCaptureStatus(data as unknown as Record<string, unknown>);
+            break;
+          case 'guided_voice_ready': {
+            if (roleRef.current === 'controller' && typeof (data as Record<string, unknown>).sessionId === 'string') {
+              if (typeof data.captureEpoch === 'number' && Number.isSafeInteger(data.captureEpoch) && data.captureEpoch >= 0) {
+                sttCaptureSessionIdRef.current = Math.max(sttCaptureSessionIdRef.current, data.captureEpoch);
+              }
+              useGuidedLearningStore.getState().acknowledgeVoice((data as Record<string, unknown>).sessionId as string);
+            }
+            break;
+          }
           case 'learning_mission_entry': {
             const entry = parseMissionEntry(data as Record<string, unknown>);
             if (entry) useMissionLearningStore.getState().setEntry(entry);
@@ -1675,6 +1904,25 @@ export function useVoiceSocket() {
             }
             break;
           case 'conversation_started':
+            if (typeof data.requestId === 'string' && data.requestId === completedGuidedHandoffRequestRef.current) break;
+            if (guidedHandoffRef.current) {
+              if (data.requestId !== guidedHandoffRef.current.id) break;
+              const resumeMicrophone = role === 'controller' && !guidedMicRef.current?.manualStop;
+              completedGuidedHandoffRequestRef.current = guidedHandoffRef.current.id;
+              completedGuidedHandoffRef.current = guidedHandoffRef.current.sessionId;
+              guidedHandoffRef.current = null;
+              guidedTtsQuarantineRef.current = false;
+              guidedMicRef.current = null;
+              useGuidedLearningStore.getState().reconcileHome(null);
+              // The server reset learning capture before opening free talk.
+              // Only this exact grant ACK authorizes a fresh microphone start.
+              if (resumeMicrophone) void startSttCapture();
+            }
+            if (guidedFreeTalkRequestedRef.current && isGuidedTerminal(useGuidedLearningStore.getState().snapshot)) {
+              guidedFreeTalkRequestedRef.current = false; guidedTtsQuarantineRef.current = false;
+              guidedMicRef.current = null;
+              useGuidedLearningStore.getState().reconcileHome(null);
+            }
             // A newly selected topic starts a fresh assistant generation. Clear
             // the previous generation binding so its opening TTS is accepted,
             // including when the learner switches topics without clearing history.
@@ -1730,6 +1978,11 @@ export function useVoiceSocket() {
             );
             break;
           case 'conversation_resumed':
+            if (guidedFreeTalkRequestedRef.current && isGuidedTerminal(useGuidedLearningStore.getState().snapshot)) {
+              guidedFreeTalkRequestedRef.current = false; guidedTtsQuarantineRef.current = false;
+              guidedMicRef.current = null;
+              useGuidedLearningStore.getState().reconcileHome(null);
+            }
             pendingResumeSegmentRef.current = null;
             setConversationStartStatus('idle');
             break;
@@ -1741,12 +1994,12 @@ export function useVoiceSocket() {
             );
             break;
           case 'tts_segment_start':
-            if (guideAudioRef.current) break;
+            if (guideAudioRef.current && guideAudioRef.current.playbackId !== guidedRoleAudioRef.current?.playbackId) break;
             if (!canPlayConversationTts(translatorTtsGateRef.current)) break;
             handleSegmentStart(data);
             break;
           case 'tts_viseme_timeline':
-            if (guideAudioRef.current) break;
+            if (guideAudioRef.current && guideAudioRef.current.playbackId !== guidedRoleAudioRef.current?.playbackId) break;
             if (!canPlayConversationTts(translatorTtsGateRef.current)) break;
             handleSegmentTimeline(data);
             break;
@@ -1754,21 +2007,26 @@ export function useVoiceSocket() {
             handleTtsChunk(data);
             break;
           case 'tts_segment_end':
-            if (guideAudioRef.current) break;
+            if (guideAudioRef.current && guideAudioRef.current.playbackId !== guidedRoleAudioRef.current?.playbackId) break;
             if (!canPlayConversationTts(translatorTtsGateRef.current)) break;
             handleSegmentEnd(data);
             break;
           case 'tts_flush':
+            if (!canAcceptGuidedRoleEvent(data)) break;
             if (!isCurrentGeneration(data)) break;
             flushActiveTts(data.response_id);
             break;
           case 'partial_user_request':
+            if (useGuidedLearningStore.getState().snapshot) break;
             useStore.getState().setLiveTranscript(sanitizeModelText(data.content ?? ''));
             break;
           case 'partial_assistant_answer':
             handlePartialAssistantAnswer(data);
             break;
           case 'final_user_request':
+            // Guided observations arrive in the scoped snapshot, never through
+            // the free-talk generation/history path (including delayed finals).
+            if (useGuidedLearningStore.getState().snapshot || guidedTtsQuarantineRef.current) break;
             useStore.getState().setLiveTranscript('');
             const nextGenerationId = getGenerationId(data);
             // A final arriving before the capture reset finishes belongs to
@@ -1814,7 +2072,7 @@ export function useVoiceSocket() {
             break;
           case 'final_assistant_answer':
             handleFinalAssistantAnswer(data);
-            scheduleSupplementaryPolling(getGenerationId(data), getTurnId(data));
+            if (data.guidedSessionId === undefined) scheduleSupplementaryPolling(getGenerationId(data), getTurnId(data));
             break;
           case 'assistant_translation':
             handleSupplementaryHttpMessage(data);
@@ -1852,6 +2110,7 @@ export function useVoiceSocket() {
                 isServerSttReadyRef.current,
               );
               setSttReady(fullyReady);
+              if (isSttCaptureReadyRef.current) publishGuidedCaptureStatus(fullyReady ? 'LISTENING' : 'PREPARING');
               if (isSttCaptureReadyRef.current) {
                 setConnecting(!fullyReady);
               }
@@ -1859,6 +2118,7 @@ export function useVoiceSocket() {
             console.info('STT provider status:', data.content);
             break;
           case 'stt_provider_error':
+            publishGuidedCaptureStatus('ERROR');
             if (sttProviderRef.current === 'server') {
               isServerSttReadyRef.current = false;
               setSttReady(false);
@@ -1867,6 +2127,7 @@ export function useVoiceSocket() {
             console.error('STT provider error:', data.content);
             break;
           case 'mute_tts':
+            if (!canAcceptGuidedRoleEvent(data)) break;
             if (!shouldApplyTtsMute(
               data.generation_id,
               ttsPlaybackGenerationIdRef.current,
@@ -1875,6 +2136,7 @@ export function useVoiceSocket() {
             muteTts();
             break;
           case 'unmute_tts':
+            if (!canAcceptGuidedRoleEvent(data)) break;
             if (!isTtsControlForCurrentGeneration(
               data.generation_id,
               ttsPlaybackGenerationIdRef.current,
@@ -1883,6 +2145,7 @@ export function useVoiceSocket() {
             break;
           case 'stop_tts':
           case 'tts_interruption':
+            if (!canAcceptGuidedRoleEvent(data)) break;
             if (!isCurrentGeneration(data)) break;
             flushActiveTts(data.response_id);
             if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -1953,6 +2216,7 @@ export function useVoiceSocket() {
     socketRef.current = ws;
   }, [
     addMessage,
+    canAcceptGuidedRoleEvent,
     clearGuideAudioRequests,
     clearEvaluationBatchStatus,
     clearSupplementaryPolling,
@@ -1961,6 +2225,8 @@ export function useVoiceSocket() {
     fetchSupplementaryTurnResults,
     handleEvaluationBatchStatus,
     handleMissionGuideAudio,
+    notifyTtsPlaybackStopped,
+    publishGuidedCaptureStatus,
     handleFinalAssistantAnswer,
     handlePartialAssistantAnswer,
     handleSegmentEnd,
@@ -2021,12 +2287,24 @@ export function useVoiceSocket() {
   }, [cleanupSocket, clearGuideAudioRequests, clearSupplementaryPolling, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, setSttReady, stopSttInput]);
 
   const startListening = useCallback(() => {
+    const mic = guidedMicRef.current;
+    if (mic && !mic.manualStop && (mic.active || mic.starting)) return;
+    if (mic) mic.manualStop = false;
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      void startSttCapture();
+      const operation = mic ? ++mic.operation : 0;
+      if (mic) mic.starting = true;
+      void startSttCapture().then(result => {
+        if (mic && guidedMicRef.current === mic && mic.operation === operation) {
+          mic.starting = false; mic.active = result === 'started';
+        }
+      }).catch(() => {
+        if (mic && guidedMicRef.current === mic && mic.operation === operation) { mic.starting = false; mic.active = false; }
+        publishGuidedCaptureStatus('ERROR');
+      });
       return;
     }
     connect();
-  }, [connect, startSttCapture]);
+  }, [connect, publishGuidedCaptureStatus, startSttCapture]);
 
   const sendPendingTopicStart = useCallback(() => {
     const pending = pendingTopicStartRef.current;
@@ -2037,6 +2315,7 @@ export function useVoiceSocket() {
   }, []);
 
   const startConversation = useCallback((topicId: TopicId, difficultyId: DifficultyId) => {
+    guidedFreeTalkRequestedRef.current = isGuidedTerminal(useGuidedLearningStore.getState().snapshot);
     pendingResumeSegmentRef.current = null;
     const requestId = crypto.randomUUID();
     pendingTopicStartRef.current = {
@@ -2085,6 +2364,7 @@ export function useVoiceSocket() {
   }, []);
 
   const resumeConversation = useCallback((segmentId: string) => {
+    guidedFreeTalkRequestedRef.current = isGuidedTerminal(useGuidedLearningStore.getState().snapshot);
     pendingTopicStartRef.current = null;
     pendingResumeSegmentRef.current = segmentId;
     setConversationStartStatus('preparing');
@@ -2117,12 +2397,80 @@ export function useVoiceSocket() {
   }, [connect, sendPendingResume, setConversationStartStatus, startSttCapture]);
 
   const stopListening = useCallback(() => {
+    const snapshot = useGuidedLearningStore.getState().snapshot;
+    if (!guidedMicRef.current && snapshot) guidedMicRef.current = {
+      sessionId: snapshot.sessionId, attemptId: snapshot.guided?.attemptId ?? '',
+      active: false, starting: false, manualStop: true, operation: 0, retryConsumed: false,
+    };
+    const mic = guidedMicRef.current;
+    if (mic) { mic.manualStop = true; mic.active = false; mic.starting = false; mic.operation++; }
+    const operation = mic?.operation;
+    const current = () => {
+      const latest = useGuidedLearningStore.getState().snapshot;
+      return latest?.sessionId === snapshot?.sessionId && latest?.guided?.attemptId === snapshot?.guided?.attemptId
+        && guidedMicRef.current === mic && (!mic || mic.operation === operation && mic.manualStop);
+    };
     if (guideAudioRef.current) guideAudioRef.current.shouldResume = false;
     useStore.getState().setLiveTranscript('');
     isSttCaptureReadyRef.current = false;
     setSttReady(false);
-    void stopSttCapture();
-  }, [setSttReady, stopSttCapture]);
+    void stopSttCapture().then(() => { if (current()) publishGuidedCaptureStatus('STOPPED'); })
+      .catch(() => { if (current()) publishGuidedCaptureStatus('ERROR'); });
+  }, [publishGuidedCaptureStatus, setSttReady, stopSttCapture]);
+
+  const startGuidedLearningVoice = useCallback((sessionId: string, expectedRevision: number) => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN || roleRef.current !== 'controller') return false;
+    activeGenerationIdRef.current = null;
+    guidedTtsQuarantineRef.current = true; guidedFreeTalkRequestedRef.current = false;
+    socketRef.current.send(JSON.stringify({ type: 'start_guided_learning_voice', sessionId, expectedRevision }));
+    // Old ROLE cancellation also changes the server revision: enqueue it after binding.
+    flushActiveTts();
+    return true;
+  }, [flushActiveTts]);
+
+  const syncGuidedCapture = useCallback((active: boolean, sessionId: string, attemptId: string, resumeRequested = false) => {
+      if (completedGuidedHandoffRef.current === sessionId) return;
+    let state = guidedMicRef.current;
+    const changedScope = !state || state.sessionId !== sessionId || state.attemptId !== attemptId;
+    if (changedScope) {
+      state = { sessionId, attemptId, active: false, starting: false,
+        manualStop: state?.sessionId === sessionId ? state.manualStop : false, operation: 0, retryConsumed: false };
+      guidedMicRef.current = state;
+    }
+    if (!state) return;
+    if (resumeRequested && !state.retryConsumed) { state.manualStop = false; state.retryConsumed = true; }
+    if (state.manualStop || guideAudioRef.current) active = false;
+    if (!changedScope && (active ? state.active || state.starting : !state.active && !state.starting)) return;
+    state.active = false;
+    state.starting = active;
+    const operation = ++state.operation;
+    const current = () => guidedMicRef.current === state && state.operation === operation;
+    const deadline = active ? window.setTimeout(() => {
+      if (!current()) return;
+      state.operation += 1; state.starting = false; state.active = false;
+      sendSttCaptureState(false);
+      void stopSttInput();
+      publishGuidedCaptureStatus('ERROR');
+    }, 8000) : null;
+    guidedCaptureRef.current = null;
+    void (async () => {
+      try {
+        await stopSttCapture();
+        if (!current()) return;
+        if (!active || state.manualStop || guideAudioRef.current) { state.starting = false; publishGuidedCaptureStatus('STOPPED'); return; }
+        publishGuidedCaptureStatus('PREPARING');
+        const result = await startSttCapture();
+        if (!current()) return;
+        state.starting = false;
+        state.active = result === 'started';
+        if (result === 'failed') publishGuidedCaptureStatus('ERROR');
+      } catch {
+        if (!current()) return;
+        state.starting = false; state.active = false;
+        publishGuidedCaptureStatus('ERROR');
+      } finally { if (deadline !== null) window.clearTimeout(deadline); }
+    })();
+  }, [publishGuidedCaptureStatus, sendSttCaptureState, startSttCapture, stopSttCapture, stopSttInput]);
 
   const startLearningSession = useCallback((topicId: 'restaurant' | 'airport') => {
     const message = {
@@ -2322,6 +2670,8 @@ export function useVoiceSocket() {
     learningCommand,
     beginLearningAttempt,
     startLearningRoleplay,
+    startGuidedLearningVoice,
+    syncGuidedCapture,
     setMissionGuideAudio,
   };
 }

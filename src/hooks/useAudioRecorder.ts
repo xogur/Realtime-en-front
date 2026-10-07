@@ -34,6 +34,9 @@ export function useAudioRecorder() {
         sourceRef.current = null;
         context.current = null;
         streamRef.current = null;
+        audioBufferRef.current = null;
+        audioBufferOffsetRef.current = 0;
+        isRecordingRef.current = false;
 
         if (worklet) {
             worklet.port.onmessage = null;
@@ -55,22 +58,29 @@ export function useAudioRecorder() {
             await activeContext.close().catch(() => undefined);
         }
 
-        audioBufferRef.current = null;
-        audioBufferOffsetRef.current = 0;
-        isRecordingRef.current = false;
     }, []);
 
+    const queueAudioCleanup = useCallback(() => {
+        const previous = cleanupPromiseRef.current;
+        // Detach now, but keep every older close barrier before the next start.
+        const current = resetAudioPipeline();
+        cleanupPromiseRef.current = Promise.all([previous, current]).then(() => undefined);
+        return cleanupPromiseRef.current;
+    }, [resetAudioPipeline]);
+
     const startRecording = useCallback(async (): Promise<boolean> => {
-        if (isStartingRef.current || isRecordingRef.current || useStore.getState().isRecording) {
+        if (isRecordingRef.current || useStore.getState().isRecording) {
             return true;
         }
+        if (isStartingRef.current) return false;
 
         isStartingRef.current = true;
+        const operationId = operationIdRef.current + 1;
+        operationIdRef.current = operationId;
 
         try {
-            const operationId = operationIdRef.current + 1;
-            operationIdRef.current = operationId;
             await cleanupPromiseRef.current;
+            if (operationId !== operationIdRef.current) return false;
 
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
@@ -91,8 +101,8 @@ export function useAudioRecorder() {
                     if (operationId !== operationIdRef.current) return;
                     operationIdRef.current += 1;
                     isStartingRef.current = false;
-                    cleanupPromiseRef.current = resetAudioPipeline();
-                    void cleanupPromiseRef.current.then(() => setRecording(false));
+                    setRecording(false);
+                    void queueAudioCleanup();
                 };
             });
 
@@ -116,7 +126,8 @@ export function useAudioRecorder() {
 
             await actx.audioWorklet.addModule('/audio-processor.js');
             if (operationId !== operationIdRef.current) {
-                await resetAudioPipeline();
+                stream.getTracks().forEach((track) => track.stop());
+                if (actx.state !== 'closed') await actx.close().catch(() => undefined);
                 return false;
             }
 
@@ -164,23 +175,22 @@ export function useAudioRecorder() {
             setRecording(true);
             return true;
         } catch (err) {
+            if (operationId !== operationIdRef.current) return false;
             console.error('Mic access denied or AudioContext failed:', err);
-            cleanupPromiseRef.current = resetAudioPipeline();
-            await cleanupPromiseRef.current;
-            setRecording(false);
+            await queueAudioCleanup();
+            if (operationId === operationIdRef.current) setRecording(false);
             return false;
         } finally {
-            isStartingRef.current = false;
+            if (operationId === operationIdRef.current) isStartingRef.current = false;
         }
-    }, [resetAudioPipeline, setRecording]);
+    }, [queueAudioCleanup, setRecording]);
 
     const stopRecording = useCallback(async () => {
         operationIdRef.current += 1;
         isStartingRef.current = false;
-        cleanupPromiseRef.current = resetAudioPipeline();
-        await cleanupPromiseRef.current;
         setRecording(false);
-    }, [resetAudioPipeline, setRecording]);
+        await queueAudioCleanup();
+    }, [queueAudioCleanup, setRecording]);
 
     const setOnDataAvailable = useCallback((cb: (pcm: Int16Array) => void) => {
         onDataAvailableRef.current = cb;

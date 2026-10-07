@@ -94,6 +94,7 @@ class FakeSpeechRecognitionWithThrowingPunctuation extends FakeSpeechRecognition
 }
 
 const makeOptions = () => ({
+  onUtteranceAborted: vi.fn(),
   onFinalTranscript: vi.fn(),
   onInterimTranscript: vi.fn(),
   onReadyChange: vi.fn(),
@@ -104,6 +105,18 @@ const makeOptions = () => ({
 });
 
 describe('useBrowserStt restart handling', () => {
+  it.each(['no-speech', 'aborted'])('reports %s once after speech starts without treating it as a final', async error => {
+    const options = makeOptions();
+    const { result } = renderHook(() => useBrowserStt(options));
+    await act(async () => { await result.current.start(); });
+    const recognition = FakeSpeechRecognition.instances.at(-1)!;
+    act(() => recognition.onspeechstart?.());
+    act(() => recognition.onresult?.({ resultIndex: 0, results: [{ 0: { transcript: 'Can I' }, isFinal: false, length: 1 }] }));
+    act(() => recognition.onerror?.({ error }));
+    act(() => recognition.onend?.());
+    expect(options.onUtteranceAborted).toHaveBeenCalledExactlyOnceWith(error === 'no-speech' ? 'NO_SPEECH' : 'NO_FINAL');
+    expect(options.onFinalTranscript).not.toHaveBeenCalled();
+  });
   let audioTrack: FakeAudioTrack;
   let getUserMedia: ReturnType<typeof vi.fn>;
   let originalMediaDevicesDescriptor: PropertyDescriptor | undefined;

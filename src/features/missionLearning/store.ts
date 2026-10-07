@@ -32,7 +32,9 @@ export const useMissionLearningStore = create<MissionLearningStore>((set) => ({
   setEntry: (entry) => set((state) => (
     state.entry && entry.seq < state.entry.seq ? state : { entry }
   )),
-  pushSnapshot: (snapshot) => set((state) => ({ snapshot: acceptSnapshot(state.snapshot, snapshot) })),
+  pushSnapshot: (snapshot) => set((state) => (
+    'contractVersion' in snapshot && snapshot.contractVersion !== 1 ? state : { snapshot: acceptSnapshot(state.snapshot, snapshot) }
+  )),
   clearSnapshot: (sessionId) => set((state) => (
     sessionId && state.snapshot?.sessionId !== sessionId ? state : { snapshot: null }
   )),

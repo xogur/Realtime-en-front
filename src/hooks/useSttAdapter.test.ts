@@ -52,6 +52,22 @@ const makeOptions = () => ({
 });
 
 describe('useSttAdapter browser provider', () => {
+  it('bounds required server-device start and invalidates a delayed permission result', async () => {
+    vi.useFakeTimers();
+    let ready!: (value: boolean) => void;
+    mocks.startServer.mockImplementationOnce(() => new Promise(resolve => { ready = resolve; }));
+    const options = makeOptions();
+    const { result } = renderHook(() => useSttAdapter(options));
+    let pending!: ReturnType<typeof result.current.start>;
+    act(() => { pending = result.current.start({ requiredAudio: true }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(8000); });
+    expect(options.onError).toHaveBeenCalledWith('MICROPHONE_START_TIMEOUT');
+    await expect(pending).resolves.toBe(false);
+    await act(async () => ready(true));
+    expect(options.onReadyChange).not.toHaveBeenCalledWith(true);
+    expect(mocks.stopServer).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.startBrowser.mockResolvedValue(false);
@@ -60,7 +76,7 @@ describe('useSttAdapter browser provider', () => {
     mocks.stopServer.mockResolvedValue(undefined);
   });
 
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); vi.useRealTimers(); });
 
   it('falls back to server when browser recognition cannot start', async () => {
     const { result } = renderHook(() => useSttAdapter(makeOptions()));
