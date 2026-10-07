@@ -10,8 +10,9 @@ import { useBrowserStt } from './useBrowserStt';
 
 export type SttAdapter = {
   provider: SttProviderName;
+  prepare: (input?: MediaStream) => Promise<boolean>;
   start: (options?: { requiredAudio?: boolean }) => Promise<boolean | void>;
-  stop: () => Promise<void>;
+  stop: (options?: { keepPrepared?: boolean }) => Promise<void>;
   isRecording: boolean;
 };
 
@@ -37,6 +38,8 @@ export function useSttAdapter(options: SttAdapterOptions): SttAdapter {
   const optionsRef = useRef(options);
   const {
     startRecording,
+    prepareRecording,
+    pauseRecording,
     stopRecording,
     setOnDataAvailable,
     isRecording: isServerRecording,
@@ -152,15 +155,27 @@ export function useSttAdapter(options: SttAdapterOptions): SttAdapter {
     } finally { if (timer) clearTimeout(timer); }
   }, [startInput, stopBrowserStt, stopRecording]);
 
-  const stop = useCallback(async () => {
+  const prepare = useCallback(async (input?: MediaStream) => {
+    // Browser recognition has its own device lifecycle. Warm only the server
+    // PCM path, without advertising readiness or sending capture state.
+    if (providerRef.current !== 'server') {
+      input?.getTracks().forEach(track => track.stop());
+      return false;
+    }
+    return prepareRecording(input);
+  }, [prepareRecording]);
+
+  const stop = useCallback(async (stopOptions?: { keepPrepared?: boolean }) => {
     desiredRef.current = false;
     operationGenerationRef.current += 1;
     if (providerRef.current === 'browser') return stopBrowserStt();
+    if (stopOptions?.keepPrepared) return pauseRecording();
     return stopRecording();
-  }, [stopBrowserStt, stopRecording]);
+  }, [pauseRecording, stopBrowserStt, stopRecording]);
 
   return {
     provider,
+    prepare,
     start,
     stop,
     isRecording: provider === 'browser' ? isBrowserRecording : isServerRecording,

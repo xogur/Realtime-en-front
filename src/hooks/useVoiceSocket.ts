@@ -863,6 +863,7 @@ export function useVoiceSocket() {
 
   const {
     provider: sttProvider,
+    prepare: prepareSttInput,
     start: startSttInput,
     stop: stopSttInput,
     isRecording,
@@ -913,11 +914,11 @@ export function useVoiceSocket() {
     return result;
   }, [publishGuidedCaptureStatus, sendSttCaptureState, startSttInput]);
 
-  const stopSttCapture = useCallback(async () => {
+  const stopSttCapture = useCallback(async (keepPrepared = false) => {
     guidedCaptureRef.current = null;
     // Close the backend epoch first so any final browser callback or trailing
     // PCM chunk emitted during local teardown is rejected.
-    await stopSttCaptureOperation(sendSttCaptureState, stopSttInput);
+    await stopSttCaptureOperation(sendSttCaptureState, () => keepPrepared ? stopSttInput({ keepPrepared: true }) : stopSttInput());
   }, [sendSttCaptureState, stopSttInput]);
 
   const clearGuideAudioRequests = useCallback(() => {
@@ -1009,7 +1010,11 @@ export function useVoiceSocket() {
         guidedMicRef.current.active = false;
         guidedMicRef.current.starting = false;
       }
-      lease.stopped = stopSttInput();
+      const guided = useGuidedLearningStore.getState().snapshot;
+      const keepPrepared = guided?.sessionId === data.sessionId && !isGuidedTerminal(guided)
+        && !guidedMicRef.current?.manualStop && !guidedMicRef.current?.failed;
+      lease.stopped = keepPrepared ? stopSttInput({ keepPrepared: true }) : stopSttInput();
+      if (keepPrepared) void prepareSttInput();
       useStore.getState().setLiveTranscript('');
       isSttCaptureReadyRef.current = false;
       setSttReady(false);
@@ -1042,7 +1047,7 @@ export function useVoiceSocket() {
         publishGuidedCaptureStatus('ERROR');
       }
     }
-  }, [flushActiveTts, publishGuidedCaptureStatus, setSttReady, startSttCapture, stopSttInput]);
+  }, [flushActiveTts, prepareSttInput, publishGuidedCaptureStatus, setSttReady, startSttCapture, stopSttInput]);
 
   const suspendTtsForTranslator = useCallback(() => {
     if (translatorTtsGateRef.current === 'translator-open') return;
@@ -1824,6 +1829,9 @@ export function useVoiceSocket() {
               if (useGuidedLearningStore.getState().pushSnapshot(data)) {
                 guidedTtsQuarantineRef.current = true;
                 const snapshot = useGuidedLearningStore.getState().snapshot;
+                if (role === 'controller' && (isGuidedTerminal(snapshot) || snapshot?.guided?.phase === 'RECAP')) {
+                  void stopSttInput();
+                }
                 // A new step or attempt discards whatever the previous one queued,
                 // even when its ROLE lease was already released.
                 if (role === 'controller' && previousGuided && !isGuidedTerminal(previousGuided)
@@ -1895,6 +1903,10 @@ export function useVoiceSocket() {
           case 'learning_mission_entry': {
             const entry = parseMissionEntry(data as Record<string, unknown>);
             if (entry) useMissionLearningStore.getState().setEntry(entry);
+            if (roleRef.current === 'controller') {
+              if (entry?.open && !guidedMicRef.current?.manualStop && !guidedMicRef.current?.failed) void prepareSttInput();
+              else if (entry && !entry.open && entry.returnTo === 'mode') void stopSttInput();
+            }
             break;
           }
           case 'learning_mission_error':
@@ -2260,6 +2272,7 @@ export function useVoiceSocket() {
     beginSessionReplay,
     finishSessionReplay,
     startSttCapture,
+    prepareSttInput,
     stopSttCapture,
     stopSttInput,
     unmuteTts,
@@ -2465,8 +2478,12 @@ export function useVoiceSocket() {
     guidedCaptureRef.current = null;
     void (async () => {
       try {
-        await stopSttCapture();
+        const snapshot = useGuidedLearningStore.getState().snapshot;
+        const keepPrepared = snapshot?.sessionId === sessionId && !isGuidedTerminal(snapshot)
+          && snapshot.guided?.phase !== 'RECAP' && !state.manualStop && !state.failed;
+        await stopSttCapture(keepPrepared);
         if (!current()) return;
+        if (keepPrepared) void prepareSttInput();
         if (!active || state.manualStop || guideAudioRef.current) { state.starting = false; publishGuidedCaptureStatus('STOPPED'); return; }
         publishGuidedCaptureStatus('PREPARING');
         const result = await startSttCapture();
@@ -2480,7 +2497,7 @@ export function useVoiceSocket() {
         publishGuidedCaptureStatus('ERROR');
       } finally { if (deadline !== null) window.clearTimeout(deadline); }
     })();
-  }, [publishGuidedCaptureStatus, sendSttCaptureState, startSttCapture, stopSttCapture, stopSttInput]);
+  }, [prepareSttInput, publishGuidedCaptureStatus, sendSttCaptureState, startSttCapture, stopSttCapture, stopSttInput]);
 
   const startLearningSession = useCallback((topicId: 'restaurant' | 'airport') => {
     const message = {
@@ -2664,6 +2681,7 @@ export function useVoiceSocket() {
 
   return {
     connect,
+    prepareGuidedMicrophone: prepareSttInput,
     disconnect,
     startListening,
     startConversation,

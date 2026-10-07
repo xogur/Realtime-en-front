@@ -1,6 +1,7 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useStore } from '@/stores/useStore';
 import { floatTo16BitPCM } from '@/lib/audioUtils';
+import { MICROPHONE_START_TIMEOUT_MS } from '@/lib/stt';
 
 type WindowWithAudioContext = Window & typeof globalThis & {
     webkitAudioContext?: typeof AudioContext;
@@ -14,6 +15,9 @@ export function useAudioRecorder() {
     const isStartingRef = useRef(false);
     const isRecordingRef = useRef(false);
     const operationIdRef = useRef(0);
+    const captureOperationRef = useRef(0);
+    const preparedRef = useRef(false);
+    const preparationRef = useRef<Promise<boolean> | null>(null);
     const cleanupPromiseRef = useRef<Promise<void>>(Promise.resolve());
     const startupRef = useRef<{ phase: string; startedAt: number } | null>(null);
 
@@ -25,19 +29,17 @@ export function useAudioRecorder() {
     const audioBufferOffsetRef = useRef(0);
     const onDataAvailableRef = useRef<(pcm: Int16Array) => void>(() => { });
 
-    const resetAudioPipeline = useCallback(async () => {
+    const pauseRecording = useCallback(async () => {
         const worklet = workletRef.current;
         const source = sourceRef.current;
-        const activeContext = context.current;
-        const stream = streamRef.current;
-
+        captureOperationRef.current += 1;
+        isStartingRef.current = false;
         workletRef.current = null;
         sourceRef.current = null;
-        context.current = null;
-        streamRef.current = null;
         audioBufferRef.current = null;
         audioBufferOffsetRef.current = 0;
         isRecordingRef.current = false;
+        setRecording(false);
 
         if (worklet) {
             worklet.port.onmessage = null;
@@ -47,6 +49,16 @@ export function useAudioRecorder() {
         if (source) {
             source.disconnect();
         }
+    }, [setRecording]);
+
+    const resetAudioPipeline = useCallback(async () => {
+        void pauseRecording();
+        const activeContext = context.current;
+        const stream = streamRef.current;
+        context.current = null;
+        streamRef.current = null;
+        preparedRef.current = false;
+        preparationRef.current = null;
 
         if (stream) {
             stream.getTracks().forEach((track) => {
@@ -59,7 +71,7 @@ export function useAudioRecorder() {
             await activeContext.close().catch(() => undefined);
         }
 
-    }, []);
+    }, [pauseRecording]);
 
     const queueAudioCleanup = useCallback(() => {
         const previous = cleanupPromiseRef.current;
@@ -69,65 +81,59 @@ export function useAudioRecorder() {
         return cleanupPromiseRef.current;
     }, [resetAudioPipeline]);
 
-    const startRecording = useCallback(async (): Promise<boolean> => {
-        if (isRecordingRef.current || useStore.getState().isRecording) {
-            return true;
+    const prepareRecording = useCallback((input?: MediaStream): Promise<boolean> => {
+        if (input && (!input.getAudioTracks()[0] || input.getAudioTracks()[0].readyState === 'ended')) {
+            input.getTracks().forEach(track => track.stop());
+            return Promise.resolve(false);
         }
-        if (isStartingRef.current) return false;
-
-        isStartingRef.current = true;
+        if (input && (preparedRef.current || preparationRef.current)) {
+            if (input !== streamRef.current) input.getTracks().forEach(track => track.stop());
+        }
+        if (preparedRef.current) return Promise.resolve(true);
+        if (preparationRef.current) return preparationRef.current;
+        if (input) streamRef.current = input;
         const startup = { phase: 'cleanup', startedAt: performance.now() };
         startupRef.current = startup;
         const operationId = operationIdRef.current + 1;
         operationIdRef.current = operationId;
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const prepare = async () => {
+            try {
+                await cleanupPromiseRef.current;
+                if (operationId !== operationIdRef.current) return false;
 
-        try {
-            await cleanupPromiseRef.current;
-            if (operationId !== operationIdRef.current) return false;
-
-            startup.phase = 'getUserMedia';
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    sampleRate: { ideal: 48000 },
-                    channelCount: 1,
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                },
-            });
-            if (operationId !== operationIdRef.current) {
-                stream.getTracks().forEach((track) => track.stop());
-                return false;
-            }
-            streamRef.current = stream;
-            stream.getAudioTracks().forEach((track) => {
-                track.onended = () => {
-                    if (operationId !== operationIdRef.current) return;
-                    operationIdRef.current += 1;
-                    isStartingRef.current = false;
-                    setRecording(false);
-                    void queueAudioCleanup();
-                };
+                startup.phase = 'getUserMedia';
+                const stream = streamRef.current ?? await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        sampleRate: { ideal: 48000 },
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                    },
+                });
+                if (operationId !== operationIdRef.current) {
+                    stream.getTracks().forEach((track) => track.stop());
+                    return false;
+                }
+                streamRef.current = stream;
+                stream.getAudioTracks().forEach((track) => {
+                    track.onended = () => {
+                        if (operationId !== operationIdRef.current) return;
+                        operationIdRef.current += 1;
+                        isStartingRef.current = false;
+                        setRecording(false);
+                        void queueAudioCleanup();
+                    };
             });
 
             startup.phase = 'AudioContext';
             const AudioContextCtor = window.AudioContext || (window as WindowWithAudioContext).webkitAudioContext;
-            if (!AudioContextCtor) {
-                throw new Error('AudioContext is not available in this browser.');
-            }
-
-            const actx = new AudioContextCtor({
-                sampleRate: 48000,
-            });
-            if (operationId !== operationIdRef.current) {
-                await actx.close().catch(() => undefined);
-                return false;
-            }
+            if (!AudioContextCtor) throw new Error('AudioContext is not available in this browser.');
+            const actx = new AudioContextCtor({ sampleRate: 48000 });
             context.current = actx;
-
-            if (actx.state === 'suspended') {
-                await actx.resume();
-            }
+            if (actx.state === 'suspended') await actx.resume();
+            if (operationId !== operationIdRef.current) return false;
 
             startup.phase = 'AudioWorklet';
             await actx.audioWorklet.addModule('/audio-processor.js');
@@ -137,6 +143,50 @@ export function useAudioRecorder() {
                 return false;
             }
 
+            preparedRef.current = true;
+            console.info('Microphone prepared', { elapsedMs: Math.round(performance.now() - startup.startedAt) });
+            return true;
+        } catch (err) {
+            if (operationId !== operationIdRef.current) return false;
+            console.warn('Microphone capture failed', {
+                phase: startup.phase,
+                error: err instanceof Error ? err.name : 'UnknownError',
+                elapsedMs: Math.round(performance.now() - startup.startedAt),
+            });
+            await queueAudioCleanup();
+            return false;
+        }
+        };
+        const pending = Promise.race([prepare(), new Promise<false>(resolve => {
+            timer = setTimeout(() => {
+                if (operationId === operationIdRef.current) {
+                    operationIdRef.current += 1;
+                    void queueAudioCleanup();
+                }
+                resolve(false);
+            }, MICROPHONE_START_TIMEOUT_MS);
+        })]).finally(() => {
+            if (timer) clearTimeout(timer);
+            if (preparationRef.current === pending) preparationRef.current = null;
+            if (startupRef.current === startup) startupRef.current = null;
+        });
+        preparationRef.current = pending;
+        return pending;
+    }, [queueAudioCleanup, setRecording]);
+
+    const startRecording = useCallback(async (): Promise<boolean> => {
+        if (isRecordingRef.current) return true;
+        if (isStartingRef.current) return false;
+        isStartingRef.current = true;
+        const operation = ++captureOperationRef.current;
+        try {
+            if (!await prepareRecording() || operation !== captureOperationRef.current) return false;
+            const actx = context.current;
+            const stream = streamRef.current;
+            if (!actx || !stream || actx.state === 'closed') return false;
+            if (actx.state === 'suspended') await actx.resume();
+            if (operation !== captureOperationRef.current) return false;
+
             const source = actx.createMediaStreamSource(stream);
             const worklet = new AudioWorkletNode(actx, 'my-audio-processor');
 
@@ -144,6 +194,9 @@ export function useAudioRecorder() {
             audioBufferOffsetRef.current = 0;
 
             worklet.port.onmessage = (event) => {
+                // A disconnected worklet may still have queued callbacks. Never
+                // forward samples from before a pause or from a previous turn.
+                if (operation !== captureOperationRef.current || !isRecordingRef.current) return;
                 const int16Data = floatTo16BitPCM(event.data);
                 let currentBuffer = audioBufferRef.current;
                 let currentOffset = audioBufferOffsetRef.current;
@@ -179,23 +232,16 @@ export function useAudioRecorder() {
             workletRef.current = worklet;
             isRecordingRef.current = true;
             setRecording(true);
-            console.info('Microphone capture ready', { elapsedMs: Math.round(performance.now() - startup.startedAt) });
             return true;
         } catch (err) {
-            if (operationId !== operationIdRef.current) return false;
-            console.warn('Microphone capture failed', {
-                phase: startup.phase,
-                error: err instanceof Error ? err.name : 'UnknownError',
-                elapsedMs: Math.round(performance.now() - startup.startedAt),
-            });
+            if (operation !== captureOperationRef.current) return false;
+            console.warn('Microphone activation failed', { error: err instanceof Error ? err.name : 'UnknownError' });
             await queueAudioCleanup();
-            if (operationId === operationIdRef.current) setRecording(false);
             return false;
         } finally {
-            if (operationId === operationIdRef.current) isStartingRef.current = false;
-            if (startupRef.current === startup) startupRef.current = null;
+            if (operation === captureOperationRef.current) isStartingRef.current = false;
         }
-    }, [queueAudioCleanup, setRecording]);
+    }, [prepareRecording, queueAudioCleanup, setRecording]);
 
     const stopRecording = useCallback(async () => {
         if (startupRef.current) {
@@ -211,9 +257,11 @@ export function useAudioRecorder() {
         await queueAudioCleanup();
     }, [queueAudioCleanup, setRecording]);
 
+    useEffect(() => () => { void stopRecording(); }, [stopRecording]);
+
     const setOnDataAvailable = useCallback((cb: (pcm: Int16Array) => void) => {
         onDataAvailableRef.current = cb;
     }, []);
 
-    return { startRecording, stopRecording, setOnDataAvailable, isRecording };
+    return { prepareRecording, startRecording, pauseRecording, stopRecording, setOnDataAvailable, isRecording };
 }

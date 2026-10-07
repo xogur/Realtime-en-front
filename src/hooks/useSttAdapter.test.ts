@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   stopBrowser: vi.fn(),
   startServer: vi.fn(),
   stopServer: vi.fn(),
+  prepareServer: vi.fn(async () => true),
+  pauseServer: vi.fn(async () => undefined),
   setOnDataAvailable: vi.fn(),
   onUnavailable: undefined as undefined | (() => void),
 }));
@@ -25,6 +27,8 @@ vi.mock('@/lib/stt', async (importOriginal) => {
 vi.mock('./useAudioRecorder', () => ({
   useAudioRecorder: () => ({
     startRecording: mocks.startServer,
+    prepareRecording: mocks.prepareServer,
+    pauseRecording: mocks.pauseServer,
     stopRecording: mocks.stopServer,
     setOnDataAvailable: mocks.setOnDataAvailable,
     isRecording: false,
@@ -53,6 +57,19 @@ const makeOptions = () => ({
 });
 
 describe('useSttAdapter browser provider', () => {
+  it('retains server resources only for a guided pause and fully releases them on Stop', async () => {
+    const options = makeOptions();
+    const { result } = renderHook(() => useSttAdapter(options));
+    await act(async () => { await result.current.start({ requiredAudio: true }); });
+    options.onReadyChange.mockClear();
+    await act(async () => { await result.current.stop({ keepPrepared: true }); await result.current.prepare(); });
+    expect(mocks.pauseServer).toHaveBeenCalledOnce();
+    expect(mocks.prepareServer).toHaveBeenCalledOnce();
+    expect(mocks.stopServer).not.toHaveBeenCalled();
+    expect(options.onReadyChange).not.toHaveBeenCalledWith(true);
+    await act(async () => result.current.stop());
+    expect(mocks.stopServer).toHaveBeenCalledOnce();
+  });
   it('accepts a physical device that reopens in twenty seconds', async () => {
     vi.useFakeTimers();
     let ready!: (value: boolean) => void;

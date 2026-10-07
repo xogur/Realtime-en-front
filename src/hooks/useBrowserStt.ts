@@ -187,7 +187,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
     silenceTimerRef.current = null;
   }, []);
 
-  const releaseAudioInput = useCallback(() => {
+  const detachAudioInput = useCallback(() => {
     audioInputGenerationRef.current += 1;
     const stream = mediaStreamRef.current;
     const track = audioTrackRef.current;
@@ -197,9 +197,28 @@ export function useBrowserStt(options: BrowserSttOptions) {
     audioTrackEndedHandlerRef.current = null;
     audioInputPromiseRef.current = null;
     if (track && endedHandler) track.removeEventListener('ended', endedHandler);
-    if (stream) stopMediaStream(stream);
-    else track?.stop();
+    if (!stream) track?.stop();
+    return stream;
   }, []);
+
+  const releaseAudioInput = useCallback(() => {
+    const stream = detachAudioInput();
+    if (stream) stopMediaStream(stream);
+  }, [detachAudioInput]);
+
+  const takeAudioInput = useCallback(async () => {
+    const generation = audioInputGenerationRef.current;
+    const pending = audioInputPromiseRef.current;
+    // A quick touch can beat the initial permission/device result. Allow that
+    // same acquisition to finish instead of stopping and immediately reopening.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (pending) {
+      await Promise.race([pending, new Promise(resolve => { timer = setTimeout(resolve, 1500); })]);
+      if (timer) clearTimeout(timer);
+    }
+    if (generation !== audioInputGenerationRef.current) return null;
+    return detachAudioInput();
+  }, [detachAudioInput]);
 
   const scheduleRestart = useCallback(() => {
     if (!desiredRef.current || restartTimerRef.current) return;
@@ -716,6 +735,6 @@ export function useBrowserStt(options: BrowserSttOptions) {
   }, [clearSilenceTimer, releaseAudioInput]);
 
   return {
-    prepare, start, startAndWaitUntilReady, restartAndWaitUntilReady, stop, isRecording, status,
+    prepare, takeAudioInput, start, startAndWaitUntilReady, restartAndWaitUntilReady, stop, isRecording, status,
   };
 }

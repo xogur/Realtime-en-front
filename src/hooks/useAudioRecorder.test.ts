@@ -40,6 +40,56 @@ describe('microphone retry ownership', () => {
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia } });
   });
   afterEach(() => vi.unstubAllGlobals());
+  it('adopts the mode microphone without reopening it and releases it on unmount', async () => {
+    const track = { stop: vi.fn(), onended: null };
+    const input = { getTracks: () => [track], getAudioTracks: () => [track] } as unknown as MediaStream;
+    const { result, unmount } = renderHook(() => useAudioRecorder());
+    await act(async () => { expect(await result.current.prepareRecording(input)).toBe(true); });
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(useStore.getState().isRecording).toBe(false);
+    await act(async () => { expect(await result.current.startRecording()).toBe(true); });
+    unmount();
+    expect(track.stop).toHaveBeenCalledOnce();
+  });
+  it('prepares silently and reuses the device and context across guided audio pauses', async () => {
+    const { result } = renderHook(() => useAudioRecorder());
+    const pcm = vi.fn(); result.current.setOnDataAvailable(pcm);
+    await act(async () => { expect(await result.current.prepareRecording()).toBe(true); });
+    expect(useStore.getState().isRecording).toBe(false);
+    expect(FakeWorklet.instances).toHaveLength(0);
+    await act(async () => { expect(await result.current.startRecording()).toBe(true); });
+    const staleCallback = FakeWorklet.instances[0].port.onmessage!;
+    await act(async () => result.current.pauseRecording());
+    act(() => staleCallback({ data: new Float32Array(2048) }));
+    expect(pcm).not.toHaveBeenCalled();
+    expect(useStore.getState().isRecording).toBe(false);
+    expect(streams[0].track.stop).not.toHaveBeenCalled();
+    expect(FakeContext.instances[0].close).not.toHaveBeenCalled();
+    await act(async () => { expect(await result.current.startRecording()).toBe(true); });
+    act(() => staleCallback({ data: new Float32Array(2048) }));
+    expect(pcm).not.toHaveBeenCalled();
+    act(() => FakeWorklet.instances[1].port.onmessage?.({ data: new Float32Array(2048) }));
+    expect(pcm).toHaveBeenCalledOnce();
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+    expect(FakeContext.instances).toHaveLength(1);
+    await act(async () => result.current.stopRecording());
+    expect(streams[0].track.stop).toHaveBeenCalledOnce();
+    expect(FakeContext.instances[0].close).toHaveBeenCalledOnce();
+  });
+
+  it('joins in-flight preparation without reacquiring the microphone and cancels a waiting start on pause', async () => {
+    const moduleReady = deferred(); FakeContext.firstModule = moduleReady.promise;
+    const { result } = renderHook(() => useAudioRecorder());
+    let prepared!: Promise<boolean>, started!: Promise<boolean>;
+    act(() => { prepared = result.current.prepareRecording(); started = result.current.startRecording(); });
+    await waitFor(() => expect(FakeContext.instances[0]?.audioWorklet.addModule).toHaveBeenCalledOnce());
+    await act(async () => result.current.pauseRecording());
+    await act(async () => { moduleReady.resolve(); expect(await prepared).toBe(true); expect(await started).toBe(false); });
+    expect(useStore.getState().isRecording).toBe(false);
+    expect(FakeWorklet.instances).toHaveLength(0);
+    await act(async () => { expect(await result.current.startRecording()).toBe(true); });
+    expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
   it('waits for both Stop cleanups before Retry and preserves PCM after the old close resolves', async () => {
     const { result } = renderHook(() => useAudioRecorder());
     const pcm = vi.fn(); result.current.setOnDataAvailable(pcm);

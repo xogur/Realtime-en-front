@@ -51,6 +51,7 @@ export function ControlPanel({
         prepareForReservationIntro,
         startLearningRoleplay,
         startGuidedLearningVoice,
+        prepareGuidedMicrophone,
         syncGuidedCapture,
         // 학습하기 UI를 다시 노출할 때 함께 복구합니다.
         // startLearningSession,
@@ -141,15 +142,20 @@ export function ControlPanel({
         return () => window.clearTimeout(timer);
     }, [closeConversationEntry, learningEntryActive]);
 
-    const handleSelectMode = useCallback((mode: ConversationMode) => {
+    const handleSelectMode = useCallback((mode: ConversationMode, preparedInput?: MediaStream) => {
         setModeError(null);
         if (mode === 'learning') {
-            if (learningAvailability !== 'available') return;
+            if (learningAvailability !== 'available') {
+                preparedInput?.getTracks().forEach(track => track.stop());
+                return;
+            }
             // The learning screen itself runs on the guide display (/chat).
             if (isRecording) stopListening();
+            if (preparedInput) void prepareGuidedMicrophone(preparedInput);
             setEntryStep(null);
             connectForLearning();
             setMissionEntry(true).catch(() => {
+                stopListening();
                 setModeError('학습모드를 열지 못했어요. 잠시 후 다시 시도해 주세요.');
                 setEntryStep('mode');
             });
@@ -157,7 +163,7 @@ export function ControlPanel({
         }
         setEntryStep(null);
         setIsTopicSelectorOpen(true);
-    }, [connectForLearning, isRecording, learningAvailability, stopListening]);
+    }, [connectForLearning, isRecording, learningAvailability, prepareGuidedMicrophone, stopListening]);
 
     // "모드 다시 선택" on the guide display brings the mode choice back here.
     useEffect(() => {

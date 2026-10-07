@@ -110,10 +110,16 @@ async function speakOwned(owner: BrowserTtsOwner, text: string, language: string
     window.speechSynthesis.cancel();
     settleActive(false);
   }
-  const voices = requireVoice ? await loadVoices(window.speechSynthesis) : window.speechSynthesis.getVoices();
+  // Chrome's Google network voice can play buffered audio after cancel(),
+  // even while speechSynthesis reports idle. Entry guidance must be cancellable:
+  // use an installed voice, or let the selector fall back to touch.
+  const localVoiceOnly = owner === 'mode-selector';
+  const installedVoices = requireVoice || localVoiceOnly
+    ? await loadVoices(window.speechSynthesis) : window.speechSynthesis.getVoices();
   if (generation !== speechGeneration) return false;
   pendingSpeechOwner = null;
-  if (requireVoice && !selectPreferredVoice(voices, language)) return false;
+  const voices = localVoiceOnly ? installedVoices.filter(voice => voice.localService) : installedVoices;
+  if ((requireVoice || localVoiceOnly) && !selectPreferredVoice(voices, language)) return false;
   return new Promise<boolean>((resolve) => {
     let settled = false;
     const settle = (result: boolean) => {

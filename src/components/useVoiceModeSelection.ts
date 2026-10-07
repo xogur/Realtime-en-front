@@ -12,7 +12,7 @@ const PROMPT_PREPARATION_TIMEOUT_MS = 5000;
 type Props = {
   enabled: boolean;
   learningReady: boolean;
-  onSelect: (mode: ConversationMode) => void;
+  onSelect: (mode: ConversationMode, preparedInput?: MediaStream) => void;
 };
 
 export function useVoiceModeSelection({ enabled, learningReady, onSelect }: Props) {
@@ -27,6 +27,7 @@ export function useVoiceModeSelection({ enabled, learningReady, onSelect }: Prop
   const callbacksRef = useRef({ onSelect, learningReady });
   const sttRef = useRef<{
     prepare: () => Promise<boolean>;
+    takeAudioInput: () => Promise<MediaStream | null>;
     startAndWaitUntilReady: () => Promise<boolean>;
     stop: () => Promise<void>;
   } | null>(null);
@@ -61,8 +62,8 @@ export function useVoiceModeSelection({ enabled, learningReady, onSelect }: Prop
     getPlaybackState: () => ({ isPlaying: isSpeaking, text: promptRef.current }),
   });
   useEffect(() => {
-    sttRef.current = { prepare: stt.prepare, startAndWaitUntilReady: stt.startAndWaitUntilReady, stop: stt.stop };
-  }, [stt.prepare, stt.startAndWaitUntilReady, stt.stop]);
+    sttRef.current = { prepare: stt.prepare, takeAudioInput: stt.takeAudioInput, startAndWaitUntilReady: stt.startAndWaitUntilReady, stop: stt.stop };
+  }, [stt.prepare, stt.takeAudioInput, stt.startAndWaitUntilReady, stt.stop]);
 
   const announce = useCallback(async (text: string) => {
     const generation = ++generationRef.current;
@@ -103,8 +104,18 @@ export function useVoiceModeSelection({ enabled, learningReady, onSelect }: Prop
     const generation = ++generationRef.current;
     cancel();
     setStatus('selected');
+    // Transfer the already-open device to learning before stopping recognition.
+    // Closing and reopening it here can cost several seconds on physical kiosks.
+    const input = mode === 'learning' ? await sttRef.current?.takeAudioInput() : null;
+    if (generation !== generationRef.current) {
+      input?.getTracks().forEach(track => track.stop());
+      return;
+    }
     await sttRef.current?.stop();
-    if (generation === generationRef.current) callbacksRef.current.onSelect(mode);
+    if (generation === generationRef.current) {
+      if (input) callbacksRef.current.onSelect(mode, input);
+      else callbacksRef.current.onSelect(mode);
+    } else input?.getTracks().forEach(track => track.stop());
   }, [cancel]);
 
   useEffect(() => {

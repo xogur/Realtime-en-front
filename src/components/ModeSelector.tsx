@@ -14,7 +14,7 @@ type ModeSelectorProps = {
   learningAvailability: MissionLearningAvailability;
   participantName?: string | null;
   error?: string | null;
-  onSelect: (mode: ConversationMode) => void;
+  onSelect: (mode: ConversationMode, preparedInput?: MediaStream) => void;
   onClose: () => void;
 };
 

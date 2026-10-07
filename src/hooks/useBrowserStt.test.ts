@@ -197,6 +197,46 @@ describe('useBrowserStt restart handling', () => {
     expect(audioTrack.stop).toHaveBeenCalledTimes(1);
   });
 
+  it('transfers a prepared input without closing it when recognition stops or unmounts', async () => {
+    const { result, unmount } = renderHook(() => useBrowserStt(makeOptions()));
+    await act(async () => { expect(await result.current.prepare()).toBe(true); });
+    const input = await result.current.takeAudioInput();
+    expect(input?.getAudioTracks()[0]).toBe(audioTrack);
+    expect(await result.current.takeAudioInput()).toBeNull();
+    await act(async () => result.current.stop());
+    unmount();
+    expect(audioTrack.stop).not.toHaveBeenCalled();
+    input?.getTracks().forEach(track => track.stop());
+    expect(audioTrack.stop).toHaveBeenCalledOnce();
+  });
+
+  it('lets a quick selection finish the same device acquisition before handing it off', async () => {
+    let ready!: (stream: MediaStream) => void;
+    getUserMedia.mockImplementationOnce(() => new Promise(resolve => { ready = resolve; }));
+    const { result } = renderHook(() => useBrowserStt(makeOptions()));
+    let preparation!: Promise<boolean>, transfer!: Promise<MediaStream | null>;
+    act(() => { preparation = result.current.prepare(); transfer = result.current.takeAudioInput(); });
+    await act(async () => { ready(makeMediaStream(audioTrack)); await preparation; });
+    const input = await transfer;
+    expect(input?.getAudioTracks()[0]).toBe(audioTrack);
+    await act(async () => result.current.stop());
+    expect(getUserMedia).toHaveBeenCalledOnce();
+    expect(audioTrack.stop).not.toHaveBeenCalled();
+    input?.getTracks().forEach(track => track.stop());
+  });
+
+  it('bounds a pending handoff and disposes of a device that arrives after that boundary', async () => {
+    let ready!: (stream: MediaStream) => void;
+    getUserMedia.mockImplementationOnce(() => new Promise(resolve => { ready = resolve; }));
+    const { result } = renderHook(() => useBrowserStt(makeOptions()));
+    let preparation!: Promise<boolean>, transfer!: Promise<MediaStream | null>;
+    act(() => { preparation = result.current.prepare(); transfer = result.current.takeAudioInput(); });
+    await act(async () => vi.advanceTimersByTimeAsync(1500));
+    await expect(transfer).resolves.toBeNull();
+    await act(async () => { ready(makeMediaStream(audioTrack)); expect(await preparation).toBe(false); });
+    expect(audioTrack.stop).toHaveBeenCalledOnce();
+  });
+
   it('reports ready only after the recognizer onstart event', async () => {
     Object.defineProperty(window, 'webkitSpeechRecognition', {
       configurable: true,

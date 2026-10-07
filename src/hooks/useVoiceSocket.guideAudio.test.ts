@@ -14,12 +14,13 @@ import { useGuidedLessonVoice } from '@/features/missionLearning/guided/useGuide
 const mocks = vi.hoisted(() => ({
   options: null as Parameters<typeof useSttAdapter>[0] | null,
   start: vi.fn(async () => true), stop: vi.fn(async (): Promise<void> => undefined),
+  prepare: vi.fn(async () => true),
   play: vi.fn(), clear: vi.fn(), mute: vi.fn(), unmute: vi.fn(),
   idle: undefined as (() => void) | undefined,
 }));
 vi.mock('./useSttAdapter', () => ({ useSttAdapter: (options: Parameters<typeof useSttAdapter>[0]) => {
   mocks.options = options;
-  return { provider: 'browser', start: mocks.start, stop: mocks.stop, isRecording: useStore((state) => state.isRecording) };
+  return { provider: 'browser', prepare: mocks.prepare, start: mocks.start, stop: mocks.stop, isRecording: useStore((state) => state.isRecording) };
 } }));
 vi.mock('./useAudioPlayer', () => ({ useAudioPlayer: (options: { onPlaybackIdle?: () => void }) => { mocks.idle = options.onPlaybackIdle; return ({
   playPcmChunk: mocks.play, clearQueue: mocks.clear, muteTts: mocks.mute, unmuteTts: mocks.unmute,
@@ -57,6 +58,23 @@ const guideEvent = (active: boolean, playbackId = 'play-1') => ({
 });
 
 describe('mission guide audio WebSocket control', () => {
+  it('prepares without starting capture at learning entry, retains hardware during guide audio, and releases it on Stop', async () => {
+    const { socket, result } = await controller();
+    mocks.prepare.mockClear(); mocks.start.mockClear(); mocks.stop.mockClear();
+    await act(async () => socket.emit({ type: 'learning_mission_entry', open: true, seq: 2, returnTo: null }));
+    expect(mocks.prepare).toHaveBeenCalledOnce();
+    expect(mocks.start).not.toHaveBeenCalled();
+    await act(async () => socket.emit(guidedFixture()));
+    await act(async () => socket.emit({ ...guideEvent(true, 'warmup'), sessionId: 'guided-one' }));
+    expect(mocks.stop).toHaveBeenLastCalledWith({ keepPrepared: true });
+    expect(mocks.start).not.toHaveBeenCalled();
+    mocks.stop.mockClear();
+    act(() => result.current.stopListening());
+    expect(mocks.stop).toHaveBeenCalledWith();
+    const warmups = mocks.prepare.mock.calls.length;
+    await act(async () => socket.emit({ ...guideEvent(true, 'after-stop'), sessionId: 'guided-one' }));
+    expect(mocks.prepare).toHaveBeenCalledTimes(warmups);
+  });
   it('treats a recorder start interrupted by ROLE acquisition as superseded without closing the server lease', async () => {
     const { socket, result } = await controller();
     await act(async () => socket.emit(guidedFixture()));

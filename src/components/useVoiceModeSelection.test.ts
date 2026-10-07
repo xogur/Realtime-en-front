@@ -11,12 +11,13 @@ type Options = {
 const mocks = vi.hoisted(() => ({
   options: null as Options | null,
   prepare: vi.fn(async () => true), start: vi.fn(async () => true),
+  takeAudioInput: vi.fn<() => Promise<MediaStream | null>>(async () => null),
   stop: vi.fn(async () => undefined), speak: vi.fn(async () => true), cancel: vi.fn(),
 }));
 vi.mock('@/hooks/useBrowserStt', () => ({
   useBrowserStt: (options: Options) => {
     mocks.options = options;
-    return { prepare: mocks.prepare, startAndWaitUntilReady: mocks.start, stop: mocks.stop, isRecording: true };
+    return { prepare: mocks.prepare, takeAudioInput: mocks.takeAudioInput, startAndWaitUntilReady: mocks.start, stop: mocks.stop, isRecording: true };
   },
 }));
 vi.mock('@/hooks/useBrowserTts', () => ({
@@ -80,6 +81,40 @@ describe('voice mode selection', () => {
     expect(result.current.error).toContain('마이크 권한');
     await act(async () => result.current.select('learning'));
     expect(onSelect).toHaveBeenCalledWith('learning');
+  });
+
+  it('keeps touch selection available when no cancellable mode voice can be played', async () => {
+    mocks.speak.mockResolvedValueOnce(false);
+    const onSelect = vi.fn();
+    const { result } = renderHook(() => useVoiceModeSelection({ enabled: true, learningReady: true, onSelect }));
+    await waitFor(() => expect(result.current.status).toBe('unavailable'));
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(result.current.error).toContain('터치');
+    await act(async () => result.current.select('learning'));
+    expect(onSelect).toHaveBeenCalledWith('learning');
+  });
+
+  it('passes the open microphone to learning and releases it if selection is cancelled during teardown', async () => {
+    const stopTrack = vi.fn();
+    const input = { getTracks: () => [{ stop: stopTrack }] } as unknown as MediaStream;
+    mocks.takeAudioInput.mockResolvedValueOnce(input);
+    const onSelect = vi.fn();
+    const { result, rerender } = renderHook(({ enabled }) => useVoiceModeSelection({ enabled, learningReady: true, onSelect }), { initialProps: { enabled: true } });
+    await waitFor(() => expect(result.current.status).toBe('listening'));
+    await act(async () => result.current.select('learning'));
+    expect(onSelect).toHaveBeenCalledWith('learning', input);
+    expect(stopTrack).not.toHaveBeenCalled();
+    rerender({ enabled: false }); rerender({ enabled: true });
+    await waitFor(() => expect(result.current.status).toBe('listening'));
+    mocks.takeAudioInput.mockResolvedValueOnce(input);
+    let finish!: () => void;
+    mocks.stop.mockImplementationOnce(() => new Promise(resolve => { finish = () => resolve(undefined); }));
+    let selection!: Promise<void>;
+    await act(async () => { selection = result.current.select('learning'); });
+    rerender({ enabled: false });
+    await act(async () => { finish(); await selection; });
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(stopTrack).toHaveBeenCalledOnce();
   });
 
   it('cancels pending selection and listening when the dialog closes', async () => {

@@ -56,6 +56,58 @@ describe('useBrowserTts', () => {
     vi.unstubAllGlobals();
   });
 
+  it('uses a local Korean voice for mode guidance even when a network voice ranks higher', async () => {
+    const local = voice('Microsoft Heami - Korean (Korean)', 'ko-KR');
+    const network = { ...voice('Google 한국의', 'ko-KR'), localService: false };
+    const synthesis = {
+      cancel: vi.fn(), speak: vi.fn<(utterance: SpeechSynthesisUtterance) => void>(), getVoices: vi.fn(() => [network, local]),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal('speechSynthesis', synthesis);
+    vi.stubGlobal('SpeechSynthesisUtterance', class { constructor(public text: string) {} });
+    const { result } = renderHook(() => useBrowserTts('mode-selector'));
+    let playback!: Promise<boolean>;
+    await act(async () => { playback = result.current.speak('안내가 끝나면 프리토킹 또는 학습모드라고 말씀해 주세요.'); });
+    expect(synthesis.speak).toHaveBeenCalledOnce();
+    expect(synthesis.speak.mock.calls[0][0].voice).toBe(local);
+    act(() => result.current.cancel());
+    await expect(playback).resolves.toBe(false);
+  });
+
+  it('falls back to touch instead of queueing network mode guidance when no local Korean voice exists', async () => {
+    const synthesis = {
+      cancel: vi.fn(), speak: vi.fn(),
+      getVoices: vi.fn(() => [voice('English', 'en-US'), { ...voice('Google 한국의', 'ko-KR'), localService: false }]),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal('speechSynthesis', synthesis);
+    vi.stubGlobal('SpeechSynthesisUtterance', class { constructor(public text: string) {} });
+    const { result } = renderHook(() => useBrowserTts('mode-selector'));
+    let outcome: boolean | undefined;
+    await act(async () => {
+      void result.current.speak('모드를 선택해 주세요.').then(value => { outcome = value; });
+    });
+    expect(synthesis.speak).not.toHaveBeenCalled();
+    expect(outcome).toBe(false);
+  });
+
+  it('does not enqueue a mode prompt if selection cancels it while installed voices load', async () => {
+    vi.useFakeTimers();
+    const synthesis = {
+      cancel: vi.fn(), speak: vi.fn(), getVoices: vi.fn(() => [] as SpeechSynthesisVoice[]),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal('speechSynthesis', synthesis);
+    vi.stubGlobal('SpeechSynthesisUtterance', class { constructor(public text: string) {} });
+    const { result } = renderHook(() => useBrowserTts('mode-selector'));
+    let playback!: Promise<boolean>;
+    act(() => { playback = result.current.speak('모드를 선택해 주세요.'); result.current.cancel(); });
+    synthesis.getVoices.mockReturnValue([voice('Microsoft Heami', 'ko-KR')]);
+    await act(async () => vi.advanceTimersByTimeAsync(800));
+    await expect(playback).resolves.toBe(false);
+    expect(synthesis.speak).not.toHaveBeenCalled();
+  });
+
   it('fails guided speech without a matching voice and cancels pending voice loading', async () => {
     vi.useFakeTimers();
     const synthesis = { cancel: vi.fn(), speak: vi.fn(), getVoices: vi.fn(() => [] as SpeechSynthesisVoice[]), addEventListener: vi.fn(), removeEventListener: vi.fn() };
