@@ -15,11 +15,20 @@ const mocks = vi.hoisted(() => ({
   availability: 'available' as MissionLearningAvailability,
   setMissionEntry: vi.fn(),
   getMissionHome: vi.fn(),
+  publishStoryControl: vi.fn(),
+  storyListener: null as null | ((state: { action: 'open' | 'close'; storyId: string | null; returnTo: 'mode' | null; version: number }, meta: { initial: boolean }) => void),
 }));
 
 vi.mock('@/hooks/useVoiceSocket', () => ({ useVoiceSocket: mocks.useVoiceSocket }));
 vi.mock('@/features/missionLearning/useMissionLearningAvailability', () => ({
   useMissionLearningAvailability: () => mocks.availability,
+}));
+vi.mock('@/features/storyListening/control', () => ({
+  publishStoryControl: mocks.publishStoryControl,
+  subscribeStoryControl: (_kioskId: string, listener: typeof mocks.storyListener) => {
+    mocks.storyListener = listener;
+    return () => { mocks.storyListener = null; };
+  },
 }));
 vi.mock('@/features/missionLearning/api', () => ({
   setMissionEntry: mocks.setMissionEntry,
@@ -65,6 +74,7 @@ describe('ControlPanel mode selection', () => {
     vi.clearAllMocks();
     mocks.availability = 'available';
     mocks.setMissionEntry.mockResolvedValue(undefined);
+    mocks.publishStoryControl.mockResolvedValue(true);
     mocks.getMissionHome.mockResolvedValue({ entry: null, activeSession: null });
     controls.isConnected = true;
     useMissionLearningStore.setState({ entry: null, snapshot: null });
@@ -117,6 +127,42 @@ describe('ControlPanel mode selection', () => {
     expect(screen.queryByRole('dialog', { name: '원하는 대화 스타일을 선택하세요' })).toBeNull();
     expect(controls.startConversation).not.toHaveBeenCalled();
     expect(controls.startListening).not.toHaveBeenCalled();
+  });
+
+  it('opens the story on the guide screen without learning or free talk', async () => {
+    openEntry();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: /^이야기 듣기/ })));
+    expect(mocks.publishStoryControl).toHaveBeenCalledWith({ action: 'open', storyId: 'odyssey' }, expect.any(String));
+    expect(controls.pauseConversationForUsageEnd).toHaveBeenCalledTimes(1);
+    expect(controls.clearHistory).not.toHaveBeenCalled();
+    expect(mocks.setMissionEntry).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: '원하는 모드를 선택하세요' })).toBeNull();
+    expect(screen.queryByRole('dialog', { name: '원하는 대화 스타일을 선택하세요' })).toBeNull();
+    expect(controls.startListening).not.toHaveBeenCalled();
+  });
+
+  it('shows the mode choice again when the story screen cannot be opened', async () => {
+    mocks.publishStoryControl.mockResolvedValueOnce(false);
+    openEntry();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: /^이야기 듣기/ })));
+    await waitFor(() => expect(screen.getByRole('dialog', { name: '원하는 모드를 선택하세요' })).toBeTruthy());
+    expect(screen.getByText('이야기 화면을 열지 못했어요. 잠시 후 다시 시도해 주세요.')).toBeTruthy();
+  });
+
+  it('closes an open story when another mode is chosen', async () => {
+    openEntry();
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: /^이야기 듣기/ })));
+    fireEvent.click(screen.getByRole('button', { name: 'Turn microphone on' }));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: /^프리토킹/ })));
+    expect(mocks.publishStoryControl).toHaveBeenLastCalledWith({ action: 'close' }, expect.any(String));
+  });
+
+  it('reopens the mode choice when the story screen asks for it, ignoring the replayed state', async () => {
+    render(<ControlPanel onOpenSettings={vi.fn()} />);
+    await act(async () => mocks.storyListener?.({ action: 'close', storyId: null, returnTo: 'mode', version: 3 }, { initial: true }));
+    expect(screen.queryByRole('dialog', { name: '원하는 모드를 선택하세요' })).toBeNull();
+    await act(async () => mocks.storyListener?.({ action: 'close', storyId: null, returnTo: 'mode', version: 4 }, { initial: false }));
+    expect(screen.getByRole('dialog', { name: '원하는 모드를 선택하세요' })).toBeTruthy();
   });
 
   it('connects the avatar screen when learning mode is chosen while offline', async () => {

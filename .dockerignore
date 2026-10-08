@@ -4,6 +4,9 @@ node_modules
 .env*
 .git
 .github
+.codex-local
+.claude
+artifacts
 .dockerignore
 Dockerfile
 docker-compose.yml

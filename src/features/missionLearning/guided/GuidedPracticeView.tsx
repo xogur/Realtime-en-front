@@ -24,9 +24,8 @@ export function GuidedPracticeView({ snapshot, busy, onCommand, onPlay, onCoach 
   const waiting = status === 'LISTENING' && !transcript && g?.inputState === 'READY' && g.audioOwner === 'NONE';
   useEffect(() => {
     if (!waiting) return;
-    const help = window.setTimeout(() => setIdle({ key: idleKey, seconds: 8 }), 8000);
     const reassurance = window.setTimeout(() => setIdle({ key: idleKey, seconds: 15 }), 15000);
-    return () => { window.clearTimeout(help); window.clearTimeout(reassurance); };
+    return () => { window.clearTimeout(reassurance); };
   }, [idleKey, waiting]);
   if (!g) return null;
   const can = (action: GuidedAction) => snapshot.allowedActions.includes(action);
@@ -59,19 +58,22 @@ export function GuidedPracticeView({ snapshot, busy, onCommand, onPlay, onCoach 
   const meta = PHASE_META[g.phase];
   const PhaseIcon = meta.icon;
   const d = g.display;
+  const [intentTitle, ...intentDetails] = g.intentKo.split('. ');
   const firstSpeaker = d.demo?.[0]?.speaker;
   const sentence = d.modelEn ? { label: '예문', text: d.modelEn } : d.frameEn ? { label: '문장 틀', text: d.frameEn } : null;
   const hasSupport = !!(d.demo?.length || sentence || d.cueEn || d.meaningKo || d.contentCues.length || g.choices.length);
   const showTranscript = g.phase !== 'DEMO' && g.phase !== 'RECAP';
   const live = tone === 'listening' || tone === 'hearing';
+  const nextSupport = g.supportVisible === 'NONE' ? 'CUE' : g.supportVisible === 'CUE' ? 'FRAME' : g.supportVisible === 'FRAME' ? 'MODEL' : null;
+  const hintLabel = nextSupport === 'CUE' ? '힌트 보기 · 1/3' : nextSupport === 'FRAME' ? '문장 틀 보기 · 2/3' : nextSupport === 'MODEL' ? '전체 예문 보기 · 3/3' : '전체 예문 공개 · 3/3';
+  const showHint = () => { if (!busy && can('SHOW_SUPPORT') && nextSupport) command('SHOW_SUPPORT', { support: nextSupport }); };
 
   type Action = { key: string; label: string; icon: LucideIcon; kind: 'primary' | 'secondary' | 'ghost'; onClick: () => void };
   const actions: Action[] = [];
   const hasNext = can('NEXT_NODE');
   if (can('RETRY_NODE')) actions.push({ key: 'retry', label: '다시 말해보기', icon: RotateCcw, kind: hasNext ? 'secondary' : 'primary', onClick: () => command('RETRY_NODE') });
   if (can('PLAY_MODEL')) actions.push({ key: 'play', label: g.phase === 'DEMO' ? '다시 듣기' : '예시 듣기', icon: Volume2, kind: 'secondary', onClick: onPlay });
-  if (can('SHOW_SUPPORT')) actions.push({ key: 'support', label: g.phase === 'TRANSFER' ? '도움 보기' : g.supportVisible === 'NONE' || g.supportVisible === 'CUE' ? '문장 시작 보기' : '도움 더 보기', icon: Eye, kind: 'secondary',
-    onClick: () => command('SHOW_SUPPORT', { support: g.supportVisible === 'NONE' || g.supportVisible === 'CUE' ? 'FRAME' : 'MODEL' }) });
+  if (can('SHOW_SUPPORT') && nextSupport) actions.push({ key: 'support', label: hintLabel, icon: Eye, kind: 'secondary', onClick: showHint });
   if (can('REDUCE_SUPPORT')) actions.push({ key: 'reduce', label: '도움 줄여보기', icon: EyeOff, kind: 'secondary', onClick: () => command('REDUCE_SUPPORT') });
   if (can('SKIP_NODE')) actions.push({ key: 'skip', label: '도움받고 계속', icon: SkipForward, kind: 'secondary', onClick: () => command('SKIP_NODE') });
   if (can('END_LESSON')) actions.push({ key: 'end', label: g.phase === 'TRANSFER' ? '여기까지' : '마무리', icon: Flag, kind: 'ghost', onClick: () => onCommand('END_LESSON') });
@@ -84,15 +86,19 @@ export function GuidedPracticeView({ snapshot, busy, onCommand, onPlay, onCoach 
       <p className="inline-flex items-center gap-2 rounded-full bg-[#e7efe8] px-3 py-1 text-sm font-bold text-[#34513c]">
         <PhaseIcon aria-hidden className="h-4 w-4" />{meta.hint}
       </p>
-      <h2 className="text-3xl font-extrabold leading-snug tracking-tight text-[#231f1b] [@media(max-height:820px)]:text-2xl">{g.intentKo}</h2>
+      <h2 className="text-3xl font-extrabold leading-snug tracking-tight text-[#231f1b] [@media(max-height:820px)]:text-2xl">{intentTitle}</h2>
+      {intentDetails.length > 0 && <p aria-label="상황 조건" className="rounded-2xl bg-white/70 px-4 py-3 text-base leading-relaxed text-[#5f5851]">{intentDetails.join('. ')}</p>}
     </div>
 
     {g.promptEn && <div className="guided-slide-left flex items-end gap-3" style={stagger(1)}>
       <span aria-hidden className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#f3d9a4] to-[#e4b25a] text-[#5a3d0c] shadow-sm"><MessageCircleMore className="h-5 w-5" /></span>
-      <p className="max-w-[85%] rounded-3xl rounded-bl-md bg-white px-5 py-3 text-2xl font-medium text-[#231f1b] shadow-[0_10px_24px_-18px_rgba(72,60,45,0.6)] ring-1 ring-[#483c2d]/8">{g.promptEn}</p>
+      <div className="max-w-[85%] rounded-3xl rounded-bl-md bg-white px-5 py-3 shadow-[0_10px_24px_-18px_rgba(72,60,45,0.6)] ring-1 ring-[#483c2d]/8">
+        <p className="text-2xl font-medium text-[#231f1b]">{g.promptEn}</p>
+        {g.promptKo && <p lang="ko" className="mt-2 border-t border-[#483c2d]/10 pt-2 text-base leading-relaxed text-[#6b625a]">{g.promptKo}</p>}
+      </div>
     </div>}
 
-    {hasSupport && <section aria-label="지금 필요한 도움" className={`${guidedCard} guided-rise space-y-4 p-5 sm:p-6`} style={stagger(2)}>
+    {hasSupport && <section aria-label="지금 필요한 도움" aria-live="polite" className={`${guidedCard} guided-rise space-y-4 p-5 sm:p-6`} style={stagger(2)}>
       {d.demo && d.demo.length > 0 && <div className="space-y-2.5">{d.demo.map((line, i) => {
         const left = line.speaker === firstSpeaker;
         return <div key={i} className={`flex ${left ? 'guided-slide-left justify-start' : 'guided-slide-right justify-end'}`} style={stagger(i, 260, 120)}>
@@ -149,9 +155,16 @@ export function GuidedPracticeView({ snapshot, busy, onCommand, onPlay, onCoach 
       </section>}
     </div>
 
-    {waiting && idle?.key === idleKey && <div key={idle.seconds} className="guided-rise flex items-center gap-3 rounded-2xl bg-[#fbf1d9] p-4 ring-1 ring-[#e4b25a]/30">
-      {idle.seconds >= 15 ? <HeartHandshake aria-hidden className="h-6 w-6 shrink-0 text-[#b9821f]" /> : <Lightbulb aria-hidden className="guided-breathe h-6 w-6 shrink-0 text-[#b9821f]" />}
-      <p role="status" className="font-semibold text-[#4a3510]">{idle.seconds >= 15 ? '천천히 해도 괜찮아요. 도움을 보거나 여기까지 해도 돼요.' : '막히면 도움 보기를 눌러 보세요.'}</p>
+    {can('SHOW_SUPPORT') && <button type="button" aria-label={hintLabel} disabled={busy || !nextSupport} onClick={showHint}
+      className="guided-rise flex min-h-14 w-full items-center gap-3 rounded-2xl bg-[#fbf1d9] p-4 text-left ring-1 ring-[#e4b25a]/30 transition-colors hover:bg-[#f5e5bd] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#b9821f] disabled:cursor-default disabled:opacity-60">
+      <Lightbulb aria-hidden className="h-6 w-6 shrink-0 text-[#b9821f]" />
+      <span className="space-y-1"><span className="block font-bold text-[#4a3510]">{hintLabel}</span>
+        <span className="block text-sm text-[#705a35]">{nextSupport ? '막히면 여기를 눌러 보세요.' : '예문을 참고해 직접 말해 보세요.'}</span></span>
+    </button>}
+
+    {waiting && idle?.key === idleKey && idle.seconds >= 15 && <div className="guided-rise flex items-center gap-3 rounded-2xl bg-[#fbf1d9] p-4 ring-1 ring-[#e4b25a]/30">
+      <HeartHandshake aria-hidden className="h-6 w-6 shrink-0 text-[#b9821f]" />
+      <p role="status" className="font-semibold text-[#4a3510]">천천히 해도 괜찮아요. 도움을 보거나 여기까지 해도 돼요.</p>
     </div>}
 
     {g.outcome && <Outcome key={g.attemptId} outcome={g.outcome}>
@@ -161,15 +174,15 @@ export function GuidedPracticeView({ snapshot, busy, onCommand, onPlay, onCoach 
     </div>
    </div>
 
-    <div className="guided-rise flex shrink-0 items-center gap-4 rounded-[1.75rem] bg-white/75 px-5 py-4 shadow-[0_18px_40px_-30px_rgba(72,60,45,0.6)] ring-1 ring-[#483c2d]/8 backdrop-blur-md [@media(max-height:820px)]:py-3" style={stagger(4)}>
-      <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+    <div className="guided-rise flex shrink-0 flex-wrap items-center gap-4 rounded-[1.75rem] bg-white/75 px-5 py-4 shadow-[0_18px_40px_-30px_rgba(72,60,45,0.6)] ring-1 ring-[#483c2d]/8 backdrop-blur-md [@media(max-height:820px)]:py-3" style={stagger(4)}>
+      <div className="flex min-w-0 flex-1 basis-52 flex-col items-start gap-1">
         {actions.filter(a => a.kind === 'ghost').map(a => {
           const Icon = a.icon;
           return <button key={a.key} type="button" className={`${guidedGhost} !min-h-11 !px-3 !py-2`} disabled={busy} onClick={a.onClick}><Icon aria-hidden className="h-5 w-5" />{a.label}</button>;
         })}
         <p className="flex items-center gap-1.5 px-1 text-sm text-[#8a8077]"><Info aria-hidden className="h-4 w-4 shrink-0" />버튼으로 고르거나 넘어가는 것만으로 말하기 성공이 되지는 않아요.</p>
       </div>
-      <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+      <div className="flex min-w-0 max-w-full flex-1 basis-[36rem] flex-wrap items-center justify-end gap-3">
         {actions.filter(a => a.kind !== 'ghost').map((a, i) => {
           const Icon = a.icon;
           return <button key={a.key} type="button" style={stagger(i, 50, 260)}

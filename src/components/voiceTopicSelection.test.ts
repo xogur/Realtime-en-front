@@ -11,10 +11,11 @@ describe('parseSpokenModeSelection', () => {
     ['학습 모드로 할게요', 'learning'], ['learning mode', 'learning'],
     ['1번', 'free_talk'], ['두 번째', 'learning'],
     ['프리토킹 말고 학습모드', 'learning'], ['학습모드는 아니고 프리토킹', 'free_talk'],
+    ['이야기 듣기', 'story'], ['동화 들을래요', 'story'], ['3번', 'story'], ['세 번째', 'story'],
   ])('recognizes one mode from %s', (text, expected) => {
     expect(parseSpokenModeSelection(text)).toBe(expected);
   });
-  it.each(['프리토킹 학습모드', '학습모드 말고', '그냥 할게요', '3번'])('rejects ambiguous or unsupported modes: %s', (text) => {
+  it.each(['프리토킹 학습모드', '학습모드 말고', '그냥 할게요', '4번', '학습모드 이야기'])('rejects ambiguous or unsupported modes: %s', (text) => {
     expect(parseSpokenModeSelection(text)).toBeNull();
   });
 });

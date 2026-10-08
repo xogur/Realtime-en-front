@@ -68,10 +68,11 @@ function spokenNumber(text: string): number | null {
 export function parseSpokenModeSelection(text: string): ConversationMode | null {
   const normalized = normalize(text);
   const number = spokenNumber(normalized);
-  if (number) return number === 1 ? 'free_talk' : number === 2 ? 'learning' : null;
+  if (number) return number === 1 ? 'free_talk' : number === 2 ? 'learning' : number === 3 ? 'story' : null;
   return findChoice(normalized, {
     free_talk: ['프리토킹', '자유 대화', '자유롭게 대화', 'free talk', 'free talking'],
     learning: ['학습모드', '학습', 'learning mode', 'learning'],
+    story: ['이야기 듣기', '이야기', '동화', '스토리', 'story'],
   });
 }
 

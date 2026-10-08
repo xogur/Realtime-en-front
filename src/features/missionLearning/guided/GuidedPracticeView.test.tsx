@@ -8,6 +8,21 @@ import { guidedFixture } from './fixtures';
 import { useGuidedLearningStore } from './store';
 
 describe('guided practice UI', () => {
+  it('shows the authored Korean question translation without revealing the model', () => {
+    const s = guidedFixture();
+    s.guided = { ...s.guided!, promptEn: 'What do you like?', promptKo: '무엇을 좋아하나요?', supportVisible: 'NONE', display: { contentCues: [] } };
+    render(<GuidedPracticeView snapshot={s} busy={false} onCommand={vi.fn()} onPlay={vi.fn()} />);
+    expect(screen.getByText('What do you like?')).toBeTruthy();
+    expect(screen.getByText('무엇을 좋아하나요?').getAttribute('lang')).toBe('ko');
+    expect(screen.queryByText('I like music.')).toBeNull();
+  });
+  it('keeps scenario conditions visible separately from the short task heading', () => {
+    const s = guidedFixture();
+    s.guided = { ...s.guided!, intentKo: '함께할 계획 제안하기. 총 60분. cooking 20분, walking 30분.', supportVisible: 'NONE', display: { contentCues: [] } };
+    render(<GuidedPracticeView snapshot={s} busy={false} onCommand={vi.fn()} onPlay={vi.fn()} />);
+    expect(screen.getByRole('heading', { name: '함께할 계획 제안하기' })).toBeTruthy();
+    expect(screen.getByLabelText('상황 조건').textContent).toBe('총 60분. cooking 20분, walking 30분.');
+  });
   it.each([
     ['VOICE_NOT_READY', '마이크 또는 음성 연결을 준비하지 못했어요.'],
     ['NO_SPEECH', '말소리가 들리지 않았어요.'],
@@ -35,6 +50,44 @@ describe('guided practice UI', () => {
     useGuidedLearningStore.setState({ snapshot: guidedFixture(), partialTranscript: '', captureStatus: { sessionId: 'guided-one', nodeId: 'r1', attemptId: 'attempt-one', controllerEpoch: 2, captureEpoch: 4, status: 'LISTENING' } });
   });
   afterEach(() => { cleanup(); vi.useRealTimers(); });
+  it.each([
+    ['NONE', 'CUE', '힌트 보기 · 1/3'],
+    ['CUE', 'FRAME', '문장 틀 보기 · 2/3'],
+    ['FRAME', 'MODEL', '전체 예문 보기 · 3/3'],
+  ] as const)('reveals the next support from %s through either hint control', (visible, next, label) => {
+    const s = guidedFixture();
+    s.guided = { ...s.guided!, supportVisible: visible };
+    const command = vi.fn();
+    const play = vi.fn();
+    const { rerender } = render(<GuidedPracticeView snapshot={s} busy={false} onCommand={command} onPlay={play} />);
+    const controls = screen.getAllByRole('button', { name: label });
+    expect(controls).toHaveLength(2);
+    controls.forEach(control => fireEvent.click(control));
+    expect(command.mock.calls).toEqual(Array.from({ length: 2 }, () => ['SHOW_SUPPORT', { nodeId: 'r1', support: next }]));
+    expect(play).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('이번 시도')).toBeNull();
+    // Only the authoritative snapshot advances the hint; pending requests stay blocked.
+    rerender(<GuidedPracticeView snapshot={s} busy onCommand={command} onPlay={play} />);
+    screen.getAllByRole('button', { name: label }).forEach(control => fireEvent.click(control));
+    expect(command).toHaveBeenCalledTimes(2);
+  });
+  it('stops at the full model, follows the next node, and honors unavailable support', () => {
+    const command = vi.fn();
+    const s = guidedFixture();
+    s.guided = { ...s.guided!, supportVisible: 'MODEL', display: { modelEn: 'Can I have water, please?', contentCues: [] } };
+    const { rerender } = render(<GuidedPracticeView snapshot={s} busy={false} onCommand={command} onPlay={vi.fn()} />);
+    expect(screen.getByText('Can I have water, please?')).toBeTruthy();
+    const complete = screen.getByRole('button', { name: '전체 예문 공개 · 3/3' });
+    expect((complete as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(complete);
+    expect(command).not.toHaveBeenCalled();
+    s.guided = { ...s.guided, nodeId: 'g2', supportVisible: 'NONE', display: { contentCues: [] } };
+    rerender(<GuidedPracticeView snapshot={s} busy={false} onCommand={command} onPlay={vi.fn()} />);
+    fireEvent.click(screen.getAllByRole('button', { name: '힌트 보기 · 1/3' })[0]);
+    expect(command).toHaveBeenLastCalledWith('SHOW_SUPPORT', { nodeId: 'g2', support: 'CUE' });
+    rerender(<GuidedPracticeView snapshot={{ ...s, allowedActions: [] }} busy={false} onCommand={command} onPlay={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /힌트 보기/ })).toBeNull();
+  });
   it('shows current interim recognition and the controller status even when viewer mic is off', () => {
     const snapshot = guidedFixture();
     useStore.setState({ isRecording: false });
@@ -73,15 +126,15 @@ describe('guided practice UI', () => {
     expect(screen.getByText('인식이 불확실해 수행을 확인하지 못했어요.')).toBeTruthy();
     expect(screen.queryByText('예문 없이 말한 시도예요.')).toBeNull();
   });
-  it('shows bounded silent help at 8/15 seconds and suspends it on manual Stop', async () => {
+  it('keeps hints available immediately and suspends idle reassurance on manual Stop', async () => {
     vi.useFakeTimers();
     render(<GuidedPracticeView snapshot={guidedFixture()} busy={false} onCommand={vi.fn()} onPlay={vi.fn()} />);
-    await act(async () => vi.advanceTimersByTimeAsync(8000));
-    expect(screen.getByText('막히면 도움 보기를 눌러 보세요.')).toBeTruthy();
-    await act(async () => vi.advanceTimersByTimeAsync(7000));
+    expect(screen.getByText('막히면 여기를 눌러 보세요.')).toBeTruthy();
+    await act(async () => vi.advanceTimersByTimeAsync(15000));
     expect(screen.getByText(/천천히 해도 괜찮아요/)).toBeTruthy();
     act(() => useGuidedLearningStore.setState({ captureStatus: { ...useGuidedLearningStore.getState().captureStatus!, status: 'STOPPED' } }));
     expect(screen.queryByText(/천천히 해도 괜찮아요/)).toBeNull();
+    expect(screen.getByText('막히면 여기를 눌러 보세요.')).toBeTruthy();
   });
   it('shows observed recap and does not offer an unimplemented free-talk grant', () => {
     const s = guidedFixture({ stage: 'SUMMARY', allowedActions: ['FINISH'], recap: { observations: [{ textKo: '도움받아 부탁했어요.', said: 'Water, please.' }], freeTalkAvailable: false, nextLessons: [] } });

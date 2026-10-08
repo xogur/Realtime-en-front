@@ -2,8 +2,26 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { guidedFixture } from './fixtures';
 import { parseGuidedHome, parseGuidedSnapshot } from './types';
 import { useGuidedLearningStore } from './store';
+import { CONVERSATION_TOPICS } from '@/lib/conversationTopics';
 
 describe('guided v2 contract boundary', () => {
+  it.each(CONVERSATION_TOPICS.map(topic => topic.id))('accepts the complete handoff lifecycle for %s', topicId => {
+    for (const status of ['PREPARED', 'STARTING', 'COMPLETE', 'FAILED'] as const) {
+      const s = guidedFixture({
+        handoff: { id: 'grant', expiresAt: '2026-10-07T06:00:00Z', topicId, openerId: 'lesson-opener', difficultyId: 'beginner', status },
+      });
+      expect(parseGuidedSnapshot(s)).toEqual(s);
+    }
+  });
+  it('rejects unknown handoff topics', () => {
+    const s = guidedFixture({ handoff: { id: 'grant', expiresAt: '2026-10-07T06:00:00Z', topicId: 'unknown', openerId: 'lesson-opener', difficultyId: 'beginner', status: 'PREPARED' } });
+    expect(parseGuidedSnapshot(s)).toBeNull();
+  });
+  it('accepts authored translations and rejects non-text translation payloads', () => {
+    const s = guidedFixture();
+    expect(parseGuidedSnapshot({ ...s, guided: { ...s.guided, promptKo: '무엇을 좋아하나요?' } })).not.toBeNull();
+    expect(parseGuidedSnapshot({ ...s, guided: { ...s.guided, promptKo: { text: 'invalid' } } })).toBeNull();
+  });
   it('accepts optional recovery and turn metadata but rejects unknown enums', () => {
     const s = guidedFixture();
     expect(parseGuidedSnapshot({ ...s, guided: { ...s.guided, turnStatus: 'CAPTURING', recoveryReason: 'NO_FINAL' } })).not.toBeNull();
@@ -32,6 +50,9 @@ describe('guided v2 contract boundary', () => {
     const home = { contractVersion: 2, contentVersion: 'v2', levels: [{ id: 'beginner', labelKo: '초급', available: true }], profile: null, lessons: [], activeSessionId: null };
     expect(parseGuidedHome(home)).toEqual(home);
     expect(parseGuidedHome({ ...home, levels: ['adult'] })).toBeNull();
+    const lesson = { id: 'request_beginner', level: 'beginner', titleKo: '부탁하기', canDoKo: '원하는 것을 부탁해요.' };
+    expect(parseGuidedHome({ ...home, lessons: [lesson] })).not.toBeNull();
+    expect(parseGuidedHome({ ...home, lessons: [{ ...lesson, canDoKo: { text: 'invalid' } }] })).toBeNull();
   });
   it('recovers expired state authoritatively and ignores retired-session packets', () => {
     const store = useGuidedLearningStore.getState();

@@ -11,6 +11,7 @@ import { useMissionGuideAudio, type SetMissionGuideAudio } from '../useMissionGu
 import { MotionConfig } from 'framer-motion';
 import { ArrowLeft, ArrowRight, ChevronRight, Clock, GraduationCap, Leaf, Loader2, Lock, MessageCircle, Mountain, PlayCircle, RefreshCw, SlidersHorizontal, Sparkles, Sprout, Square, TriangleAlert, X, Zap, type LucideIcon } from 'lucide-react';
 import './guided.css';
+import { CONVERSATION_TOPICS } from '@/lib/conversationTopics';
 
 const levelLabels: Record<GuidedLevel, [string, string, LucideIcon, string]> = {
   beginner: ['초급', '문장을 함께 만들어요', Sprout, 'bg-[#e7efe8] text-[#34513c]'],
@@ -27,6 +28,7 @@ export function GuidedLearningEntry({ onBack, onClose, setGuideAudio }: {
   const snapshot = isGuidedTerminal(stored) ? null : stored;
   const [home, setHome] = useState<GuidedHome | null>(null);
   const [editing, setEditing] = useState(false);
+  const [selectedTopic, setSelectedTopic] = useState('daily');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
@@ -136,9 +138,12 @@ export function GuidedLearningEntry({ onBack, onClose, setGuideAudio }: {
   // Remount per screen so each step enters with motion; no exit animation keeps old content out of the DOM.
   const screenKey = storeError ? 'error' : snapshot ? `${snapshot.sessionId}:${snapshot.stage}:${snapshot.guided?.nodeId ?? ''}` : showLevels ? 'levels' : home ? 'lessons' : 'loading';
   const levelLessons = home ? home.lessons.filter(l => l.level === home.profile?.level) : [];
+  const topics = CONVERSATION_TOPICS.filter(t => levelLessons.some(l => (l.topicId ?? 'daily') === t.id));
+  const topic = topics.some(t => t.id === selectedTopic) ? selectedTopic : topics[0]?.id;
+  const visibleLessons = levelLessons.filter(l => (l.topicId ?? 'daily') === topic);
 
-  // Full-screen kiosk layout: every screen is sized to the viewport so touch users never scroll.
-  return <MotionConfig reducedMotion="user"><section role="dialog" aria-modal="true" aria-labelledby="guided-title" className="guided-fade-in fixed inset-0 z-[100] flex flex-col overflow-hidden bg-[#f7f2ec] text-[#27221e]">
+  // Keep each topic's three situations together within the kiosk viewport.
+  return <MotionConfig reducedMotion="user"><section role="dialog" aria-modal="true" aria-labelledby="guided-title" className="guided-fade-in fixed inset-0 z-[100] flex flex-col overflow-clip bg-[#f7f2ec] text-[#27221e]">
     <span aria-hidden className="guided-float-a pointer-events-none absolute -left-40 -top-40 h-[34rem] w-[34rem] rounded-full bg-[#cfe2d3]/55 blur-3xl" />
     <span aria-hidden className="guided-float-b pointer-events-none absolute -bottom-48 -right-32 h-[38rem] w-[38rem] rounded-full bg-[#f6dca8]/40 blur-3xl" />
     {busy && <span aria-hidden className="absolute inset-x-0 top-0 z-30 h-1 overflow-hidden bg-[#34513c]/10"><span className="guided-busy-bar block h-full w-1/3 rounded-full bg-gradient-to-r from-transparent via-[#4f7a5a] to-transparent" /></span>}
@@ -187,13 +192,17 @@ export function GuidedLearningEntry({ onBack, onClose, setGuideAudio }: {
             <div><p className="text-base font-bold text-[#7fa287]">오늘의 수업</p><h2 className="text-4xl font-extrabold tracking-tight">오늘 해볼 말 · {home.profile && levelLabels[home.profile.level][0]}</h2></div>
             <button className={guidedButton} disabled={busy} onClick={() => setEditing(true)}><SlidersHorizontal aria-hidden className="h-5 w-5" />수준 바꾸기</button>
           </div>
-          <div className="mx-auto grid w-full max-w-6xl grid-cols-3 gap-6">{levelLessons.map((lesson, i) => <button key={lesson.id} style={stagger(i, 70, 80)} disabled={busy || lesson.available === false}
+          <div role="group" aria-label="학습 주제" className="mx-auto flex w-full max-w-6xl flex-wrap gap-2">
+            {topics.map(t => <button key={t.id} type="button" aria-pressed={topic === t.id} disabled={busy}
+              className={topic === t.id ? `${guidedPrimary} !text-white` : guidedButton} onClick={() => setSelectedTopic(t.id)}>{t.id === 'daily' ? '기본 연습' : t.label}</button>)}
+          </div>
+          <div className="guided-scroll mx-auto grid min-h-0 w-full max-w-6xl grid-cols-3 gap-6 overflow-y-auto p-1">{visibleLessons.map((lesson, i) => <button key={lesson.id} style={stagger(i, 70, 80)} disabled={busy || lesson.available === false}
             className="guided-rise guided-lift group relative flex min-h-56 flex-col items-start gap-3 rounded-[2rem] border border-[#483c2d]/10 bg-white p-7 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#34513c] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [@media(max-height:820px)]:min-h-44"
             onClick={() => void run(async () => { useGuidedLearningStore.getState().pushSnapshot(await startGuidedLesson(lesson.id)); })}>
             <span aria-hidden className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#e7efe8] text-[#34513c] transition-colors duration-300 group-hover:bg-[#34513c] group-hover:text-white"><MessageCircle className="h-7 w-7" /></span>
             <span className="min-w-0 flex-1">
               <strong className="block text-2xl font-extrabold leading-snug text-[#231f1b]">{lesson.titleKo}</strong>
-              {lesson.goalKo && <p className="mt-2 text-base font-normal text-[#5f5851]">{lesson.goalKo}</p>}
+              {lesson.canDoKo && <p className="mt-2 text-base font-normal text-[#5f5851]">{lesson.canDoKo}</p>}
               {lesson.available === false && <p className="mt-2 text-base font-bold text-[#a0968c]">준비 중</p>}
             </span>
             <span className="flex w-full items-center justify-between">

@@ -1,0 +1,290 @@
+/* Story scene motion. Decorative only: the story text carries every event. */
+
+.story-stage svg [class^='story-'],
+.story-stage svg [class*=' story-'] {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+}
+
+@keyframes story-wave-a { to { transform: translateX(-200px); } }
+@keyframes story-wave-b { to { transform: translateX(-160px); } }
+.story-stage svg .story-wave { animation: story-wave-a 7s linear infinite; transform-box: view-box; transform-origin: 0 0; }
+.story-stage svg .story-wave.story-wave-slow { animation: story-wave-b 10s linear infinite; }
+
+@keyframes story-drift { from { transform: translateX(-30px); } to { transform: translateX(40px); } }
+.story-drift { animation: story-drift 9s ease-in-out infinite alternate; }
+
+@keyframes story-pulse { from { transform: scale(0.94); } to { transform: scale(1.1); } }
+.story-pulse { animation: story-pulse 1.8s ease-in-out infinite alternate; }
+
+@keyframes story-twinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+.story-twinkle { animation: story-twinkle 2.2s ease-in-out infinite; }
+
+@keyframes story-rock { from { transform: rotate(-1.6deg); } to { transform: rotate(1.6deg); } }
+.story-stage svg .story-rock { animation: story-rock 2.6s ease-in-out infinite alternate; transform-origin: 50% 100%; }
+
+@keyframes story-arm-wave { from { transform: rotate(-160deg); } to { transform: rotate(-118deg); } }
+.story-stage svg .story-arm-wave { animation: story-arm-wave 0.55s ease-in-out infinite alternate; transform-origin: 50% 0; }
+
+@keyframes story-shake {
+  0%, 100% { transform: translate(0, 0); }
+  15% { transform: translate(-14px, 6px); }
+  30% { transform: translate(12px, -8px); }
+  45% { transform: translate(-10px, 4px); }
+  60% { transform: translate(8px, -4px); }
+  80% { transform: translate(-4px, 2px); }
+}
+.story-stage svg .story-shake { animation: story-shake 0.7s ease-in-out 3; transform-box: view-box; transform-origin: 0 0; }
+
+@keyframes story-bob { from { transform: translateY(0); } to { transform: translateY(-10px); } }
+.story-bob { animation: story-bob 0.45s ease-in-out infinite alternate; }
+
+@keyframes story-float {
+  0% { transform: translateY(0) scale(0.6); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translateY(-120px) scale(1.1); opacity: 0; }
+}
+.story-float { animation: story-float 2.4s ease-out infinite; }
+
+@keyframes story-pop {
+  0% { transform: scale(0.3); opacity: 0; }
+  60% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.story-stage svg .story-pop { animation: story-pop 0.45s cubic-bezier(.2, .9, .3, 1.2) both; transform-origin: 50% 100%; }
+
+@keyframes story-poof {
+  0% { transform: scale(0.2); opacity: 1; }
+  70% { opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.story-poof { animation: story-poof 1.1s ease-out forwards; }
+
+@keyframes story-spin { to { transform: rotate(360deg); } }
+.story-spin { animation: story-spin 1.4s linear infinite; }
+
+@keyframes story-flicker { from { transform: scale(1, 1); } to { transform: scale(0.9, 1.14); } }
+.story-stage svg .story-flicker { animation: story-flicker 0.28s ease-in-out infinite alternate; transform-origin: 50% 100%; }
+
+@keyframes story-look { 0%, 30% { transform: translateX(-10px); } 60%, 100% { transform: translateX(10px); } }
+.story-look { animation: story-look 2.4s ease-in-out infinite alternate; }
+
+@keyframes story-zzz { from { transform: translate(0, 10px); opacity: 0.5; } to { transform: translate(14px, -16px); opacity: 1; } }
+.story-zzz { animation: story-zzz 1.4s ease-in-out infinite alternate; }
+
+@keyframes story-flag { from { transform: skewY(-6deg); } to { transform: skewY(6deg); } }
+.story-stage svg .story-flag { animation: story-flag 0.9s ease-in-out infinite alternate; transform-origin: 0 50%; }
+
+@keyframes story-flap { from { transform: rotate(-8deg); } to { transform: rotate(10deg); } }
+.story-stage svg .story-flap { animation: story-flap 0.7s ease-in-out infinite alternate; transform-origin: 100% 60%; }
+
+@keyframes story-pull { from { transform: translateX(-6px); } to { transform: translateX(8px); } }
+.story-pull { animation: story-pull 0.6s ease-in-out infinite alternate; }
+
+@keyframes story-wiggle { from { transform: rotate(-5deg); } to { transform: rotate(5deg); } }
+.story-stage svg .story-wiggle { animation: story-wiggle 0.22s ease-in-out infinite alternate; transform-origin: 50% 100%; }
+
+@keyframes story-beam { to { stroke-dashoffset: -84; } }
+.story-beam { animation: story-beam 0.5s linear infinite; }
+
+@keyframes story-ring { from { opacity: 0.55; } to { opacity: 1; } }
+.story-ring { animation: story-ring 0.7s ease-in-out infinite alternate; }
+
+@keyframes story-notes-fly { from { transform: translateX(0); } to { transform: translateX(-260px); } }
+.story-notes-fly { animation: story-notes-fly 2s ease-in infinite; }
+
+@keyframes story-oar { from { transform: rotate(-10deg); } to { transform: rotate(12deg); } }
+.story-stage svg .story-oar { animation: story-oar 1.1s ease-in-out infinite alternate; transform-origin: 50% 0; }
+
+@keyframes story-sway { from { transform: rotate(-1.5deg); } to { transform: rotate(1.5deg); } }
+.story-stage svg .story-sway { animation: story-sway 3s ease-in-out infinite alternate; transform-origin: 50% 100%; }
+
+.story-hotspot { cursor: pointer; outline: none; }
+.story-hotspot:hover { filter: brightness(1.08) drop-shadow(0 0 10px rgba(255, 226, 122, 0.8)); }
+.story-hotspot:focus-visible { filter: drop-shadow(0 0 12px rgba(255, 210, 63, 1)); }
+
+@keyframes story-ui-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+.story-ui-rise { animation: story-ui-rise 0.45s cubic-bezier(.2, .8, .3, 1) both; }
+
+@keyframes story-ui-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-8px); }
+  75% { transform: translateX(8px); }
+}
+.story-ui-shake { animation: story-ui-shake 0.3s ease-in-out 2; }
+
+@keyframes story-title-in {
+  0% { opacity: 0; transform: scale(0.9) translateY(20px); letter-spacing: 0.2em; }
+  100% { opacity: 1; transform: scale(1) translateY(0); letter-spacing: normal; }
+}
+.story-title-in { animation: story-title-in 0.9s cubic-bezier(.2, .8, .3, 1) both; }
+
+
+/* Parallax: pointer (--px/--py) eases in; idle drift (--ax/--ay) keeps the stage alive on touch kiosks. */
+@property --px { syntax: '<number>'; inherits: true; initial-value: 0; }
+@property --py { syntax: '<number>'; inherits: true; initial-value: 0; }
+@property --ax { syntax: '<number>'; inherits: true; initial-value: 0; }
+@property --ay { syntax: '<number>'; inherits: true; initial-value: 0; }
+@keyframes story-idle-drift {
+  0% { --ax: -0.6; --ay: -0.3; }
+  50% { --ax: 0.5; --ay: 0.35; }
+  100% { --ax: -0.2; --ay: -0.4; }
+}
+.story-stage { transition: --px 0.9s ease-out, --py 0.9s ease-out; animation: story-idle-drift 14s ease-in-out infinite alternate; }
+
+@keyframes story-iris { from { clip-path: circle(0% at 50% 50%); } to { clip-path: circle(80% at 50% 50%); } }
+.story-iris { animation: story-iris 1s cubic-bezier(.6, .05, .3, 1) both, story-idle-drift 14s ease-in-out infinite alternate; }
+
+@keyframes story-burst {
+  0% { transform: translate(0, 0) scale(1.2); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) scale(0.2); opacity: 0; }
+}
+.story-burst { animation: story-burst 0.75s cubic-bezier(.15, .8, .3, 1) forwards; }
+@keyframes story-burst-ring { from { transform: scale(0.3); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
+.story-burst-ring { animation: story-burst-ring 0.6s ease-out forwards; }
+
+@keyframes story-tag {
+  0% { opacity: 0; transform: translate(-50%, -80%) scale(0.6); }
+  15% { opacity: 1; transform: translate(-50%, -100%) scale(1.08); }
+  25% { transform: translate(-50%, -100%) scale(1); }
+  85% { opacity: 1; transform: translate(-50%, -110%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -130%) scale(0.95); }
+}
+.story-tag { animation: story-tag 2.2s ease-out forwards; }
+
+@keyframes story-lightning {
+  0%, 62%, 66%, 70%, 100% { opacity: 0; }
+  63%, 68% { opacity: 0.75; }
+}
+.story-lightning { animation: story-lightning 4.2s linear infinite; mix-blend-mode: overlay; }
+@keyframes story-bolt { 0%, 62%, 72%, 100% { opacity: 0; } 63%, 70% { opacity: 1; } }
+.story-bolt { animation: story-bolt 4.2s linear infinite; }
+
+@keyframes story-glint { 0%, 100% { opacity: 0.2; transform: scale(0.5) rotate(0deg); } 50% { opacity: 1; transform: scale(1.15) rotate(45deg); } }
+.story-glint { animation: story-glint 1.8s ease-in-out infinite; }
+
+@keyframes story-dash { to { stroke-dashoffset: -76; } }
+.story-ring.story-dash { animation: story-ring 0.7s ease-in-out infinite alternate, story-dash 1.2s linear infinite; }
+
+@keyframes story-spin-slow { to { transform: rotate(360deg); } }
+.story-stage svg .story-spin-slow { animation: story-spin-slow 60s linear infinite; transform-box: view-box; transform-origin: 0 0; }
+
+@keyframes story-birds { from { transform: translate(-200px, 180px); } to { transform: translate(1900px, 60px); } }
+.story-stage svg .story-birds { animation: story-birds 26s linear infinite; transform-box: view-box; transform-origin: 0 0; }
+@keyframes story-flap-bird { from { transform: scaleY(1); } to { transform: scaleY(-0.6); } }
+.story-flap-bird { animation: story-flap-bird 0.35s ease-in-out infinite alternate; }
+
+@keyframes story-dolphin {
+  0%, 55% { transform: translate(-160px, 60px) rotate(40deg); opacity: 0; }
+  58% { opacity: 1; }
+  70% { transform: translate(-40px, -150px) rotate(-10deg); }
+  82% { transform: translate(80px, -60px) rotate(-60deg); opacity: 1; }
+  88%, 100% { transform: translate(120px, 60px) rotate(-80deg); opacity: 0; }
+}
+.story-dolphin { animation: story-dolphin 4.5s ease-in-out infinite; }
+
+@keyframes story-graze { 0%, 70%, 100% { transform: rotate(0deg); } 80%, 90% { transform: rotate(6deg); } }
+.story-stage svg .story-graze { animation: story-graze 3.2s ease-in-out infinite; transform-origin: 100% 100%; }
+
+@keyframes story-trot { from { transform: translateY(0) rotate(-2deg); } to { transform: translateY(-8px) rotate(2deg); } }
+.story-trot { animation: story-trot 0.25s ease-in-out infinite alternate; }
+
+@keyframes story-tremble { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
+.story-tremble { animation: story-tremble 0.18s linear infinite; }
+
+@keyframes story-breathe { from { transform: scale(1, 1); } to { transform: scale(1.012, 1.025); } }
+.story-stage svg .story-breathe { animation: story-breathe 1.8s ease-in-out infinite alternate; transform-origin: 50% 100%; }
+
+@keyframes story-head { from { transform: rotate(-2deg); } to { transform: rotate(2.5deg); } }
+.story-stage svg .story-head { animation: story-head 3.6s ease-in-out infinite alternate; transform-origin: 50% 90%; }
+
+@keyframes story-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.08); } }
+.story-blink { animation: story-blink 4.2s ease-in-out infinite; }
+
+@keyframes story-sing { from { transform: scale(1, 0.6); } to { transform: scale(1, 1.3); } }
+.story-sing { animation: story-sing 0.4s ease-in-out infinite alternate; }
+
+@keyframes story-wake { from { opacity: 0.4; transform: scaleX(0.8); } to { opacity: 0.9; transform: scaleX(1.2); } }
+.story-wake { animation: story-wake 1.3s ease-in-out infinite alternate; }
+
+@keyframes story-hold { from { stroke-dashoffset: 283; } to { stroke-dashoffset: 0; } }
+.story-hold { animation: story-hold 1.4s linear forwards; }
+
+@keyframes story-letterbox { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+.story-letterbox { animation: story-letterbox 0.7s cubic-bezier(.2, .8, .3, 1) both; }
+
+@keyframes story-cheer {
+  0% { opacity: 0; transform: translate(-50%, 20px) scale(0.6) rotate(-6deg); }
+  20% { opacity: 1; transform: translate(-50%, 0) scale(1.12) rotate(2deg); }
+  30% { transform: translate(-50%, 0) scale(1) rotate(0deg); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -30px) scale(1); }
+}
+.story-cheer { animation: story-cheer 1.6s ease-out forwards; }
+
+@keyframes story-finger { from { transform: translateY(0) rotate(-12deg); } to { transform: translateY(-12px) rotate(-12deg); } }
+.story-finger { animation: story-finger 0.6s ease-in-out infinite alternate; }
+
+/* The Reluctant Dragon */
+@keyframes story-tail { from { transform: rotate(-5deg); } to { transform: rotate(7deg); } }
+.story-stage svg .story-tail { animation: story-tail 2.2s ease-in-out infinite alternate; transform-origin: 0% 60%; }
+
+@keyframes story-ramp { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-26px) rotate(-3deg); } }
+.story-stage svg .story-ramp { animation: story-ramp 0.8s ease-in-out infinite; transform-origin: 50% 100%; }
+
+@keyframes story-hop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-34px); } }
+.story-stage svg .story-hop { animation: story-hop 0.5s ease-in-out infinite; transform-origin: 50% 100%; }
+
+@keyframes story-hop-wide {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(-90px, -70px); }
+  50% { transform: translate(0, 0); }
+  75% { transform: translate(90px, -70px); }
+}
+.story-stage svg .story-hop-wide { animation: story-hop-wide 1.1s ease-in-out infinite; transform-box: view-box; transform-origin: 0 0; }
+
+@keyframes story-flame { from { transform: scale(0.85, 0.9); opacity: 0.85; } to { transform: scale(1.08, 1.12); opacity: 1; } }
+.story-stage svg .story-flame { animation: story-flame 0.22s ease-in-out infinite alternate; transform-origin: 100% 50%; }
+
+@keyframes story-smoke {
+  0% { transform: translateY(20px) scale(0.4); opacity: 0; }
+  30% { opacity: 0.95; }
+  100% { transform: translateY(-120px) scale(1.4); opacity: 0; }
+}
+.story-smoke { animation: story-smoke 1.8s ease-out infinite; }
+
+@keyframes story-bell { from { transform: rotate(-22deg); } to { transform: rotate(22deg); } }
+.story-stage svg .story-bell { animation: story-bell 0.45s ease-in-out infinite alternate; transform-origin: 50% 0; }
+
+@keyframes story-ring-out { from { transform: scale(0.6); opacity: 1; } to { transform: scale(1.4); opacity: 0; } }
+.story-ring-out { animation: story-ring-out 0.9s ease-out infinite; }
+
+@keyframes story-gallop { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-14px) rotate(-2deg); } }
+.story-stage svg .story-gallop { animation: story-gallop 0.36s ease-in-out infinite; transform-origin: 50% 100%; }
+
+@keyframes story-hen-hop { 0%, 60%, 100% { transform: translateY(0); } 80% { transform: translateY(-18px); } }
+.story-stage svg .story-hen-hop { animation: story-hen-hop 1s ease-in-out infinite; transform-origin: 50% 100%; }
+
+@keyframes story-drip { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(40px); opacity: 0; } }
+.story-drip { animation: story-drip 1.1s ease-in infinite; }
+
+@keyframes story-walk { 0%, 100% { transform: translateY(0) rotate(-1.5deg); } 50% { transform: translateY(-8px) rotate(1.5deg); } }
+.story-stage svg .story-walk { animation: story-walk 0.7s ease-in-out infinite; transform-origin: 50% 100%; }
+
+@keyframes story-polish { from { transform: translate(-30px, 10px) rotate(-8deg); } to { transform: translate(40px, -20px) rotate(8deg); } }
+.story-polish { animation: story-polish 0.5s ease-in-out infinite alternate; }
+
+@keyframes story-place-in { from { opacity: 0; } to { opacity: 1; } }
+.story-place-in { animation: story-place-in 0.7s ease both; }
+
+@keyframes story-rub-spark { from { opacity: 1; transform: translate(-50%, -50%) scale(1.2) rotate(0deg); } to { opacity: 0; transform: translate(-50%, -80%) scale(0.4) rotate(90deg); } }
+.story-rub-spark { animation: story-rub-spark 0.6s ease-out forwards; }
+
+@media (prefers-reduced-motion: reduce) {
+  .story-stage,
+  .story-stage svg *,
+  .story-root * {
+    animation: none !important;
+    transition-duration: 0.01s !important;
+  }
+}

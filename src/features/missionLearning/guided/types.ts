@@ -1,3 +1,5 @@
+import { isTopicId } from '@/lib/conversationTopics';
+
 export const LEVELS = ['beginner', 'intermediate', 'advanced'] as const;
 export type GuidedLevel = typeof LEVELS[number];
 export const PHASES = ['DEMO', 'REHEARSE', 'GUIDED', 'TRANSFER', 'RECAP'] as const;
@@ -13,7 +15,7 @@ export type GuidedSnapshot = {
     phase: typeof PHASES[number]; nodeId: string; attemptId: string;
     inputState: 'LOCKED' | 'READY' | 'PROCESSING';
     audioOwner: 'NONE' | 'MODEL' | 'COACH' | 'ROLE';
-    intentKo: string; promptEn?: string; audioId?: string;
+    intentKo: string; promptEn?: string; promptKo?: string; audioId?: string;
     supportVisible: Support; supportExposure: Support;
     display: { frameEn?: string; modelEn?: string; cueEn?: string; meaningKo?: string; contentCues: string[]; demo?: Array<{ speaker: string; text: string; meaningKo: string }> };
     choices: Array<{ id: string; labelEn: string }>; selectedChoiceId: string | null;
@@ -32,7 +34,7 @@ export type GuidedSnapshot = {
 export type GuidedHome = {
   contractVersion: 2; contentVersion: string; levels: Array<{ id: GuidedLevel; labelKo: string; available: boolean }>;
   profile: null | { level: GuidedLevel; revision: number };
-  lessons: Array<{ id: string; titleKo: string; level: GuidedLevel; goalKo?: string; targetSeconds?: number; available?: boolean }>;
+  lessons: Array<{ id: string; titleKo: string; level: GuidedLevel; canDoKo?: string; topicId?: string; targetSeconds?: number; available?: boolean }>;
   activeSessionId: string | null;
 };
 
@@ -57,7 +59,7 @@ export function parseGuidedSnapshot(value: unknown): GuidedSnapshot | null {
     if (!member(g.phase, PHASES) || !str(g.nodeId) || !str(g.attemptId)
       || !member(g.inputState, ['LOCKED', 'READY', 'PROCESSING'])
       || !member(g.audioOwner, ['NONE', 'MODEL', 'COACH', 'ROLE'])
-      || !str(g.intentKo) || !optionalString(g.promptEn) || !optionalString(g.audioId)
+      || !str(g.intentKo) || !optionalString(g.promptEn) || !optionalString(g.promptKo) || !optionalString(g.audioId)
       || !(g.voiceStarted === undefined || typeof g.voiceStarted === 'boolean')
       || !(g.retryRequested === undefined || typeof g.retryRequested === 'boolean')
       || !(g.turnStatus === undefined || member(g.turnStatus, ['NONE', 'CAPTURING', 'ASSESSING']))
@@ -86,7 +88,7 @@ export function parseGuidedSnapshot(value: unknown): GuidedSnapshot | null {
     || !value.recap.nextLessons.every(l => obj(l) && str(l.id) && str(l.titleKo))
     || !['changeKo', 'nextPracticeKo', 'expressionEn'].every(k => optionalString((value.recap as Record<string, unknown>)[k])))) return null;
   if (value.handoff !== null && (!obj(value.handoff) || !['id', 'expiresAt', 'topicId', 'openerId', 'difficultyId'].every(k => str((value.handoff as Record<string, unknown>)[k]))
-    || value.handoff.topicId !== 'daily' || !member(value.handoff.difficultyId, LEVELS)
+    || !isTopicId(value.handoff.topicId) || !member(value.handoff.difficultyId, LEVELS)
     || !member(value.handoff.status, ['PREPARED', 'STARTING', 'COMPLETE', 'FAILED']))) return null;
   if (!optionalString(value.titleKo) || !optionalString(value.canDoKo)) return null;
   if (!(value.endReason === null || str(value.endReason))) return null;
@@ -98,6 +100,7 @@ export function parseGuidedHome(value: unknown): GuidedHome | null {
     || !Array.isArray(value.levels) || !value.levels.every(l => obj(l) && member(l.id, LEVELS) && str(l.labelKo) && typeof l.available === 'boolean')
     || !(value.activeSessionId === null || str(value.activeSessionId))
     || !(value.profile === null || (obj(value.profile) && member(value.profile.level, LEVELS) && integer(value.profile.revision)))
-    || !Array.isArray(value.lessons) || !value.lessons.every(l => obj(l) && str(l.id) && str(l.titleKo) && member(l.level, LEVELS))) return null;
+    || !Array.isArray(value.lessons) || !value.lessons.every(l => obj(l) && str(l.id) && str(l.titleKo) && member(l.level, LEVELS)
+      && optionalString(l.canDoKo) && (l.topicId === undefined || isTopicId(l.topicId)))) return null;
   return value as GuidedHome;
 }

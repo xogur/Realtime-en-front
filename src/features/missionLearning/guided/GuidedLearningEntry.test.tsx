@@ -24,6 +24,41 @@ function phase(name: NonNullable<GuidedSnapshot['guided']>['phase'], revision: n
 }
 
 describe('guided lesson entry orchestration', () => {
+  it('filters situations by free-talk topic and starts only the chosen lesson', async () => {
+    api.getGuidedHome.mockResolvedValue({ contractVersion: 2, contentVersion: 'topics', levels: [], profile: { level: 'beginner', revision: 1 }, activeSessionId: null,
+      lessons: [
+        { id: 'request_beginner', titleKo: '기본 요청 연습', level: 'beginner' },
+        { id: 'restaurant_order_beginner', titleKo: '음식 주문하고 추가 요청하기', canDoKo: '먹고 싶은 음식을 공손하게 주문해요.', level: 'beginner', topicId: 'restaurant' },
+        { id: 'airport_boarding_beginner', titleKo: '탑승구 찾기', level: 'beginner', topicId: 'airport' },
+        { id: 'restaurant_order_advanced', titleKo: '고급 주문 협의', level: 'advanced', topicId: 'restaurant' },
+      ] });
+    api.startGuidedLesson.mockResolvedValue(guidedFixture({ stage: 'BRIEF', guided: null }));
+    render(<GuidedLearningEntry onBack={vi.fn()} onClose={vi.fn()} />);
+    await screen.findByRole('button', { name: /기본 요청 연습/ });
+    fireEvent.click(screen.getByRole('button', { name: '음식점' }));
+    expect(screen.getByText('먹고 싶은 음식을 공손하게 주문해요.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /기본 요청 연습|탑승구 찾기|고급 주문 협의/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /음식 주문하고 추가 요청하기/ }));
+    await waitFor(() => expect(api.startGuidedLesson).toHaveBeenCalledWith('restaurant_order_beginner'));
+  });
+  it('keeps a topic handoff connected and closes the lesson after completion', async () => {
+    const current = phase('RECAP', 5);
+    current.allowedActions = ['BEGIN_FREE_TALK', 'ABANDON'];
+    current.recap!.freeTalkAvailable = true;
+    const prepared: GuidedSnapshot = { ...current, revision: 6,
+      handoff: { id: 'restaurant-grant', expiresAt: '2026-10-07T06:00:00Z', topicId: 'restaurant', openerId: 'restaurant-order', difficultyId: 'beginner', status: 'PREPARED' } };
+    useGuidedLearningStore.setState({ snapshot: current });
+    api.getGuidedHome.mockResolvedValue({ contractVersion: 2, contentVersion: 'v2', levels: [], profile: { level: 'beginner', revision: 1 }, lessons: [], activeSessionId: current.sessionId });
+    api.getGuidedSession.mockResolvedValue(current);
+    api.sendGuidedCommand.mockResolvedValue(prepared);
+    const onClose = vi.fn();
+    render(<GuidedLearningEntry onBack={vi.fn()} onClose={onClose} />);
+    fireEvent.click(await screen.findByRole('button', { name: '이 주제로 프리토킹' }));
+    await waitFor(() => expect(useGuidedLearningStore.getState().snapshot?.handoff?.status).toBe('PREPARED'));
+    expect(useGuidedLearningStore.getState().error).toBeNull();
+    act(() => { useGuidedLearningStore.getState().pushSnapshot({ ...prepared, revision: 7, stage: 'COMPLETED', guided: null, allowedActions: [], handoff: { ...prepared.handoff!, status: 'COMPLETE' } }); });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
   it('accepts replay after confirming the old terminal session when HTTP precedes its push', async () => {
     const current = phase('RECAP', 5); current.allowedActions = ['REPLAY_LESSON'];
     const next = guidedFixture({ sessionId: 'replay-new', stage: 'BRIEF', guided: null });

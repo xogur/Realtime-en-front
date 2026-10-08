@@ -17,6 +17,9 @@ import { getConversationTopic, type TopicId } from '@/lib/conversationTopics';
 import { getConversationDifficulty, type DifficultyId } from '@/lib/conversationDifficulties';
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
 import { isTranslatorWindowMessage, TRANSLATOR_WINDOW_MESSAGE } from '@/lib/translator';
+import { getKioskIdFromLocation } from '@/lib/kioskIdentity';
+import { publishStoryControl, subscribeStoryControl } from '@/features/storyListening/control';
+import { DEFAULT_STORY_ID } from '@/features/storyListening/stories';
 // import { LearningExperience } from '@/features/learning/LearningExperience';
 // import { buildKioskUrl } from '@/lib/kioskIdentity';
 
@@ -73,6 +76,8 @@ export function ControlPanel({
     const guidedSnapshot = useGuidedLearningStore((state) => state.snapshot);
     const learningEntryActive = Boolean(missionEntry?.open || (guidedSnapshot && !isGuidedTerminal(guidedSnapshot)));
     const handledMissionEntrySeqRef = useRef(0);
+    // The story itself plays on the guide display (/chat); this window only opens and closes it.
+    const storyOpenRef = useRef(false);
     useMissionRoleplayVoice({
         enabled: learningAvailability === 'available',
         startLearningRoleplay,
@@ -144,6 +149,23 @@ export function ControlPanel({
 
     const handleSelectMode = useCallback((mode: ConversationMode, preparedInput?: MediaStream) => {
         setModeError(null);
+        if (mode === 'story') {
+            preparedInput?.getTracks().forEach(track => track.stop());
+            pauseConversationForUsageEnd();
+            setEntryStep(null);
+            storyOpenRef.current = true;
+            void publishStoryControl({ action: 'open', storyId: DEFAULT_STORY_ID }, getKioskIdFromLocation()).then((published) => {
+                if (published) return;
+                storyOpenRef.current = false;
+                setModeError('이야기 화면을 열지 못했어요. 잠시 후 다시 시도해 주세요.');
+                setEntryStep('mode');
+            });
+            return;
+        }
+        if (storyOpenRef.current) {
+            storyOpenRef.current = false;
+            void publishStoryControl({ action: 'close' }, getKioskIdFromLocation());
+        }
         if (mode === 'learning') {
             if (learningAvailability !== 'available') {
                 preparedInput?.getTracks().forEach(track => track.stop());
@@ -163,7 +185,13 @@ export function ControlPanel({
         }
         setEntryStep(null);
         setIsTopicSelectorOpen(true);
-    }, [connectForLearning, isRecording, learningAvailability, prepareGuidedMicrophone, stopListening]);
+    }, [connectForLearning, isRecording, learningAvailability, pauseConversationForUsageEnd, prepareGuidedMicrophone, stopListening]);
+
+    useEffect(() => subscribeStoryControl(getKioskIdFromLocation(), (state, { initial }) => {
+        storyOpenRef.current = state.action === 'open';
+        // Only a fresh "모드 다시 선택" from the story screen reopens the choice, not a replay on load.
+        if (!initial && state.action === 'close' && state.returnTo === 'mode') setEntryStep('mode');
+    }), []);
 
     // "모드 다시 선택" on the guide display brings the mode choice back here.
     useEffect(() => {

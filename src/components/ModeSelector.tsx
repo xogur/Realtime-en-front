@@ -1,13 +1,13 @@
 'use client';
 
 import { motion, useReducedMotion } from 'framer-motion';
-import { GraduationCap, Hand, MessageCircle, Mic, Volume2, X } from 'lucide-react';
+import { BookOpen, GraduationCap, Hand, MessageCircle, Mic, Volume2, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { MissionLearningAvailability } from '@/features/missionLearning/useMissionLearningAvailability';
 import { useVoiceModeSelection } from './useVoiceModeSelection';
 
-export type ConversationMode = 'free_talk' | 'learning';
+export type ConversationMode = 'free_talk' | 'learning' | 'story';
 
 type ModeSelectorProps = {
   isOpen: boolean;
@@ -57,7 +57,7 @@ export function ModeSelector({
         role="dialog"
         aria-modal="true"
         aria-labelledby="mode-selector-title"
-        className="relative max-h-[92dvh] w-full max-w-[860px] overflow-y-auto rounded-2xl border border-white/65 bg-[#fbf8f5]/95 px-5 pb-6 pt-6 shadow-[0_28px_80px_rgba(39,32,27,0.28)] sm:max-h-[95dvh] sm:px-8 sm:pb-8 sm:pt-8"
+        className="relative max-h-[92dvh] w-full max-w-[1040px] overflow-y-auto rounded-2xl border border-white/65 bg-[#fbf8f5]/95 px-5 pb-6 pt-6 shadow-[0_28px_80px_rgba(39,32,27,0.28)] sm:max-h-[95dvh] sm:px-8 sm:pb-8 sm:pt-8"
       >
         <button
           type="button"
@@ -82,13 +82,13 @@ export function ModeSelector({
 
         <div role="status" className="mt-5 flex items-center gap-2 text-sm font-bold text-[#4f6b57]">
           {voice.status === 'prompting' ? <Volume2 className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-          <span>{voice.status === 'listening' ? '“프리토킹” 또는 “학습모드”라고 말씀해 주세요.'
+          <span>{voice.status === 'listening' ? '“프리토킹”, “학습모드”, “이야기 듣기” 중 하나를 말씀해 주세요.'
             : voice.status === 'unavailable' ? '화면을 터치해 선택해 주세요.'
             : voice.status === 'selected' ? '선택한 모드를 열고 있어요.' : '음성 선택을 준비하고 있어요.'}</span>
         </div>
         {voice.interim ? <p className="mt-2 text-sm text-[#6b625a]">인식 중: “{voice.interim}”</p> : null}
 
-        <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <ModeCard
             label="프리토킹"
             description="원하는 주제로 아바타와 자유롭게 대화해요."
@@ -105,6 +105,13 @@ export function ModeSelector({
             status={learningStatus}
             onClick={() => void voice.select('learning')}
             number={2}
+          />
+          <ModeCard
+            label="이야기 듣기"
+            description="영어 동화를 그림과 함께 듣고 내용을 이해해요."
+            icon={<BookOpen className="h-7 w-7" strokeWidth={1.8} />}
+            onClick={() => void voice.select('story')}
+            number={3}
           />
         </div>
         {error ? <p role="alert" className="mt-4 text-sm font-bold text-[#784638]">{error}</p> : null}

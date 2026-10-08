@@ -6,7 +6,7 @@ import { useBrowserTts } from '@/hooks/useBrowserTts';
 import type { ConversationMode } from './ModeSelector';
 import { parseSpokenModeSelection } from './voiceTopicSelection';
 
-const MODE_PROMPT = '안내가 끝나면 프리토킹 또는 학습모드라고 말씀해 주세요. 1번, 2번이나 터치로도 선택할 수 있어요.';
+const MODE_PROMPT = '안내가 끝나면 프리토킹, 학습모드, 이야기 듣기 중에서 말씀해 주세요. 1번, 2번, 3번이나 터치로도 선택할 수 있어요.';
 const PROMPT_PREPARATION_TIMEOUT_MS = 5000;
 
 type Props = {
@@ -126,8 +126,8 @@ export function useVoiceModeSelection({ enabled, learningReady, onSelect }: Prop
       const mode = parseSpokenModeSelection(text);
       if (mode && (mode !== 'learning' || callbacksRef.current.learningReady)) void select(mode);
       else void announce(mode === 'learning'
-        ? '지금은 학습모드를 사용할 수 없어요. 프리토킹을 말씀하거나 화면을 터치해 주세요.'
-        : '모드를 잘 듣지 못했어요. 프리토킹 또는 학습모드 중 하나를 말씀해 주세요.');
+        ? '지금은 학습모드를 사용할 수 없어요. 프리토킹이나 이야기 듣기를 말씀하거나 화면을 터치해 주세요.'
+        : '모드를 잘 듣지 못했어요. 프리토킹, 학습모드, 이야기 듣기 중 하나를 말씀해 주세요.');
     };
   }, [announce, select]);
 

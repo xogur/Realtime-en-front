@@ -23,6 +23,8 @@ import { LearningModeEntry } from '@/features/missionLearning/LearningModeEntry'
 import { setMissionEntry } from '@/features/missionLearning/api';
 import { MISSION_LEARNING_ENABLED } from '@/features/missionLearning/config';
 import { isTerminalSnapshot, useMissionLearningStore } from '@/features/missionLearning/store';
+import { StoryListeningView } from '@/features/storyListening/StoryListeningView';
+import { publishStoryControl, subscribeStoryControl } from '@/features/storyListening/control';
 // import { LearningExperience } from '@/features/learning/LearningExperience';
 
 export default function ChatPopout() {
@@ -46,6 +48,16 @@ export default function ChatPopout() {
         void setMissionEntry(false, returnTo).catch((error) => {
             console.warn('[MissionLearning] could not close the learning screen', error);
         });
+    }, []);
+
+    // Story listening is chosen on the avatar screen and plays here.
+    const [storyId, setStoryId] = useState<string | null>(null);
+    useEffect(() => subscribeStoryControl(getKioskIdFromLocation(), (state) => {
+        setStoryId(state.action === 'open' ? state.storyId : null);
+    }), []);
+    const closeStory = useCallback((returnTo: 'mode' | null) => {
+        setStoryId(null);
+        void publishStoryControl({ action: 'close', returnTo }, getKioskIdFromLocation());
     }, []);
 
     useEffect(() => {
@@ -187,6 +199,12 @@ export default function ChatPopout() {
             isOpen={learningOpen && !reservationIntro.active && !reservationFollowup.locked}
             onBack={() => closeLearning('mode')}
             onClose={() => closeLearning(null)}
+        />
+        <StoryListeningView
+            isOpen={storyId !== null && !learningOpen && !reservationIntro.active && !reservationFollowup.locked}
+            storyId={storyId}
+            onBack={() => closeStory('mode')}
+            onClose={() => closeStory(null)}
         />
         </>
     );

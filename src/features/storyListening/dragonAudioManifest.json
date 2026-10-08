@@ -1,0 +1,972 @@
+{
+  "version": 1,
+  "storyId": "reluctant-dragon",
+  "source": "User-provided Gemini AI Studio chapter WAVs",
+  "alignment": "Local Whisper base.en token alignment and RMS silence midpoint; human listening not verified",
+  "chapters": {
+    "cottage": {
+      "sourceSha256": "acda4126ee518fea3a99a49bfe7deaa9b3a399ad9a27d66ee8c1e74c82e3e12f",
+      "durationSeconds": 52.08,
+      "clips": [
+        {
+          "src": "/story-audio/reluctant-dragon/acda4126ee51/cottage/s01.wav",
+          "text": "Long ago, a shepherd lived in a little cottage below a big green hill.",
+          "durationMs": 5705.0,
+          "startSeconds": 0.0,
+          "endSeconds": 5.705,
+          "sha256": "343f8eeeff2ad932b62052058069a3a71cfa68b0c80159e3e3bdec755e520e6a"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/acda4126ee51/cottage/s02.wav",
+          "text": "He lived there with his wife and their little son, the Boy.",
+          "durationMs": 3910.0,
+          "startSeconds": 5.705,
+          "endSeconds": 9.615,
+          "sha256": "6f0e51f9f8d4d0e3be3dd43fd4ec72832d46d95e98461033107279bf3a1a32e0"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/acda4126ee51/cottage/s03.wav",
+          "text": "The Boy loved books, and he read about animals and fairy tales every day.",
+          "durationMs": 6030.0,
+          "startSeconds": 9.615,
+          "endSeconds": 15.645,
+          "sha256": "91a910ceb4fcd7e680ea5c3024db927ccce439da8ec85b781c13f970fdc8f335"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/acda4126ee51/cottage/s04.wav",
+          "text": "One evening, the shepherd ran into the house, shaking all over.",
+          "durationMs": 4565.0,
+          "startSeconds": 15.645,
+          "endSeconds": 20.21,
+          "sha256": "01ff572a3f8ff2281b5bee5908b093a93785a48e2b504924ee3be32db395d8b5"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/acda4126ee51/cottage/s05.wav",
+          "text": "\"There is something in the cave on the hill!\" he cried.",
+          "durationMs": 3210.0,
+          "startSeconds": 20.21,
+          "endSeconds": 23.42,
+          "sha256": "c4e1d44ec4483dd133a8a48c7c04fcb2c586c868655c1a712f6c02ada2f63727"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/acda4126ee51/cottage/s06.wav",
+          "text": "\"I saw it! It is as big as four horses, and it has shiny blue scales!\"",
+          "durationMs": 6355.0,
+          "startSeconds": 23.42,
+          "endSeconds": 29.775,
+          "sha256": "1e9ff132684229ae9e102c8fc113385d6c15e1b142e12568778c3a2ae05dfa64"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/acda4126ee51/cottage/s07.wav",
+          "text": "The Boy closed his book and yawned.",
+          "durationMs": 2650.0,
+          "startSeconds": 29.775,
+          "endSeconds": 32.425,
+          "sha256": "2fe1fe505492301bef224a56578851a90fa7e1db19950f653304bd4d38e4675c"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/acda4126ee51/cottage/s08.wav",
+          "text": "\"Don't worry, Father. It's only a dragon,\" he said.",
+          "durationMs": 4105.0,
+          "startSeconds": 32.425,
+          "endSeconds": 36.53,
+          "sha256": "9a208328e56e871c8db27035f4a7514b65487eb53c1cfd68f64621662b197e0c"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/acda4126ee51/cottage/s09.wav",
+          "text": "\"Only a dragon?\" cried his father. \"What do you know about dragons?\"",
+          "durationMs": 5105.0,
+          "startSeconds": 36.53,
+          "endSeconds": 41.635,
+          "sha256": "3df3d34dce5f5fbfaff2c515633de8576ba1b2b79af151be6f966fb8c5da6583"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/acda4126ee51/cottage/s10.wav",
+          "text": "\"You know about sheep, and I know about dragons,\" said the Boy. \"Leave it to me.\"",
+          "durationMs": 5430.0,
+          "startSeconds": 41.635,
+          "endSeconds": 47.065,
+          "sha256": "4d44e1b692f19e3e07027bf1b2a71ad605939064d9cfc11f013c9ca964dd5910"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/acda4126ee51/cottage/s11.wav",
+          "text": "His mother smiled. \"Maybe the poor dragon is lonely up there,\" she said.",
+          "durationMs": 5015.0,
+          "startSeconds": 47.065,
+          "endSeconds": 52.08,
+          "sha256": "8db3446bd276620a2b490cf2979b955ac54fe0fa2f1d31e8aa0537508fd4de26"
+        }
+      ]
+    },
+    "hill": {
+      "sourceSha256": "21e6408a8993bc4d18cd60e147d509c249d9d95651bc9a2a3e4f691e40c837dc",
+      "durationSeconds": 52.04,
+      "clips": [
+        {
+          "src": "/story-audio/reluctant-dragon/21e6408a8993/hill/s01.wav",
+          "text": "The next evening, the Boy walked up the white path to the top of the hill.",
+          "durationMs": 5130.0,
+          "startSeconds": 0.0,
+          "endSeconds": 5.13,
+          "sha256": "7af8da8d362e1867357626adf8ad157aa560d27ce38a0f3e2a721963697acdf7"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/21e6408a8993/hill/s02.wav",
+          "text": "The view was beautiful. He could see fields, roads, and little houses far below.",
+          "durationMs": 6565.0,
+          "startSeconds": 5.13,
+          "endSeconds": 11.695,
+          "sha256": "7fc6463b63aedcdf7bc51e523c057c710d27028c452919846c6a8d131f822465"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/21e6408a8993/hill/s03.wav",
+          "text": "A big silver moon was rising in the sky.",
+          "durationMs": 3545.0,
+          "startSeconds": 11.695,
+          "endSeconds": 15.24,
+          "sha256": "91affd5365fcd881a877f3bffd9032a84709fcdb1525d256912b98b640088f53"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/21e6408a8993/hill/s04.wav",
+          "text": "And there, in front of the cave, lay the dragon!",
+          "durationMs": 4250.0,
+          "startSeconds": 15.24,
+          "endSeconds": 19.49,
+          "sha256": "7ea40ea27bad08f3522a2cd56deb126ef99a469aa1caaf80c357e30f98214093"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/21e6408a8993/hill/s05.wav",
+          "text": "He was lying in the grass with his chin on his paws, purring like a happy cat.",
+          "durationMs": 6000.0,
+          "startSeconds": 19.49,
+          "endSeconds": 25.49,
+          "sha256": "f32e86d42d881b44945e1ff0a3dd31a65a45eb0840b9b17484f55026daeb3810"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/21e6408a8993/hill/s06.wav",
+          "text": "\"Well!\" thought the Boy. \"My books never said that dragons purr!\"",
+          "durationMs": 5390.0,
+          "startSeconds": 25.49,
+          "endSeconds": 30.88,
+          "sha256": "8d020436b5b005c19a91d5a7dca08358438a994c52dc8631e90e98c77f120a1d"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/21e6408a8993/hill/s07.wav",
+          "text": "\"Hello, dragon!\" said the Boy.",
+          "durationMs": 2850.0,
+          "startSeconds": 30.88,
+          "endSeconds": 33.73,
+          "sha256": "2647372bafa7927873ae801dd2e418f71e01fef21d38f74883d69085a10b0812"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/21e6408a8993/hill/s08.wav",
+          "text": "The dragon looked up and frowned. \"Please don't hit me or throw stones at me!\"",
+          "durationMs": 5100.0,
+          "startSeconds": 33.73,
+          "endSeconds": 38.83,
+          "sha256": "bcf5c844dde4147a4d97d8a7ef0c8e103a2fe0647ff74209af8ee46260f73bb0"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/21e6408a8993/hill/s09.wav",
+          "text": "\"I won't hit you,\" said the Boy, and he sat down in the grass. \"I just came to say hello.\"",
+          "durationMs": 5785.0,
+          "startSeconds": 38.83,
+          "endSeconds": 44.615,
+          "sha256": "21348524eefc75667e0c2af18433e06690000ed948d851dfc47ca9e25fc5a051"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/21e6408a8993/hill/s10.wav",
+          "text": "\"Oh, how nice!\" said the dragon. \"I am very happy up here, but it is a little boring sometimes.\"",
+          "durationMs": 7425.0,
+          "startSeconds": 44.615,
+          "endSeconds": 52.04,
+          "sha256": "4631a05038003bbaf2a08fe8eb33c00c918b796aa7033f539f7d399b018a8d8d"
+        }
+      ]
+    },
+    "poems": {
+      "sourceSha256": "4b17425b742d6a3bda6b65d8e834c94b3cfa6fee639a7cddc6064ccc36b7f7be",
+      "durationSeconds": 55.4,
+      "clips": [
+        {
+          "src": "/story-audio/reluctant-dragon/4b17425b742d/poems/s01.wav",
+          "text": "\"I must tell you a secret,\" said the dragon. \"I am a very lazy dragon.\"",
+          "durationMs": 6910.0,
+          "startSeconds": 0.0,
+          "endSeconds": 6.91,
+          "sha256": "5d8e003d8f2d2b43612d1431880a6e2a815a9f32f1b71f328ad2a4fedf44e964"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/4b17425b742d/poems/s02.wav",
+          "text": "\"Other dragons were always busy. They fought, and they chased knights everywhere.\"",
+          "durationMs": 5420.0,
+          "startSeconds": 6.91,
+          "endSeconds": 12.33,
+          "sha256": "da57eca3fc6383966574b9c4a9c70faa66cd50a757dd3664e21a1ccba91ed105"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/4b17425b742d/poems/s03.wav",
+          "text": "\"But I liked to eat my dinner, lean on a rock, and take a nap.\"",
+          "durationMs": 5325.0,
+          "startSeconds": 12.33,
+          "endSeconds": 17.655,
+          "sha256": "a70f07ef7af1e342566ef97b5c4ca87ad668463f4f8eac84028f345abe34d147"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/4b17425b742d/poems/s04.wav",
+          "text": "\"One day, the earth shook, and I was stuck deep under the ground.\"",
+          "durationMs": 4360.0,
+          "startSeconds": 17.655,
+          "endSeconds": 22.015,
+          "sha256": "cdf98b9b70bb0a2da6e12c3d64cf680d14ea4479618a08f2e6a5b66e1d2865e7"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/4b17425b742d/poems/s05.wav",
+          "text": "\"After a long, long time, I dug my way up, and I came out in this cave.\"",
+          "durationMs": 5850.0,
+          "startSeconds": 22.015,
+          "endSeconds": 27.865,
+          "sha256": "050405b58c3f070d05aaed41d6a86525990ec982b770484c96c05df27d1dd4c3"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/4b17425b742d/poems/s06.wav",
+          "text": "Then the dragon's face turned a little pink.",
+          "durationMs": 3105.0,
+          "startSeconds": 27.865,
+          "endSeconds": 30.97,
+          "sha256": "4c25c5e813b82d3c4d98c937cf120bca7b8a0e4cad580416feeeb4ebe4c7e1aa"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/4b17425b742d/poems/s07.wav",
+          "text": "\"Do you ever make up poems?\" he asked shyly.",
+          "durationMs": 3245.0,
+          "startSeconds": 30.97,
+          "endSeconds": 34.215,
+          "sha256": "332f4bb78834aab2a60ef19c2acced5c0371e556e95842f36777ca79e5691e16"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/4b17425b742d/poems/s08.wav",
+          "text": "\"Yes, lots of them!\" said the Boy. And the dragon happily read him a poem about the sunset.",
+          "durationMs": 6585.0,
+          "startSeconds": 34.215,
+          "endSeconds": 40.8,
+          "sha256": "5a4c3dd36a7dc39e68d5b2abc86df909cbeccf65339ca22030b1ea8e6de9f781"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/4b17425b742d/poems/s09.wav",
+          "text": "\"That's lovely,\" said the Boy, \"but people will think you are a terrible monster!\"",
+          "durationMs": 5845.0,
+          "startSeconds": 40.8,
+          "endSeconds": 46.645,
+          "sha256": "789c0959d677757b1338f21371a0b1dd845e987cd4b48ceb52fb20a9be38020c"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/4b17425b742d/poems/s10.wav",
+          "text": "\"They will come with spears and swords to fight you!\"",
+          "durationMs": 3280.0,
+          "startSeconds": 46.645,
+          "endSeconds": 49.925,
+          "sha256": "b4c74f4f4bc823fda2a216145b9ae897be30fdad739178f51f0ad847560a75f0"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/4b17425b742d/poems/s11.wav",
+          "text": "\"But I don't have a single enemy,\" said the dragon. \"I'm too lazy to make any!\"",
+          "durationMs": 5475.0,
+          "startSeconds": 49.925,
+          "endSeconds": 55.4,
+          "sha256": "894623ece1e2bfb9b775d4b81b216b3b28fee18951fb828cbc2396402cf70812"
+        }
+      ]
+    },
+    "village": {
+      "sourceSha256": "739186120f9ac627a59ff34f1d93cd1ad04d9e8f67ceaa33d52ae815ca4ebbf8",
+      "durationSeconds": 46.92,
+      "clips": [
+        {
+          "src": "/story-audio/reluctant-dragon/739186120f9a/village/s01.wav",
+          "text": "The Boy told his parents all about his new friend, and the shepherd came to meet him.",
+          "durationMs": 4990.0,
+          "startSeconds": 0.0,
+          "endSeconds": 4.99,
+          "sha256": "f248ad9cfbb97fa774ce7d675f1fb3036f62fdd9734fb4803c2ab0eb7ddb8dc7"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/739186120f9a/village/s02.wav",
+          "text": "His mother sent up warm food, but she was still a little shy of the big dragon.",
+          "durationMs": 5185.0,
+          "startSeconds": 4.99,
+          "endSeconds": 10.175,
+          "sha256": "b6463624f8e6b62c32fd743d22bfff424428a0b220a9c58e72f6d7d51ec1be21"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/739186120f9a/village/s03.wav",
+          "text": "Every evening, the Boy sat with the dragon and listened to stories about the old days.",
+          "durationMs": 5570.0,
+          "startSeconds": 10.175,
+          "endSeconds": 15.745,
+          "sha256": "d7fb9a8241f0fc59ba18cbbd65c639894f0e72586a4f42b005f9259498b9f5ef"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/739186120f9a/village/s04.wav",
+          "text": "But a dragon as big as four horses cannot hide for long.",
+          "durationMs": 4770.0,
+          "startSeconds": 15.745,
+          "endSeconds": 20.515,
+          "sha256": "fa16b4d6a6556b3a6752daa1e55e0cfe076718cf1433ba3b7e06309f23580010"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/739186120f9a/village/s05.wav",
+          "text": "Soon, everyone in the village was talking about the dragon in the cave.",
+          "durationMs": 4220.0,
+          "startSeconds": 20.515,
+          "endSeconds": 24.735,
+          "sha256": "06775d9bcbf9cf80328ed5c654046cea05dac2b92ccccc51a5e06805cb751a74"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/739186120f9a/village/s06.wav",
+          "text": "The people were scared, but they were also a little proud.",
+          "durationMs": 4010.0,
+          "startSeconds": 24.735,
+          "endSeconds": 28.745,
+          "sha256": "ce6f14dff9600e268cc4e5699fb2b922cab46676c6d974a438535cabca0b4220"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/739186120f9a/village/s07.wav",
+          "text": "\"A dragon is a dragon! He must go!\" they shouted.",
+          "durationMs": 4235.0,
+          "startSeconds": 28.745,
+          "endSeconds": 32.98,
+          "sha256": "77144a7cf9893e9a64d0826556d578a80409944d8379b0ffedd512c2b477c5fe"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/739186120f9a/village/s08.wav",
+          "text": "But the dragon had never hurt anyone, not even a single chicken.",
+          "durationMs": 4940.0,
+          "startSeconds": 32.98,
+          "endSeconds": 37.92,
+          "sha256": "24c35002dea518471f94af821c41b9aa5ac098f2b251cc868f8c91aa383f7dc6"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/739186120f9a/village/s09.wav",
+          "text": "And nobody in the village was brave enough to fight him.",
+          "durationMs": 3405.0,
+          "startSeconds": 37.92,
+          "endSeconds": 41.325,
+          "sha256": "6d9b08ac662ca252f49575699253de176874d982e76cd3414d0a4f01ddd16069"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/739186120f9a/village/s10.wav",
+          "text": "Meanwhile, up on the hill, the dragon watched the sunset and wrote new poems.",
+          "durationMs": 5595.0,
+          "startSeconds": 41.325,
+          "endSeconds": 46.92,
+          "sha256": "3cce81569e5a4127e46408c2f9e4e828b011634df734737e664b446d1b7e04b4"
+        }
+      ]
+    },
+    "george": {
+      "sourceSha256": "5f00142f255e6cd569efa4e29069eca70d2872cac5f08b9853e6be0e62a861f5",
+      "durationSeconds": 49.64,
+      "clips": [
+        {
+          "src": "/story-audio/reluctant-dragon/5f00142f255e/george/s01.wav",
+          "text": "One morning, the village looked like a big party.",
+          "durationMs": 3440.0,
+          "startSeconds": 0.0,
+          "endSeconds": 3.44,
+          "sha256": "e52b3aa586482f1c8a4bc742931f7cdda9a9e5f7de30d4cf5793e6ca4fd45644"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/5f00142f255e/george/s02.wav",
+          "text": "Bright flags hung from the windows, flowers covered the street, and the bells rang and rang.",
+          "durationMs": 6135.0,
+          "startSeconds": 3.44,
+          "endSeconds": 9.575,
+          "sha256": "102dfa0f6e5c1a39873d53ef4244c8902c24a4b10c6a65db5dbf5b1ef6a232eb"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/5f00142f255e/george/s03.wav",
+          "text": "\"What's happening?\" asked the Boy. \"St. George is coming!\" shouted his friend.",
+          "durationMs": 5100.0,
+          "startSeconds": 9.575,
+          "endSeconds": 14.675,
+          "sha256": "35504fb99880fb39f383b36f622ae30f45b0655444bc714747f7b9a93abb18bb"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/5f00142f255e/george/s04.wav",
+          "text": "\"He will fight our dragon! What a great fight it will be!\"",
+          "durationMs": 3950.0,
+          "startSeconds": 14.675,
+          "endSeconds": 18.625,
+          "sha256": "280ff465353f198467c3ebd24dd25c7ece66451424c6b8d2406cb0bed02da18b"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/5f00142f255e/george/s05.wav",
+          "text": "Then a tall white horse came slowly down the street.",
+          "durationMs": 4160.0,
+          "startSeconds": 18.625,
+          "endSeconds": 22.785,
+          "sha256": "38afe898a1e5e54636f7066459de968ae22e3fc67e1b39b04a65c1bdddcea9ef"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/5f00142f255e/george/s06.wav",
+          "text": "On it sat St. George in shining golden armor, with a long, long spear.",
+          "durationMs": 5535.0,
+          "startSeconds": 22.785,
+          "endSeconds": 28.32,
+          "sha256": "3adccf6333b688a5b2928180b3db5125546c261366eb8f85c4830d11daff5491"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/5f00142f255e/george/s07.wav",
+          "text": "Everyone cheered. \"Don't worry,\" he said kindly. \"I will free you from the dragon.\"",
+          "durationMs": 5405.0,
+          "startSeconds": 28.32,
+          "endSeconds": 33.725,
+          "sha256": "ae21064e8ee60205bf16b9bfae16a977a5c7ffea481f80547ad03bdf757d7421"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/5f00142f255e/george/s08.wav",
+          "text": "But the Boy ran up the hill as fast as he could.",
+          "durationMs": 3495.0,
+          "startSeconds": 33.725,
+          "endSeconds": 37.22,
+          "sha256": "37d4fd059a2e410e043234a055e9576454d1b6825b26a9d01c27794e2a494d79"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/5f00142f255e/george/s09.wav",
+          "text": "The dragon was polishing his scales with an old cloth from the Boy's mother.",
+          "durationMs": 4490.0,
+          "startSeconds": 37.22,
+          "endSeconds": 41.71,
+          "sha256": "af629e7772b057201595f2d446a344ed62234d32bef224e5f483d4839c75929b"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/5f00142f255e/george/s10.wav",
+          "text": "He shone like a big blue jewel.",
+          "durationMs": 2780.0,
+          "startSeconds": 41.71,
+          "endSeconds": 44.49,
+          "sha256": "a672c83273096fa87098a4fd5166986b22c777596a2fe078b279e98c554a26cb"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/5f00142f255e/george/s11.wav",
+          "text": "\"Don't shout, Boy,\" he said calmly. \"Sit down and tell me who is coming.\"",
+          "durationMs": 5150.0,
+          "startSeconds": 44.49,
+          "endSeconds": 49.64,
+          "sha256": "c97df3ab4ab6c8fd61b87356f66ca54e109827fda03ee30bb8d45f4bf5a5488e"
+        }
+      ]
+    },
+    "refuse": {
+      "sourceSha256": "0045818c6cfa1d9ffd11984645a82a4237f391513ec9db987b1c7ae6911e11bb",
+      "durationSeconds": 50.08,
+      "clips": [
+        {
+          "src": "/story-audio/reluctant-dragon/0045818c6cfa/refuse/s01.wav",
+          "text": "\"St. George is here! He has the longest spear you ever saw!\" said the Boy.",
+          "durationMs": 6115.0,
+          "startSeconds": 0.0,
+          "endSeconds": 6.115,
+          "sha256": "efff097a606a8b8c1877d8b37c693ba4dd7cd7b7ce8ce422b73657daf75dc48a"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/0045818c6cfa/refuse/s02.wav",
+          "text": "The Boy jumped up and down. He really wanted to see a big fight.",
+          "durationMs": 4575.0,
+          "startSeconds": 6.115,
+          "endSeconds": 10.69,
+          "sha256": "511906257fb7c9529eeb5da1ac4ab7ba2e9f4b7a9d5802dbb5955246d778e645"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/0045818c6cfa/refuse/s03.wav",
+          "text": "\"Oh dear, oh dear!\" cried the dragon. \"This is terrible!\"",
+          "durationMs": 4830.0,
+          "startSeconds": 10.69,
+          "endSeconds": 15.52,
+          "sha256": "3326ba4423ef0164a3be03d07d935308224b1b74aad596ff970b56453831c884"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/0045818c6cfa/refuse/s04.wav",
+          "text": "\"I won't see him. Please tell him to go away!\"",
+          "durationMs": 2895.0,
+          "startSeconds": 15.52,
+          "endSeconds": 18.415,
+          "sha256": "3eba4bce3918b5c6020b60dc76f47b87d8afb24d53c22f9db289e9a9e19f0f99"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/0045818c6cfa/refuse/s05.wav",
+          "text": "\"But you have to fight him,\" said the Boy. \"He is St. George, and you are the dragon!\"",
+          "durationMs": 6260.0,
+          "startSeconds": 18.415,
+          "endSeconds": 24.675,
+          "sha256": "327b3fd95d45254b9a07d4927158f86d46ac24f4594666cab2757b11e75becd6"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/0045818c6cfa/refuse/s06.wav",
+          "text": "\"My dear little friend,\" said the dragon, \"I can't fight, and I won't fight.\"",
+          "durationMs": 5930.0,
+          "startSeconds": 24.675,
+          "endSeconds": 30.605,
+          "sha256": "48bb86ae740a5543a013c4a47a8b9de2d196e84cf5ef631f96fb728bc5ab379a"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/0045818c6cfa/refuse/s07.wav",
+          "text": "\"I have never fought anyone in my whole life.\"",
+          "durationMs": 2775.0,
+          "startSeconds": 30.605,
+          "endSeconds": 33.38,
+          "sha256": "73785134a321baf0fb748e64c69eb5cd5b0ce0b07eb5b75c6583996939de010d"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/0045818c6cfa/refuse/s08.wav",
+          "text": "\"But if you don't fight, he will cut off your head!\" cried the Boy.",
+          "durationMs": 5220.0,
+          "startSeconds": 33.38,
+          "endSeconds": 38.6,
+          "sha256": "f07bed3548c0e81e8dbf64dfb357b1747799234626a7f632f0da2a4d0a965e72"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/0045818c6cfa/refuse/s09.wav",
+          "text": "\"Oh, I don't think so,\" said the dragon lazily. \"You are clever. You will think of something.\"",
+          "durationMs": 6415.0,
+          "startSeconds": 38.6,
+          "endSeconds": 45.015,
+          "sha256": "207c9b1746df44f5d68c1b391ef8da0fb7bfb5ee8d701a598ba40530c99bbb18"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/0045818c6cfa/refuse/s10.wav",
+          "text": "So the Boy walked slowly back down the hill. He felt very worried.",
+          "durationMs": 5065.0,
+          "startSeconds": 45.015,
+          "endSeconds": 50.08,
+          "sha256": "297cf52bd6db3eec322228914216d268d12dd1b8482aee151085ec51d8ccc541"
+        }
+      ]
+    },
+    "inn": {
+      "sourceSha256": "7a2e2f44748e1677aac71a723e2d9d2ba3bf1591ca02a640402eec38383f9240",
+      "durationSeconds": 53.96,
+      "clips": [
+        {
+          "src": "/story-audio/reluctant-dragon/7a2e2f44748e/inn/s01.wav",
+          "text": "Down in the village, everyone was happily talking about the big fight.",
+          "durationMs": 4170.0,
+          "startSeconds": 0.0,
+          "endSeconds": 4.17,
+          "sha256": "58524530ea78bc4c9253cf39b15b96b663e0af38766927fc029cdbb978605ad8"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/7a2e2f44748e/inn/s02.wav",
+          "text": "The Boy went to the inn, where St. George was sitting all alone.",
+          "durationMs": 4025.0000000000005,
+          "startSeconds": 4.17,
+          "endSeconds": 8.195,
+          "sha256": "603f902cc5611ad6d23408706e3b7356835e616bcff833306a66643bfdfee83f"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/7a2e2f44748e/inn/s03.wav",
+          "text": "Knock, knock! \"May I come in, St. George? I want to talk about the dragon.\"",
+          "durationMs": 4965.0,
+          "startSeconds": 8.195,
+          "endSeconds": 13.16,
+          "sha256": "fa2b9eb658872eb6e644598ccc738f071ac57381e9c9b3d04f57aaced9ac3171"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/7a2e2f44748e/inn/s04.wav",
+          "text": "\"Come in, Boy,\" said the knight kindly. \"Did the dragon hurt your family?\"",
+          "durationMs": 4865.0,
+          "startSeconds": 13.16,
+          "endSeconds": 18.025,
+          "sha256": "fc02b987e760c6e369a19fcadfef041aa899bc6e6cf10ceb54e4b11fda70cb62"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/7a2e2f44748e/inn/s05.wav",
+          "text": "\"No! That's the problem,\" said the Boy. \"He is a good dragon, and he is my friend.\"",
+          "durationMs": 6400.0,
+          "startSeconds": 18.025,
+          "endSeconds": 24.425,
+          "sha256": "6650c09d042ab6bdf453ee26f22b63952b2b0eadb067fc582274268b09497c3c"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/7a2e2f44748e/inn/s06.wav",
+          "text": "\"He tells wonderful stories, and he is very kind to my mother.\"",
+          "durationMs": 4310.0,
+          "startSeconds": 24.425,
+          "endSeconds": 28.735,
+          "sha256": "ad99188bb52f3387d418f6c2e78d2d84997585cb5788d4c4856461d46a9c807e"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/7a2e2f44748e/inn/s07.wav",
+          "text": "\"The people here tell lots of tall tales. They just want to see a fight!\"",
+          "durationMs": 4500.0,
+          "startSeconds": 28.735,
+          "endSeconds": 33.235,
+          "sha256": "d45a4404de0769d3d5a7a96eec61094cf8a5c1be7bde193942bbf230c218e095"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/7a2e2f44748e/inn/s08.wav",
+          "text": "St. George thought for a long time. \"Maybe I was wrong about the dragon,\" he said.",
+          "durationMs": 5370.0,
+          "startSeconds": 33.235,
+          "endSeconds": 38.605,
+          "sha256": "27664be1d0d515592bf9c3b0555ba318dd48d45d7b4e88608b5c29da92083ce7"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/7a2e2f44748e/inn/s09.wav",
+          "text": "\"But what can we do? Can you think of a plan?\"",
+          "durationMs": 3690.0,
+          "startSeconds": 38.605,
+          "endSeconds": 42.295,
+          "sha256": "5e2780d94df5fb6efd70746a98e129602fdfabbf486ffe5caa38fe0c361ea83f"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/7a2e2f44748e/inn/s10.wav",
+          "text": "\"Come up the hill with me and meet him,\" said the Boy.",
+          "durationMs": 3310.0,
+          "startSeconds": 42.295,
+          "endSeconds": 45.605,
+          "sha256": "052caef146c08b764bde3a689dcab0a82f418c90ee9c6f0e6e80176ad34788c6"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/7a2e2f44748e/inn/s11.wav",
+          "text": "\"Cheer up,\" said St. George. \"Maybe there won't be any fight after all.\"",
+          "durationMs": 4745.0,
+          "startSeconds": 45.605,
+          "endSeconds": 50.35,
+          "sha256": "03bfa3c686718a4a65cfb7e4987d95fd99a7fc79a33673c55dee43d638c48162"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/7a2e2f44748e/inn/s12.wav",
+          "text": "\"Oh, but I hope there will be!\" said the Boy with a grin.",
+          "durationMs": 3610.0,
+          "startSeconds": 50.35,
+          "endSeconds": 53.96,
+          "sha256": "9ced58690b21eaab8d0352e535bd99b9bb3a6818a7a62b8a92d20028eb0b2b38"
+        }
+      ]
+    },
+    "plan": {
+      "sourceSha256": "d5b1e413df8de27967d0dfa2c64f87035417a28de8f0f5e93d171b2c92eac8c0",
+      "durationSeconds": 66.2,
+      "clips": [
+        {
+          "src": "/story-audio/reluctant-dragon/d5b1e413df8d/plan/s01.wav",
+          "text": "That night, the Boy brought St. George up the hill to meet the dragon.",
+          "durationMs": 4480.0,
+          "startSeconds": 0.0,
+          "endSeconds": 4.48,
+          "sha256": "8ae0f50c29c022ca09fe86c82aca490db7377f832dc2b43afb1e52ec3373c549"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/d5b1e413df8d/plan/s02.wav",
+          "text": "\"Nice to meet you, sir!\" said the dragon politely. \"Lovely weather tonight!\"",
+          "durationMs": 5700.0,
+          "startSeconds": 4.48,
+          "endSeconds": 10.18,
+          "sha256": "78b55411e577d805dba5ac1fe95e4cbf391ff5dbac17bbb7f8cdad5e2521d2a0"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/d5b1e413df8d/plan/s03.wav",
+          "text": "\"Shall we just have a fight by the rules?\" asked St. George.",
+          "durationMs": 5005.0,
+          "startSeconds": 10.18,
+          "endSeconds": 15.185,
+          "sha256": "9d9b24076d8162143bb0d4a8642f7e974a55e7b93e57b7f75d3cd34bbca97406"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/d5b1e413df8d/plan/s04.wav",
+          "text": "\"No, thank you,\" said the dragon. \"If you make me, I will just hide in my cave.\"",
+          "durationMs": 5680.0,
+          "startSeconds": 15.185,
+          "endSeconds": 20.865,
+          "sha256": "96c3b3aa838d831d39c733e0c76a8f3ff0fedf36d7200c8adf5bb5883c36cefc"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/d5b1e413df8d/plan/s05.wav",
+          "text": "\"But this hill is a perfect place for a fight,\" said the knight.",
+          "durationMs": 4280.0,
+          "startSeconds": 20.865,
+          "endSeconds": 25.145,
+          "sha256": "b6a68b77a0e276a42094cf7d9aa60a26ab2b20759ddb20ee84e8dfc235c0007b"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/d5b1e413df8d/plan/s06.wav",
+          "text": "\"Think of it! My golden armor and your blue scales. What a beautiful picture!\"",
+          "durationMs": 5795.0,
+          "startSeconds": 25.145,
+          "endSeconds": 30.94,
+          "sha256": "1591951bb8188521b0322bbce448b39d2e69b87b1d40724a1c35039f26fcd37a"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/d5b1e413df8d/plan/s07.wav",
+          "text": "\"Hmm, it would be a pretty picture,\" said the dragon slowly.",
+          "durationMs": 4970.0,
+          "startSeconds": 30.94,
+          "endSeconds": 35.91,
+          "sha256": "0468a47189cdffc0c10a455318938c2c1e005c9ccf2a470bd09bcf7a54498e15"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/d5b1e413df8d/plan/s08.wav",
+          "text": "\"I must touch you with my spear, but I don't need to hurt you,\" said St. George.",
+          "durationMs": 5575.0,
+          "startSeconds": 35.91,
+          "endSeconds": 41.485,
+          "sha256": "627629b0ce3be6f110bbe91b7be6024d3891e0694ef0b9d11da797f5a500adae"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/d5b1e413df8d/plan/s09.wav",
+          "text": "\"How about behind your front leg?\" \"Hee hee! No, that tickles!\" laughed the dragon.",
+          "durationMs": 6040.0,
+          "startSeconds": 41.485,
+          "endSeconds": 47.525,
+          "sha256": "e2ca825612448bef6dac0727bd9d42a10dd54effb822c570068933b29a87e0df"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/d5b1e413df8d/plan/s10.wav",
+          "text": "\"Then under your neck, in these thick, soft folds of skin. You won't feel a thing.\"",
+          "durationMs": 6625.0,
+          "startSeconds": 47.525,
+          "endSeconds": 54.15,
+          "sha256": "0d7d6f77a2811d08a3410170535b2766cb1af87e54f2e129681b9625e2ecb51c"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/d5b1e413df8d/plan/s11.wav",
+          "text": "\"And after the fight?\" asked the dragon. \"Then we will all have a big feast,\" said the knight.",
+          "durationMs": 7010.0,
+          "startSeconds": 54.15,
+          "endSeconds": 61.16,
+          "sha256": "b0d63389f3fa78163f4cef3b20e862cd412b52534e1931ea4cdbb178ce38438f"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/d5b1e413df8d/plan/s12.wav",
+          "text": "\"A feast? Wonderful!\" said the dragon. \"Then it's a deal!\"",
+          "durationMs": 5040.0,
+          "startSeconds": 61.16,
+          "endSeconds": 66.2,
+          "sha256": "1562b3be9995034712e6abac430e88d6b73c0838b572e6ba991aafad28a3b26f"
+        }
+      ]
+    },
+    "show": {
+      "sourceSha256": "628f0c531d3b7ce4c2d7a94851cd734a46882867c4a1697c7379857850528a07",
+      "durationSeconds": 64.96,
+      "clips": [
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s01.wav",
+          "text": "The next morning, the whole village climbed the hill in their best clothes.",
+          "durationMs": 4890.0,
+          "startSeconds": 0.0,
+          "endSeconds": 4.89,
+          "sha256": "6cf4fee5fe45ce598aaf8bb8382af750bfae2532e280c8a46d7841d5a69c7749"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s02.wav",
+          "text": "They carried baskets of food and found good places on the grass.",
+          "durationMs": 3960.0,
+          "startSeconds": 4.89,
+          "endSeconds": 8.85,
+          "sha256": "3ca867e01f443ca44781e6691bbc1ed48009731f0422810f2c07cd79a048680e"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s03.wav",
+          "text": "The Boy sat right at the front. Would the dragon really come out?",
+          "durationMs": 4590.0,
+          "startSeconds": 8.85,
+          "endSeconds": 13.44,
+          "sha256": "8697ec8f860f67cf2f90cc6e459bd405afb8c6adc2472353ea06752596cc50af"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s04.wav",
+          "text": "Then St. George rode up the hill, his golden armor shining in the sun.",
+          "durationMs": 5370.0,
+          "startSeconds": 13.44,
+          "endSeconds": 18.81,
+          "sha256": "5bdcc1b37cc88761ba9d3fd03e6120deea47fd2241c0dd74b438100af2244f72"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s05.wav",
+          "text": "Suddenly, there was a loud roar, and smoke filled the mouth of the cave.",
+          "durationMs": 6185.0,
+          "startSeconds": 18.81,
+          "endSeconds": 24.995,
+          "sha256": "c9654c5e01580eeb5fb309fc3724513ee136ac4e029e97cfc63f0e821e719225"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s06.wav",
+          "text": "Out pranced the dragon, blue and shining, with fire coming from his nose!",
+          "durationMs": 5550.0,
+          "startSeconds": 24.995,
+          "endSeconds": 30.545,
+          "sha256": "968235bb40dbbebf5f73612c6f971acebc6e211ed3387fc1437b95b5c58486ae"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s07.wav",
+          "text": "\"Ooooh!\" said everyone.",
+          "durationMs": 2135.0,
+          "startSeconds": 30.545,
+          "endSeconds": 32.68,
+          "sha256": "3cf6ae48c7606cdd94d489fa3a5c8e86a6362a5e5daf393032e8cd85b0904706"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s08.wav",
+          "text": "In round one, St. George charged with his spear, but he missed!",
+          "durationMs": 5190.0,
+          "startSeconds": 32.68,
+          "endSeconds": 37.87,
+          "sha256": "9b4defff878f2bcdd0277100b6b22d30db81bc5ade84c9f1dbaf3e3dd3c5982f"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s09.wav",
+          "text": "In round two, the dragon jumped from side to side, and the horse ran away in fright.",
+          "durationMs": 5940.0,
+          "startSeconds": 37.87,
+          "endSeconds": 43.81,
+          "sha256": "0457ca012385b561299f6fe7037f4fe9a04cf9c16175a26763ff305da558cb5a"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s10.wav",
+          "text": "The people cheered for the dragon, and he proudly puffed out his chest.",
+          "durationMs": 4760.0,
+          "startSeconds": 43.81,
+          "endSeconds": 48.57,
+          "sha256": "ce4bbad5ba7025b619e1c16448fcf63724bed677bdf24ea198b60212c9ad4a37"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s11.wav",
+          "text": "In round three, St. George moved like lightning.",
+          "durationMs": 4030.0000000000005,
+          "startSeconds": 48.57,
+          "endSeconds": 52.6,
+          "sha256": "3faedd065c82d72a92e675afcefae53d51a31151e3e457595f18a6ba185da86b"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s12.wav",
+          "text": "The spear went into the soft folds under the dragon's neck, and he fell to the ground.",
+          "durationMs": 5755.0,
+          "startSeconds": 52.6,
+          "endSeconds": 58.355,
+          "sha256": "7ac74b991e060c1a23f4cc8c59b78b3e1f8a8da9425bb9f207f28ee6fbc9ae96"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/628f0c531d3b/show/s13.wav",
+          "text": "The Boy ran to him, but the dragon opened one eye and gave him a big wink.",
+          "durationMs": 6605.0,
+          "startSeconds": 58.355,
+          "endSeconds": 64.96,
+          "sha256": "48e15e51fae9badc6c324fdf349c06616535f1dfd694cb0c2864cb287380c616"
+        }
+      ]
+    },
+    "feast": {
+      "sourceSha256": "c926fecd646d1fc1be45211897aadb23adbd4abcd9fee55503fbfcaa9bf21f99",
+      "durationSeconds": 67.36,
+      "clips": [
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s01.wav",
+          "text": "\"Aren't you going to cut off his head?\" asked a man in the crowd.",
+          "durationMs": 3980.0,
+          "startSeconds": 0.0,
+          "endSeconds": 3.98,
+          "sha256": "dee3325463994a3dec7691d57be2ef4ded2219c51e462dcf85fda5f2637e2d03"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s02.wav",
+          "text": "\"Not today,\" said St. George with a smile. \"Let's all go down and eat first.\"",
+          "durationMs": 5355.0,
+          "startSeconds": 3.98,
+          "endSeconds": 9.335,
+          "sha256": "4300e0da812817afa62267817d8e1e346b243634b2bf8de36a8960db23c790de"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s03.wav",
+          "text": "So everyone marched down to the village, with the dragon walking next to the Boy.",
+          "durationMs": 5305.0,
+          "startSeconds": 9.335,
+          "endSeconds": 14.64,
+          "sha256": "9093b6e2a30d709cd4b085997db06d222ade11329f359b3f40d7ca06dd272b30"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s04.wav",
+          "text": "St. George made a speech. \"The dragon is good now, and he wants to be your friend.\"",
+          "durationMs": 6070.0,
+          "startSeconds": 14.64,
+          "endSeconds": 20.71,
+          "sha256": "75fb8aeb17f72e73940b8c4c470bc5f00800a42bb4e992f4da713a1bd2f2b8be"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s05.wav",
+          "text": "\"Don't love fights so much, and don't make up scary stories!\"",
+          "durationMs": 3765.0,
+          "startSeconds": 20.71,
+          "endSeconds": 24.475,
+          "sha256": "17f279cb5c30525e58ad2d5952f8c5da51a3372a1a9e8c9f2bd7496df91a886a"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s06.wav",
+          "text": "Then there was a wonderful feast, and the dragon was the star of the party.",
+          "durationMs": 5340.0,
+          "startSeconds": 24.475,
+          "endSeconds": 29.815,
+          "sha256": "1c63c67303326c77ed22157eea22dc6e753d842324bfe4dfc594c0dc15a07b47"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s07.wav",
+          "text": "Everyone loved his stories, his jokes, and even his poems.",
+          "durationMs": 4520.0,
+          "startSeconds": 29.815,
+          "endSeconds": 34.335,
+          "sha256": "5dae51717ccc67e8abfbe89d5360948e5bb5d3cb00b3e808fa527b3ccf50595c"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s08.wav",
+          "text": "Late that night, the dragon sat down in the road and fell asleep.",
+          "durationMs": 4090.0,
+          "startSeconds": 34.335,
+          "endSeconds": 38.425,
+          "sha256": "3aa39d8b8bf1ff9bce14f957b8a9ca5f8044ae2f256c5161f4202b538d20b5f1"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s09.wav",
+          "text": "\"Wake up, dragon!\" cried the tired Boy. \"You promised I would walk you home!\"",
+          "durationMs": 5615.0,
+          "startSeconds": 38.425,
+          "endSeconds": 44.04,
+          "sha256": "d23a040a3a28345dd4245164a1fa0bde5b7e0b80004c6be1c8454f319c38401f"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s10.wav",
+          "text": "St. George came out and helped. \"Wake up, dragon! This little boy needs to go to bed!\"",
+          "durationMs": 5670.0,
+          "startSeconds": 44.04,
+          "endSeconds": 49.71,
+          "sha256": "66df9154f00887b58384a67ecd16b2d2b2e3d109af64e192cd1ddfc5a737c29e"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s11.wav",
+          "text": "The dragon jumped up. \"Oh, poor little boy! Let's go home right now!\"",
+          "durationMs": 5650.0,
+          "startSeconds": 49.71,
+          "endSeconds": 55.36,
+          "sha256": "b64c8f5c42863a3ebbc25e4d4f7421304afe5105316a6910b0c6e548c5cff569"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s12.wav",
+          "text": "So the knight, the dragon, and the Boy walked up the hill together, arm in arm, under the stars.",
+          "durationMs": 6625.0,
+          "startSeconds": 55.36,
+          "endSeconds": 61.985,
+          "sha256": "38005d5b702b9269bf6886baf7bfe358aa2c47e8b2cbe5f2a6ab40aa8d36ae50"
+        },
+        {
+          "src": "/story-audio/reluctant-dragon/c926fecd646d/feast/s13.wav",
+          "text": "And as they went, someone sang a happy old song. I think it was the dragon!",
+          "durationMs": 5375.0,
+          "startSeconds": 61.985,
+          "endSeconds": 67.36,
+          "sha256": "f60e65ef0e671c38e40b3021c9d3db2921e90902b2b0e1680aef339133dbe5ec"
+        }
+      ]
+    }
+  }
+}

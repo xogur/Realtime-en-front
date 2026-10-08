@@ -1,0 +1,408 @@
+{
+  "version": 1,
+  "storyId": "odyssey",
+  "source": "User-provided Gemini AI Studio chapter WAVs",
+  "alignment": "Local Whisper base.en word alignment plus measured silence midpoint boundaries; human listening not yet verified",
+  "chapters": {
+    "ithaca": {
+      "sourceSha256": "e6cef16bae69205626ea4756702a449641fe73f599a36217ddcfd09076aa62e1",
+      "durationSeconds": 26.76,
+      "clips": [
+        {
+          "src": "/story-audio/odyssey/e6cef16bae69/ithaca/s01.wav",
+          "text": "Long ago, a clever king named Odysseus lived on a small island called Ithaca.",
+          "durationMs": 6800,
+          "startSeconds": 0,
+          "endSeconds": 6.8,
+          "sha256": "ec26899c133fe20ec19db1b902c2547446ce6c401efd338f4ae08d83a7f82753"
+        },
+        {
+          "src": "/story-audio/odyssey/e6cef16bae69/ithaca/s02.wav",
+          "text": "He loved his wife, Penelope, and their baby son, Telemachus.",
+          "durationMs": 4690,
+          "startSeconds": 6.8,
+          "endSeconds": 11.49,
+          "sha256": "38522b559880f83d0fbb9aa7f3ad646f6e797b5bada02990ebd717de64150e8b"
+        },
+        {
+          "src": "/story-audio/odyssey/e6cef16bae69/ithaca/s03.wav",
+          "text": "One day, a ship came with bad news: there was a great war in Troy.",
+          "durationMs": 5740,
+          "startSeconds": 11.49,
+          "endSeconds": 17.23,
+          "sha256": "b736767fce6e08af574415598c7209b5535e76202c7990e864e34e831360f3c1"
+        },
+        {
+          "src": "/story-audio/odyssey/e6cef16bae69/ithaca/s04.wav",
+          "text": "Odysseus had to join the war, so he said goodbye to his family.",
+          "durationMs": 5100,
+          "startSeconds": 17.23,
+          "endSeconds": 22.33,
+          "sha256": "f93ad8b78e46b4e6ba519a8c23d89eb2ac708404a981a63f0df3695a5c61161d"
+        },
+        {
+          "src": "/story-audio/odyssey/e6cef16bae69/ithaca/s05.wav",
+          "text": "\"I will come back,\" he promised, and his ship sailed away.",
+          "durationMs": 4430,
+          "startSeconds": 22.33,
+          "endSeconds": 26.76,
+          "sha256": "35dc1e18ae6fc9de46b754f81103b90d46ad2ceea816fcfae36007dcd41c1439"
+        }
+      ]
+    },
+    "horse": {
+      "sourceSha256": "011fdc98b4f82e5076df168bf8053333a69cc63024ed589727088d2ad7aeece8",
+      "durationSeconds": 31.48,
+      "clips": [
+        {
+          "src": "/story-audio/odyssey/011fdc98b4f8/horse/s01.wav",
+          "text": "For ten long years, the Greeks fought against the city of Troy.",
+          "durationMs": 4730,
+          "startSeconds": 0,
+          "endSeconds": 4.73,
+          "sha256": "31aedeb8b5f9feb15eefedfd23e16b0e65502e35cb4f3163a570b8f9922af55e"
+        },
+        {
+          "src": "/story-audio/odyssey/011fdc98b4f8/horse/s02.wav",
+          "text": "But the walls of Troy were too tall and too strong.",
+          "durationMs": 4645,
+          "startSeconds": 4.73,
+          "endSeconds": 9.375,
+          "sha256": "1d2c1ce1b94f574769b0eff529a414c9ef644edcdfe7d8ca7e0fd61238681b65"
+        },
+        {
+          "src": "/story-audio/odyssey/011fdc98b4f8/horse/s03.wav",
+          "text": "Then Odysseus had a clever idea: \"Let's build a giant wooden horse!\"",
+          "durationMs": 6440,
+          "startSeconds": 9.375,
+          "endSeconds": 15.815,
+          "sha256": "6f9621f24c8f751a729e249ae23631180650f5f035c68fee90dd77aa57ea82bc"
+        },
+        {
+          "src": "/story-audio/odyssey/011fdc98b4f8/horse/s04.wav",
+          "text": "The bravest soldiers hid inside the horse, and the other Greeks sailed away.",
+          "durationMs": 5045,
+          "startSeconds": 15.815,
+          "endSeconds": 20.86,
+          "sha256": "3468d4070e0801168c69ba25d83b43d80017e52f2dd952a29902a090852594ae"
+        },
+        {
+          "src": "/story-audio/odyssey/011fdc98b4f8/horse/s05.wav",
+          "text": "The Trojans thought it was a gift, so they pulled it into their city.",
+          "durationMs": 4260,
+          "startSeconds": 20.86,
+          "endSeconds": 25.12,
+          "sha256": "2a3e0d9dc33c2e1eacce17cc3cfac7e8c6aab8b5de2ca384de138a6a443fed2a"
+        },
+        {
+          "src": "/story-audio/odyssey/011fdc98b4f8/horse/s06.wav",
+          "text": "That night, the soldiers climbed out and opened the gates. Troy had fallen!",
+          "durationMs": 6360,
+          "startSeconds": 25.12,
+          "endSeconds": 31.48,
+          "sha256": "865ff12f3c23fad7513e115b94a7ce8704e7610a04b4ff2397c04d73ed13aea7"
+        }
+      ]
+    },
+    "cave": {
+      "sourceSha256": "d428b4c58cdfa3f5d31bd20320b5948e2d76046f5d8eb8abbf51435c1f2223ce",
+      "durationSeconds": 31.56,
+      "clips": [
+        {
+          "src": "/story-audio/odyssey/d428b4c58cdf/cave/s01.wav",
+          "text": "On the way home, Odysseus and his men found a big cave.",
+          "durationMs": 5675,
+          "startSeconds": 0,
+          "endSeconds": 5.675,
+          "sha256": "4999caedd74c66d713849028425457783ec9f0ee15ed282520774f889ac2d32d"
+        },
+        {
+          "src": "/story-audio/odyssey/d428b4c58cdf/cave/s02.wav",
+          "text": "Inside, there was a lot of cheese and milk, so they started to eat.",
+          "durationMs": 5430,
+          "startSeconds": 5.675,
+          "endSeconds": 11.105,
+          "sha256": "78d39cffd4a29c5a220a2d7bd3f3d402c24d4b4f449c8fc3032a58fb4d778209"
+        },
+        {
+          "src": "/story-audio/odyssey/d428b4c58cdf/cave/s03.wav",
+          "text": "Suddenly, the ground shook. A giant with only one eye came in with his sheep.",
+          "durationMs": 6990,
+          "startSeconds": 11.105,
+          "endSeconds": 18.095,
+          "sha256": "3eb4cdb0bf78d9879ec771c8d288f68d5863cb529768e6fab83f9e1750e4ca58"
+        },
+        {
+          "src": "/story-audio/odyssey/d428b4c58cdf/cave/s04.wav",
+          "text": "He was Polyphemus the Cyclops, and he rolled a huge rock across the door.",
+          "durationMs": 5930,
+          "startSeconds": 18.095,
+          "endSeconds": 24.025,
+          "sha256": "ab898694823e70fdd17da98eab3f666ec17fbd24597873caeb899f7e3a18363f"
+        },
+        {
+          "src": "/story-audio/odyssey/d428b4c58cdf/cave/s05.wav",
+          "text": "\"Who are you?\" the giant roared.",
+          "durationMs": 3165,
+          "startSeconds": 24.025,
+          "endSeconds": 27.19,
+          "sha256": "d0116fd94465cfadeac435b703bb12942ebb69d777046cb1a694d4688eb6847c"
+        },
+        {
+          "src": "/story-audio/odyssey/d428b4c58cdf/cave/s06.wav",
+          "text": "Odysseus smiled and said, \"My name is Nobody.\"",
+          "durationMs": 4370,
+          "startSeconds": 27.19,
+          "endSeconds": 31.56,
+          "sha256": "a3f054ea938624cf6c91b9060d7abaed90dc520481bf71a1206e8f4a4915bedc"
+        }
+      ]
+    },
+    "nobody": {
+      "sourceSha256": "6b665c27bc98fdf64a6fd3202aae6f22fb3a9060564ea1e1989fecff31ef6f00",
+      "durationSeconds": 29.12,
+      "clips": [
+        {
+          "src": "/story-audio/odyssey/6b665c27bc98/nobody/s01.wav",
+          "text": "Odysseus gave the giant a big bowl of strong, sweet wine.",
+          "durationMs": 5710,
+          "startSeconds": 0,
+          "endSeconds": 5.71,
+          "sha256": "1a1fe3821356a8bb34fe2f6e22916244a0621f1919c536dba17accaa9358ecbe"
+        },
+        {
+          "src": "/story-audio/odyssey/6b665c27bc98/nobody/s02.wav",
+          "text": "The Cyclops drank it all and fell into a deep sleep.",
+          "durationMs": 5300,
+          "startSeconds": 5.71,
+          "endSeconds": 11.01,
+          "sha256": "f4e74f082074e0bc29ef3ffa8fae45607ff90da83a70f8e45effe30bcbbf4fe6"
+        },
+        {
+          "src": "/story-audio/odyssey/6b665c27bc98/nobody/s03.wav",
+          "text": "Then the men used a long, sharp stick to hurt his one big eye.",
+          "durationMs": 6255,
+          "startSeconds": 11.01,
+          "endSeconds": 17.265,
+          "sha256": "3f481044a543758a2988e13835368be595201e0cc3b2526ba7a9d761124185cc"
+        },
+        {
+          "src": "/story-audio/odyssey/6b665c27bc98/nobody/s04.wav",
+          "text": "\"Help! Nobody is hurting me!\" he shouted, but no one came to help.",
+          "durationMs": 5985,
+          "startSeconds": 17.265,
+          "endSeconds": 23.25,
+          "sha256": "b048d8c0a2ee05c6d8cfc71ada8450fb041b598d718cd68849e503ebaaec8d7a"
+        },
+        {
+          "src": "/story-audio/odyssey/6b665c27bc98/nobody/s05.wav",
+          "text": "In the morning, the men held on under the sheep and escaped from the cave.",
+          "durationMs": 5870,
+          "startSeconds": 23.25,
+          "endSeconds": 29.12,
+          "sha256": "e122110a634b8f948e42beceff2b9c78fb8011568b9b7475773927726b214b7a"
+        }
+      ]
+    },
+    "winds": {
+      "sourceSha256": "10b51c9b7d2c0962e7b2c126180afce219782c2acefa13efbc9ec0cd3d15c82b",
+      "durationSeconds": 23.64,
+      "clips": [
+        {
+          "src": "/story-audio/odyssey/10b51c9b7d2c/winds/s01.wav",
+          "text": "Next, the King of the Winds gave Odysseus a special bag.",
+          "durationMs": 4720,
+          "startSeconds": 0,
+          "endSeconds": 4.72,
+          "sha256": "4d65818e39943307641719b26f40d7124ef091d04ea2e54b15fda886ab072617"
+        },
+        {
+          "src": "/story-audio/odyssey/10b51c9b7d2c/winds/s02.wav",
+          "text": "\"All the strong winds are inside. Never open it!\" he said.",
+          "durationMs": 4495,
+          "startSeconds": 4.72,
+          "endSeconds": 9.215,
+          "sha256": "082f8cfa9e4f5da164d653c3ff1d0c0aa4ebaed8e9628013c5c0d6c037be8370"
+        },
+        {
+          "src": "/story-audio/odyssey/10b51c9b7d2c/winds/s03.wav",
+          "text": "They sailed for nine days, and soon they could see Ithaca.",
+          "durationMs": 4410,
+          "startSeconds": 9.215,
+          "endSeconds": 13.625,
+          "sha256": "29dc629e03d397e2e4326600684d310882908d73f2058b6f6b9c9856cf441773"
+        },
+        {
+          "src": "/story-audio/odyssey/10b51c9b7d2c/winds/s04.wav",
+          "text": "But the sailors thought the bag was full of gold, so they opened it.",
+          "durationMs": 4370,
+          "startSeconds": 13.625,
+          "endSeconds": 17.995,
+          "sha256": "1b2265b4b17a7f503fb7671a5c225cdc905d26a36529c82a90c729822c03e49a"
+        },
+        {
+          "src": "/story-audio/odyssey/10b51c9b7d2c/winds/s05.wav",
+          "text": "Whoosh! The winds rushed out and blew the ship far, far away.",
+          "durationMs": 5645,
+          "startSeconds": 17.995,
+          "endSeconds": 23.64,
+          "sha256": "06775ab8f220c67e25eb99b8e3639b7b493d8e0e908521b695bf689f6c8084fc"
+        }
+      ]
+    },
+    "circe": {
+      "sourceSha256": "33d546b429ddf9b9a0b7b5b1f92f37358369e494448fdec3527f621c53d226ab",
+      "durationSeconds": 23.96,
+      "clips": [
+        {
+          "src": "/story-audio/odyssey/33d546b429dd/circe/s01.wav",
+          "text": "The ship came to an island where a witch named Circe lived.",
+          "durationMs": 4340,
+          "startSeconds": 0,
+          "endSeconds": 4.34,
+          "sha256": "a74302ea1a25f6bcbb2a2bd2611abbbb0dd44876921f2fc91dead11d3757dff5"
+        },
+        {
+          "src": "/story-audio/odyssey/33d546b429dd/circe/s02.wav",
+          "text": "She gave the men a magic drink, and poof! They turned into pigs.",
+          "durationMs": 5630,
+          "startSeconds": 4.34,
+          "endSeconds": 9.97,
+          "sha256": "7d1aa1e1e4331a9d318392f180e3d61120ace3d541769a697e9cbdaefa67841c"
+        },
+        {
+          "src": "/story-audio/odyssey/33d546b429dd/circe/s03.wav",
+          "text": "A kind god gave Odysseus a special flower to keep him safe.",
+          "durationMs": 4825,
+          "startSeconds": 9.97,
+          "endSeconds": 14.795,
+          "sha256": "a4ec295361edde70d25e4fc159b1135f9b7e0f621410318346ddc8093d788a07"
+        },
+        {
+          "src": "/story-audio/odyssey/33d546b429dd/circe/s04.wav",
+          "text": "\"Why doesn't my magic work?\" Circe cried in surprise.",
+          "durationMs": 4495,
+          "startSeconds": 14.795,
+          "endSeconds": 19.29,
+          "sha256": "f900e9142f0126c6ab14bb17c0fbd0db7a3f6830bb1249fc659e0f3aed7e60fd"
+        },
+        {
+          "src": "/story-audio/odyssey/33d546b429dd/circe/s05.wav",
+          "text": "Odysseus asked her to turn the pigs back into men, and she did.",
+          "durationMs": 4670,
+          "startSeconds": 19.29,
+          "endSeconds": 23.96,
+          "sha256": "8a6f6482643095fb4a0e81757d0194be7759853c401a793b8635ab906651f97d"
+        }
+      ]
+    },
+    "sirens": {
+      "sourceSha256": "860c1bc4aa07e1f0ff4e43e95b0a91ffec6cd90a7b51c59d10914bc8130f0850",
+      "durationSeconds": 32,
+      "clips": [
+        {
+          "src": "/story-audio/odyssey/860c1bc4aa07/sirens/s01.wav",
+          "text": "Soon the ship had to sail past the Sirens.",
+          "durationMs": 4360,
+          "startSeconds": 0,
+          "endSeconds": 4.36,
+          "sha256": "9e0078b16ef10eb6f94cd3a7a3d504db6ee658a3f06a5c9f95ba47bb750d6db5"
+        },
+        {
+          "src": "/story-audio/odyssey/860c1bc4aa07/sirens/s02.wav",
+          "text": "Their songs were so beautiful that sailors forgot everything and crashed into the rocks.",
+          "durationMs": 6980,
+          "startSeconds": 4.36,
+          "endSeconds": 11.34,
+          "sha256": "9fe66ceca4f1d054482fd92a66324b56e434882865fdf54ad22e2ada27da22b0"
+        },
+        {
+          "src": "/story-audio/odyssey/860c1bc4aa07/sirens/s03.wav",
+          "text": "Odysseus put soft wax in his sailors' ears, so they could not hear.",
+          "durationMs": 5345,
+          "startSeconds": 11.34,
+          "endSeconds": 16.685,
+          "sha256": "8c236549e7760270222f151616ce19b6a686ffbeed35ee00e4d5c2ecb6b188b8"
+        },
+        {
+          "src": "/story-audio/odyssey/860c1bc4aa07/sirens/s04.wav",
+          "text": "But he wanted to hear the song, so he asked them to tie him to the mast.",
+          "durationMs": 5510,
+          "startSeconds": 16.685,
+          "endSeconds": 22.195,
+          "sha256": "9e2c99b55d53bcf32f2a9c885b4b9c370afb678dbdf5aa91a90b33e18f86ab94"
+        },
+        {
+          "src": "/story-audio/odyssey/860c1bc4aa07/sirens/s05.wav",
+          "text": "When the Sirens sang, he shouted, \"Let me go!\" but the sailors kept rowing.",
+          "durationMs": 5970,
+          "startSeconds": 22.195,
+          "endSeconds": 28.165,
+          "sha256": "8f9d8ef31c5f8c0e63ce5e1b1198dfb2319042b828424c49f57d4b99ae4ee675"
+        },
+        {
+          "src": "/story-audio/odyssey/860c1bc4aa07/sirens/s06.wav",
+          "text": "At last, the ship passed the Sirens safely.",
+          "durationMs": 3835,
+          "startSeconds": 28.165,
+          "endSeconds": 32,
+          "sha256": "5b89b950f5642ea634a673dfc7889a64ab56e72676fa88b602d00d588fd318b0"
+        }
+      ]
+    },
+    "home": {
+      "sourceSha256": "7b70412cf320b45f02bf6854b13da2cfca7a6609f376efbb0c901e3b2b898469",
+      "durationSeconds": 34.6,
+      "clips": [
+        {
+          "src": "/story-audio/odyssey/7b70412cf320/home/s01.wav",
+          "text": "After twenty years, Odysseus finally came home to Ithaca.",
+          "durationMs": 5450,
+          "startSeconds": 0,
+          "endSeconds": 5.45,
+          "sha256": "3bdbe5d159b62fdcf0cde362b85a4497330e73ae7431252855b9ba66115e1fba"
+        },
+        {
+          "src": "/story-audio/odyssey/7b70412cf320/home/s02.wav",
+          "text": "He dressed as an old beggar, so no one knew who he was.",
+          "durationMs": 4055,
+          "startSeconds": 5.45,
+          "endSeconds": 9.505,
+          "sha256": "15ba8e297d4121c4eb9efacaf033ab3e793ae98984257cf8d8b6edca9d5efedd"
+        },
+        {
+          "src": "/story-audio/odyssey/7b70412cf320/home/s03.wav",
+          "text": "Many proud men wanted to marry Penelope and take the palace.",
+          "durationMs": 4590,
+          "startSeconds": 9.505,
+          "endSeconds": 14.095,
+          "sha256": "37dc99d10155c42e78b5be1335546e0b3dc8436e607b72de0fec64fdb3dc0b32"
+        },
+        {
+          "src": "/story-audio/odyssey/7b70412cf320/home/s04.wav",
+          "text": "Penelope brought out Odysseus's old bow. \"Who can shoot through twelve axes?\"",
+          "durationMs": 6085,
+          "startSeconds": 14.095,
+          "endSeconds": 20.18,
+          "sha256": "22b053eb359684ed86d569b5461ac39c270e5f7d72ac701a31e6832a2282cbc8"
+        },
+        {
+          "src": "/story-audio/odyssey/7b70412cf320/home/s05.wav",
+          "text": "No one could even bend the bow, except the old beggar. His arrow flew through all twelve axes!",
+          "durationMs": 8180,
+          "startSeconds": 20.18,
+          "endSeconds": 28.36,
+          "sha256": "9703f6d8fa71ee073bae6c6ddbbe6e01633a426fe72324135fc46e9fd54eceba"
+        },
+        {
+          "src": "/story-audio/odyssey/7b70412cf320/home/s06.wav",
+          "text": "\"I am Odysseus!\" he said, and his family was together again at last.",
+          "durationMs": 6240,
+          "startSeconds": 28.36,
+          "endSeconds": 34.6,
+          "sha256": "7e90ef07c119283e7ff1f92ed98b2ca5de1a90fb4aca736fdcfed6765b58e673"
+        }
+      ]
+    }
+  }
+}
