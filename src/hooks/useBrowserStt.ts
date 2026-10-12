@@ -51,6 +51,8 @@ type BrowserSpeechWindow = Window & {
 type BrowserSttOptions = {
   onUtteranceAborted?: (reason: 'NO_SPEECH' | 'NO_FINAL' | 'VOICE_NOT_READY') => void;
   language?: string;
+  /** Read when recognition starts, so a caller can pick the language for that start only. */
+  resolveLanguage?: () => string | undefined;
   publishRecordingState?: boolean;
   onFinalTranscript: (transcript: BrowserFinalTranscript) => void;
   onInterimTranscript: (transcript: string) => void;
@@ -395,7 +397,7 @@ export function useBrowserStt(options: BrowserSttOptions) {
       0,
     );
     let restartIsFailure = false;
-    recognition.lang = optionsRef.current.language ?? CONFIG.language;
+    recognition.lang = optionsRef.current.resolveLanguage?.() ?? optionsRef.current.language ?? CONFIG.language;
     recognition.continuous = CONFIG.continuous;
     recognition.interimResults = CONFIG.interimResults;
     recognition.maxAlternatives = CONFIG.maxAlternatives;

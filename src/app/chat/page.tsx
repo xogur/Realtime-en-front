@@ -5,6 +5,7 @@ import { ChatOverlay } from '@/components/ChatOverlay';
 import { AssessmentPanel } from '@/components/AssessmentPanel';
 import { useVoiceSocket } from '@/hooks/useVoiceSocket';
 import { useChatSync } from '@/hooks/useChatSync';
+import { useStore } from '@/stores/useStore';
 import { getKioskIdFromLocation } from '@/lib/kioskIdentity';
 import {
     publishTranslatorControl,
@@ -24,8 +25,16 @@ import { setMissionEntry } from '@/features/missionLearning/api';
 import { MISSION_LEARNING_ENABLED } from '@/features/missionLearning/config';
 import { isTerminalSnapshot, useMissionLearningStore } from '@/features/missionLearning/store';
 import { StoryListeningView } from '@/features/storyListening/StoryListeningView';
-import { publishStoryControl, subscribeStoryControl } from '@/features/storyListening/control';
+import {
+    publishStoryControl,
+    publishStoryTalk,
+    subscribeStoryControl,
+    type StoryPosition,
+    type StoryTalk,
+} from '@/features/storyListening/control';
 // import { LearningExperience } from '@/features/learning/LearningExperience';
+
+const RECONNECT_INTERVAL_MS = 2000;
 
 export default function ChatPopout() {
     const { connect, disconnect, setMissionGuideAudio } = useVoiceSocket();
@@ -52,12 +61,27 @@ export default function ChatPopout() {
 
     // Story listening is chosen on the avatar screen and plays here.
     const [storyId, setStoryId] = useState<string | null>(null);
+    // The avatar asks for a talk turn; story audio stays stopped until the turn ends.
+    const [storyTalk, setStoryTalk] = useState<StoryTalk | null>(null);
     useEffect(() => subscribeStoryControl(getKioskIdFromLocation(), (state) => {
         setStoryId(state.action === 'open' ? state.storyId : null);
+        setStoryTalk(state.action === 'open' ? state.talk : null);
     }), []);
     const closeStory = useCallback((returnTo: 'mode' | null) => {
         setStoryId(null);
+        setStoryTalk(null);
         void publishStoryControl({ action: 'close', returnTo }, getKioskIdFromLocation());
+    }, []);
+    const reportStoryPaused = useCallback((requestId: string, position: StoryPosition | null) => {
+        setStoryTalk((current) => (current?.requestId === requestId ? { ...current, phase: 'paused', position } : current));
+        void publishStoryTalk({ phase: 'paused', requestId, position }, getKioskIdFromLocation()).then((published) => {
+            // The avatar gave up or the relay is gone: hand the story back.
+            if (!published) setStoryTalk((current) => (current?.requestId === requestId ? null : current));
+        });
+    }, []);
+    const endStoryTalk = useCallback((requestId: string) => {
+        setStoryTalk((current) => (current?.requestId === requestId ? null : current));
+        void publishStoryTalk({ phase: 'off', requestId }, getKioskIdFromLocation());
     }, []);
 
     useEffect(() => {
@@ -67,6 +91,18 @@ export default function ChatPopout() {
     useEffect(() => {
         socketControlsRef.current.connect({ role: 'viewer', startRecording: false });
         return () => socketControlsRef.current.disconnect();
+    }, []);
+
+    // The guide screen has no mic button to retry with. If the backend was restarting (or the
+    // first connect failed), keep retrying until the socket is up; connect() ignores calls
+    // while a connection attempt is already in flight.
+    useEffect(() => {
+        const timer = window.setInterval(() => {
+            const { isConnected, isConnecting } = useStore.getState();
+            if (isConnected || isConnecting) return;
+            socketControlsRef.current.connect({ role: 'viewer', startRecording: false });
+        }, RECONNECT_INTERVAL_MS);
+        return () => window.clearInterval(timer);
     }, []);
 
     useEffect(() => {
@@ -205,6 +241,9 @@ export default function ChatPopout() {
             storyId={storyId}
             onBack={() => closeStory('mode')}
             onClose={() => closeStory(null)}
+            talk={storyTalk}
+            onTalkPaused={reportStoryPaused}
+            onEndTalk={endStoryTalk}
         />
         </>
     );

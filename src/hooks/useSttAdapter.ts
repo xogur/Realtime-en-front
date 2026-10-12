@@ -8,10 +8,17 @@ import {
 import { useAudioRecorder } from './useAudioRecorder';
 import { useBrowserStt } from './useBrowserStt';
 
+/**
+ * requiredAudio: the server PCM path is needed (it records audio).
+ * language: recognise this browser language instead of the server's English
+ * model (story talk asks in Korean); falls back to the server if unavailable.
+ */
+export type SttStartOptions = { requiredAudio?: boolean; language?: string };
+
 export type SttAdapter = {
   provider: SttProviderName;
   prepare: (input?: MediaStream) => Promise<boolean>;
-  start: (options?: { requiredAudio?: boolean }) => Promise<boolean | void>;
+  start: (options?: SttStartOptions) => Promise<boolean | void>;
   stop: (options?: { keepPrepared?: boolean }) => Promise<void>;
   isRecording: boolean;
 };
@@ -35,6 +42,7 @@ export function useSttAdapter(options: SttAdapterOptions): SttAdapter {
   const providerRef = useRef<SttProviderName>(PROVIDER);
   const desiredRef = useRef(false);
   const operationGenerationRef = useRef(0);
+  const languageRef = useRef<string | undefined>(undefined);
   const optionsRef = useRef(options);
   const {
     startRecording,
@@ -82,11 +90,8 @@ export function useSttAdapter(options: SttAdapterOptions): SttAdapter {
   }, [selectProvider, startRecording, stopRecording]);
 
   const handleBrowserUnavailable = useCallback(() => {
-    if (
-      PROVIDER !== 'browser'
-      || providerRef.current !== 'browser'
-      || !desiredRef.current
-    ) return;
+    // A server-configured build reaches browser recognition only for a language start.
+    if (providerRef.current !== 'browser' || !desiredRef.current) return;
 
     // Prefer browser STT, but retain the server recorder as a runtime
     // fallback for browsers without Web Speech or denied microphone access.
@@ -99,18 +104,24 @@ export function useSttAdapter(options: SttAdapterOptions): SttAdapter {
     isRecording: isBrowserRecording,
   } = useBrowserStt({
     ...options,
+    resolveLanguage: () => languageRef.current,
     onUnavailable: handleBrowserUnavailable,
   });
 
-  const startInput = useCallback(async (startOptions?: { requiredAudio?: boolean }) => {
+  const startInput = useCallback(async (startOptions?: SttStartOptions) => {
     desiredRef.current = true;
     const generation = operationGenerationRef.current + 1;
     operationGenerationRef.current = generation;
+    languageRef.current = startOptions?.requiredAudio ? undefined : startOptions?.language;
     if (startOptions?.requiredAudio) {
       if (providerRef.current === 'browser') await stopBrowserStt();
       return startServerStt(generation);
     }
-    if (PROVIDER === 'server') return startServerStt(generation);
+    if (PROVIDER === 'server' && !languageRef.current) return startServerStt(generation);
+    if (providerRef.current === 'server') {
+      await stopRecording();
+      if (!desiredRef.current || generation !== operationGenerationRef.current) return false;
+    }
 
     selectProvider('browser');
     // A blocked microphone permission prompt can leave getUserMedia pending
@@ -131,9 +142,9 @@ export function useSttAdapter(options: SttAdapterOptions): SttAdapter {
     await stopBrowserStt();
     if (!desiredRef.current || generation !== operationGenerationRef.current) return false;
     return startServerStt(generation);
-  }, [selectProvider, startBrowserStt, startServerStt, stopBrowserStt]);
+  }, [selectProvider, startBrowserStt, startServerStt, stopBrowserStt, stopRecording]);
 
-  const start = useCallback(async (startOptions?: { requiredAudio?: boolean }) => {
+  const start = useCallback(async (startOptions?: SttStartOptions) => {
     const pending = startInput(startOptions);
     const generation = operationGenerationRef.current;
     let timer: ReturnType<typeof setTimeout> | undefined;

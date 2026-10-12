@@ -18,8 +18,9 @@ import { getConversationDifficulty, type DifficultyId } from '@/lib/conversation
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
 import { isTranslatorWindowMessage, TRANSLATOR_WINDOW_MESSAGE } from '@/lib/translator';
 import { getKioskIdFromLocation } from '@/lib/kioskIdentity';
-import { publishStoryControl, subscribeStoryControl } from '@/features/storyListening/control';
+import { publishStoryControl, publishStoryTalk, subscribeStoryControl, type StoryTalk } from '@/features/storyListening/control';
 import { DEFAULT_STORY_ID } from '@/features/storyListening/stories';
+import { StoryTalkAvatar } from '@/features/storyListening/StoryTalkAvatar';
 // import { LearningExperience } from '@/features/learning/LearningExperience';
 // import { buildKioskUrl } from '@/lib/kioskIdentity';
 
@@ -56,6 +57,9 @@ export function ControlPanel({
         startGuidedLearningVoice,
         prepareGuidedMicrophone,
         syncGuidedCapture,
+        startStoryTalk,
+        listenStoryTalk,
+        endStoryTalk,
         // 학습하기 UI를 다시 노출할 때 함께 복구합니다.
         // startLearningSession,
         // learningCommand,
@@ -71,13 +75,26 @@ export function ControlPanel({
     const [isTopicSelectorOpen, setIsTopicSelectorOpen] = useState(false);
     const [entryStep, setEntryStep] = useState<'mode' | null>(null);
     const [modeError, setModeError] = useState<string | null>(null);
-    const learningAvailability = useMissionLearningAvailability();
+    const [learningRetryKey, setLearningRetryKey] = useState(0);
+    const learningAvailability = useMissionLearningAvailability(learningRetryKey);
     const missionEntry = useMissionLearningStore((state) => state.entry);
     const guidedSnapshot = useGuidedLearningStore((state) => state.snapshot);
     const learningEntryActive = Boolean(missionEntry?.open || (guidedSnapshot && !isGuidedTerminal(guidedSnapshot)));
     const handledMissionEntrySeqRef = useRef(0);
-    // The story itself plays on the guide display (/chat); this window only opens and closes it.
+    // The story itself plays on the guide display (/chat); this window only opens and closes it,
+    // and talks about it with the avatar when the learner pauses it.
     const storyOpenRef = useRef(false);
+    const [storyOpen, setStoryOpen] = useState(false);
+    const [storyTalk, setStoryTalkState] = useState<StoryTalk | null>(null);
+    const storyTalkRef = useRef<StoryTalk | null>(null);
+    const endStoryTalkRef = useRef(endStoryTalk);
+    useEffect(() => { endStoryTalkRef.current = endStoryTalk; }, [endStoryTalk]);
+    const setStoryTalk = useCallback((next: StoryTalk | null) => {
+        // Leaving an active talk from any side stops the avatar's microphone and voice.
+        if (storyTalkRef.current?.phase === 'active' && next?.phase !== 'active') endStoryTalkRef.current();
+        storyTalkRef.current = next;
+        setStoryTalkState(next);
+    }, []);
     useMissionRoleplayVoice({
         enabled: learningAvailability === 'available',
         startLearningRoleplay,
@@ -154,9 +171,12 @@ export function ControlPanel({
             pauseConversationForUsageEnd();
             setEntryStep(null);
             storyOpenRef.current = true;
+            setStoryOpen(true);
+            setStoryTalk(null);
             void publishStoryControl({ action: 'open', storyId: DEFAULT_STORY_ID }, getKioskIdFromLocation()).then((published) => {
                 if (published) return;
                 storyOpenRef.current = false;
+                setStoryOpen(false);
                 setModeError('이야기 화면을 열지 못했어요. 잠시 후 다시 시도해 주세요.');
                 setEntryStep('mode');
             });
@@ -164,6 +184,8 @@ export function ControlPanel({
         }
         if (storyOpenRef.current) {
             storyOpenRef.current = false;
+            setStoryOpen(false);
+            setStoryTalk(null);
             void publishStoryControl({ action: 'close' }, getKioskIdFromLocation());
         }
         if (mode === 'learning') {
@@ -185,13 +207,17 @@ export function ControlPanel({
         }
         setEntryStep(null);
         setIsTopicSelectorOpen(true);
-    }, [connectForLearning, isRecording, learningAvailability, pauseConversationForUsageEnd, prepareGuidedMicrophone, stopListening]);
+    }, [connectForLearning, isRecording, learningAvailability, pauseConversationForUsageEnd, prepareGuidedMicrophone, setStoryTalk, stopListening]);
 
     useEffect(() => subscribeStoryControl(getKioskIdFromLocation(), (state, { initial }) => {
         storyOpenRef.current = state.action === 'open';
+        setStoryOpen(state.action === 'open');
+        // A talk replayed on load has no live avatar conversation behind it; hand the story back.
+        if (initial && state.talk) void publishStoryTalk({ phase: 'off', requestId: state.talk.requestId }, getKioskIdFromLocation());
+        setStoryTalk(initial || state.action !== 'open' ? null : state.talk);
         // Only a fresh "모드 다시 선택" from the story screen reopens the choice, not a replay on load.
         if (!initial && state.action === 'close' && state.returnTo === 'mode') setEntryStep('mode');
-    }), []);
+    }), [setStoryTalk]);
 
     // "모드 다시 선택" on the guide display brings the mode choice back here.
     useEffect(() => {
@@ -350,8 +376,22 @@ export function ControlPanel({
         };
     }, [closeConversationEntry, isRecording, startListening, stopListening]);
 
+    const storyTalkActive = storyOpen && storyTalk?.phase === 'active';
+
     return (
         <>
+        {storyOpen && !learningEntryActive ? (
+            <StoryTalkAvatar
+                kioskId={getKioskIdFromLocation()}
+                talk={storyTalk}
+                onTalkChange={setStoryTalk}
+                startTalk={startStoryTalk}
+                listen={listenStoryTalk}
+                mute={stopListening}
+                talkError={conversationStartStatus === 'error' ? conversationStartError : null}
+            />
+        ) : null}
+        {storyTalkActive ? null : (
         <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
@@ -508,6 +548,7 @@ export function ControlPanel({
                 </div>
             </div>
         </motion.div>
+        )}
         <TopicSelector
             isOpen={isTopicSelectorOpen && !learningEntryActive}
             participantName={participantName}
@@ -522,6 +563,7 @@ export function ControlPanel({
         <ModeSelector
             isOpen={entryStep === 'mode' && !learningEntryActive}
             learningAvailability={learningAvailability}
+            onRetryLearning={() => setLearningRetryKey((key) => key + 1)}
             participantName={participantName}
             error={modeError}
             onSelect={handleSelectMode}

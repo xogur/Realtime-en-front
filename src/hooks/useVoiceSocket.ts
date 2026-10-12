@@ -31,6 +31,16 @@ import type { AttemptPurpose, LearningSnapshot } from '@/features/learning/types
 import { parseMissionEntry, useMissionLearningStore } from '@/features/missionLearning/store';
 import type { MissionSnapshot } from '@/features/missionLearning/types';
 import { isGuidedTerminal, useGuidedLearningStore } from '@/features/missionLearning/guided/store';
+import type { StoryTalkContext } from '@/features/storyListening/storyTalkContext';
+import type { SttStartOptions } from './useSttAdapter';
+
+/** Story talk questions are asked in Korean; browser recognition handles them, not the English server model. */
+const STORY_TALK_STT_LANGUAGE = 'ko-KR';
+const STORY_TALK_MIC_ERRORS: Record<string, string> = {
+  MICROPHONE_DENIED: '마이크 권한이 막혀 있어요. 주소창 왼쪽 아이콘에서 마이크를 허용한 뒤 다시 시도해 주세요.',
+  MICROPHONE_UNAVAILABLE: '마이크를 사용할 수 없어요. 마이크 연결과 권한을 확인한 뒤 다시 시도해 주세요.',
+  MICROPHONE_START_TIMEOUT: '마이크가 켜지지 않아요. 마이크 연결을 확인한 뒤 다시 시도해 주세요.',
+};
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
 const EVALUATION_BATCH_MAX_TURNS = 4;
@@ -115,6 +125,7 @@ type SocketMessage = {
   endedAt?: string;
   createdAt?: string;
   isOpening?: boolean;
+  storyTalkId?: string;
   segments?: TopicSegment[];
   lessonSessionId?: string;
   snapshot?: LearningSnapshot;
@@ -609,6 +620,8 @@ export function useVoiceSocket() {
   const seenEventSeqsRef = useRef<Set<string>>(new Set());
   const eventSeqOrderRef = useRef<string[]>([]);
   const roleRef = useRef<KioskRole>('controller');
+  // Epoch of this window's own controller session, from its kiosk_session_ready.
+  const ownSessionEpochRef = useRef<number | null>(null);
   const disconnectRef = useRef<() => void>(() => undefined);
   const isReplayingSessionRef = useRef(false);
   const sessionReplaySequenceRef = useRef(0);
@@ -620,6 +633,7 @@ export function useVoiceSocket() {
   const isSttCaptureReadyRef = useRef(false);
   const isServerSttReadyRef = useRef(false);
   const pendingTopicStartRef = useRef<PendingConversationStart | null>(null);
+  const storyTalkRef = useRef<{ requestId: string; context: StoryTalkContext; sent: boolean } | null>(null);
   const pendingResumeSegmentRef = useRef<string | null>(null);
   const learningPurposeRef = useRef<AttemptPurpose | null>(null);
   const learningAttemptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -692,7 +706,8 @@ export function useVoiceSocket() {
 
   const getMessageMetadata = useCallback((data: SocketMessage): ChatMessageMetadata | undefined => {
     const topicId = isTopicId(data.topicId) ? data.topicId : undefined;
-    if (!data.learningSessionId && !data.segmentId && !topicId && !data.createdAt && !data.isOpening) {
+    const storyTalkId = typeof data.storyTalkId === 'string' && data.storyTalkId ? data.storyTalkId : undefined;
+    if (!data.learningSessionId && !data.segmentId && !topicId && !data.createdAt && !data.isOpening && !storyTalkId) {
       return undefined;
     }
     return {
@@ -701,6 +716,7 @@ export function useVoiceSocket() {
       topicId,
       createdAt: data.createdAt,
       isOpening: data.isOpening,
+      ...(storyTalkId ? { storyTalkId } : {}),
     };
   }, []);
 
@@ -844,6 +860,9 @@ export function useVoiceSocket() {
     console.error('Browser STT error:', code);
     if (guidedMicRef.current) { guidedMicRef.current.active = false; guidedMicRef.current.starting = false; }
     publishGuidedCaptureStatus('ERROR');
+    // A story talk has no other way to tell the learner why nobody is listening.
+    const storyMessage = STORY_TALK_MIC_ERRORS[code];
+    if (storyTalkRef.current && storyMessage) useStore.getState().setConversationStartStatus('error', storyMessage);
   }, [publishGuidedCaptureStatus]);
 
   const handleUtteranceAborted = useCallback((reason: 'NO_SPEECH' | 'NO_FINAL' | 'VOICE_NOT_READY') => {
@@ -889,7 +908,7 @@ export function useVoiceSocket() {
     return captureSessionId;
   }, []);
 
-  const startSttCapture = useCallback(async (captureOptions?: { requiredAudio?: boolean }) => {
+  const startSttCapture = useCallback(async (captureOptions?: SttStartOptions) => {
     if (guideAudioRef.current) return 'superseded' as const;
     const operation = sttInputOperationRef.current;
     // The control message is placed on the WebSocket before MediaRecorder can
@@ -1203,6 +1222,10 @@ export function useVoiceSocket() {
 
   const handleTtsChunk = useCallback(
     (data: SocketMessage) => {
+      // Audio is broadcast to every window of the kiosk. A second avatar window that
+      // took over the kiosk must not be echoed by this one (heard as howling).
+      if (ownSessionEpochRef.current !== null && typeof data.sessionEpoch === 'number'
+        && data.sessionEpoch !== ownSessionEpochRef.current) return;
       if (!canAcceptGuidedRoleEvent(data)) return;
       if (guideAudioRef.current && guideAudioRef.current.playbackId !== guidedRoleAudioRef.current?.playbackId) return;
       if (!canPlayConversationTts(translatorTtsGateRef.current)) return;
@@ -1665,6 +1688,7 @@ export function useVoiceSocket() {
     const role = options?.role ?? 'controller';
     const shouldStartRecording = options?.startRecording ?? role === 'controller';
     roleRef.current = role;
+    ownSessionEpochRef.current = null;
 
     isConnecting.current = true;
     isSttCaptureReadyRef.current = false;
@@ -1777,6 +1801,7 @@ export function useVoiceSocket() {
           }
           case 'kiosk_session_ready':
             if (typeof data.sessionEpoch === 'number') {
+              ownSessionEpochRef.current = data.sessionEpoch;
               useLearningStore.getState().setSessionEpoch(data.sessionEpoch);
               const pendingLearning = pendingLearningMessageRef.current;
               if (pendingLearning) {
@@ -1988,6 +2013,19 @@ export function useVoiceSocket() {
             pendingTopicStartRef.current = null;
             setConversationStartStatus('opening');
             break;
+          case 'story_talk_started':
+            if (data.requestId !== storyTalkRef.current?.requestId) break;
+            // The talk opens with a fresh assistant line; accept its TTS.
+            activeGenerationIdRef.current = null;
+            flushActiveTts();
+            // A microphone error reported meanwhile must stay visible.
+            if (useStore.getState().conversationStartStatus !== 'error') setConversationStartStatus('opening');
+            break;
+          case 'story_talk_error':
+            if (data.requestId !== storyTalkRef.current?.requestId) break;
+            storyTalkRef.current = null;
+            setConversationStartStatus('error', data.content ?? '이야기 대화를 시작하지 못했어요. 다시 시도해 주세요.');
+            break;
           case 'conversation_start_error':
             pendingTopicStartRef.current = null;
             setConversationStartStatus(
@@ -2188,6 +2226,8 @@ export function useVoiceSocket() {
       setSttReady(false);
       setSocket(null);
       activeGenerationIdRef.current = null;
+      // A new server session has no story context; send it again after reconnecting.
+      if (storyTalkRef.current) storyTalkRef.current.sent = false;
       if (pendingTopicStartRef.current || pendingResumeSegmentRef.current) {
         pendingTopicStartRef.current = null;
         pendingResumeSegmentRef.current = null;
@@ -2217,6 +2257,8 @@ export function useVoiceSocket() {
       setSttReady(false);
       setSocket(null);
       activeGenerationIdRef.current = null;
+      // A new server session has no story context; send it again after reconnecting.
+      if (storyTalkRef.current) storyTalkRef.current.sent = false;
       if (pendingTopicStartRef.current || pendingResumeSegmentRef.current) {
         pendingTopicStartRef.current = null;
         pendingResumeSegmentRef.current = null;
@@ -2289,6 +2331,10 @@ export function useVoiceSocket() {
     learningPurposeRef.current = null;
     clearGuideAudioRequests();
     cleanupSocket();
+    // cleanupSocket detaches onclose, so a socket closed while still opening
+    // (e.g. a dev StrictMode remount) must release the connecting guard here.
+    isConnecting.current = false;
+    setConnecting(false);
     activeGenerationIdRef.current = null;
     clearSupplementaryPolling();
     if (roleRef.current === 'controller') {
@@ -2303,7 +2349,7 @@ export function useVoiceSocket() {
     useStore.getState().setLiveTranscript('');
     void stopSttInput();
     isDisconnecting.current = false;
-  }, [cleanupSocket, clearGuideAudioRequests, clearSupplementaryPolling, discardPendingEvaluations, flushActiveTts, setConnected, setSocket, setSttReady, stopSttInput]);
+  }, [cleanupSocket, clearGuideAudioRequests, clearSupplementaryPolling, discardPendingEvaluations, flushActiveTts, setConnected, setConnecting, setSocket, setSttReady, stopSttInput]);
 
   const startListening = useCallback(() => {
     const mic = guidedMicRef.current;
@@ -2336,6 +2382,7 @@ export function useVoiceSocket() {
   const startConversation = useCallback((topicId: TopicId, difficultyId: DifficultyId) => {
     guidedFreeTalkRequestedRef.current = isGuidedTerminal(useGuidedLearningStore.getState().snapshot);
     pendingResumeSegmentRef.current = null;
+    storyTalkRef.current = null;
     const requestId = crypto.randomUUID();
     pendingTopicStartRef.current = {
       requestId,
@@ -2414,6 +2461,33 @@ export function useVoiceSocket() {
     }
     connect();
   }, [connect, sendPendingResume, setConversationStartStatus, startSttCapture]);
+
+  const sendStoryTalkStart = useCallback(() => {
+    const pending = storyTalkRef.current;
+    if (!pending || pending.sent || socketRef.current?.readyState !== WebSocket.OPEN) return;
+    pending.sent = true;
+    socketRef.current.send(JSON.stringify({ type: 'start_story_talk', requestId: pending.requestId, story: pending.context }));
+    void startSttCapture({ language: STORY_TALK_STT_LANGUAGE }).then((result) => {
+      if (result !== 'failed' || storyTalkRef.current !== pending) return;
+      setConversationStartStatus('error', '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.');
+    }).catch(() => {
+      if (storyTalkRef.current !== pending) return;
+      setConversationStartStatus('error', '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.');
+    });
+  }, [setConversationStartStatus, startSttCapture]);
+
+  /** Talks about the paused story with the free-talk avatar, in Korean with English where it helps. */
+  /** Returns the talk id the server puts on this talk's messages (`storyTalkId`). */
+  const startStoryTalk = useCallback((context: StoryTalkContext) => {
+    pendingTopicStartRef.current = null;
+    pendingResumeSegmentRef.current = null;
+    const requestId = crypto.randomUUID();
+    storyTalkRef.current = { requestId, context, sent: false };
+    setConversationStartStatus('preparing');
+    if (socketRef.current?.readyState === WebSocket.OPEN) sendStoryTalkStart();
+    else connect({ role: 'controller', startRecording: false });
+    return requestId;
+  }, [connect, sendStoryTalkStart, setConversationStartStatus]);
 
   const stopListening = useCallback(() => {
     const snapshot = useGuidedLearningStore.getState().snapshot;
@@ -2603,11 +2677,38 @@ export function useVoiceSocket() {
     }
   }, [flushActiveTts, stopListening]);
 
+  /** Turns the Korean microphone back on during a story talk (after the learner muted it). */
+  const listenStoryTalk = useCallback(() => {
+    if (!storyTalkRef.current) return;
+    setConversationStartStatus('idle');
+    void startSttCapture({ language: STORY_TALK_STT_LANGUAGE }).then((result) => {
+      if (result === 'failed' && storyTalkRef.current) {
+        setConversationStartStatus('error', '마이크를 시작하지 못했습니다. 브라우저 마이크 권한과 입력 장치를 확인해 주세요.');
+      }
+    });
+  }, [setConversationStartStatus, startSttCapture]);
+
+  /** Ends the story talk: microphone and avatar voice stop, and the server drops the story context. */
+  const endStoryTalk = useCallback(() => {
+    const active = storyTalkRef.current;
+    storyTalkRef.current = null;
+    pauseConversationForUsageEnd();
+    if (active?.sent && socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: 'end_story_talk', requestId: active.requestId }));
+    }
+    setConversationStartStatus('idle');
+  }, [pauseConversationForUsageEnd, setConversationStartStatus]);
+
   useEffect(() => {
     if (!isConnected || (!isSttReady && !TEXT_ONLY_TEST_MODE)) return;
     sendPendingTopicStart();
     sendPendingResume();
   }, [isConnected, isSttReady, sendPendingResume, sendPendingTopicStart]);
+
+  // A story talk does not wait for the English recogniser; it opens its own Korean one.
+  useEffect(() => {
+    if (isConnected) sendStoryTalkStart();
+  }, [isConnected, sendStoryTalkStart]);
 
   useEffect(() => {
     disconnectRef.current = disconnect;
@@ -2686,6 +2787,9 @@ export function useVoiceSocket() {
     startListening,
     startConversation,
     resumeConversation,
+    startStoryTalk,
+    listenStoryTalk,
+    endStoryTalk,
     stopListening,
     pauseConversationForUsageEnd,
     isConnected,

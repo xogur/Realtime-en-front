@@ -168,11 +168,13 @@ export type ChatMessage = {
     topicId?: TopicId;
     createdAt?: string;
     isOpening?: boolean;
+    /** Set by the server on messages of a story talk (its request id). */
+    storyTalkId?: string;
 };
 
 export type ChatMessageMetadata = Pick<
     ChatMessage,
-    'learningSessionId' | 'segmentId' | 'topicId' | 'createdAt' | 'isOpening'
+    'learningSessionId' | 'segmentId' | 'topicId' | 'createdAt' | 'isOpening' | 'storyTalkId'
 >;
 
 export type EvaluationBatchStatus = {

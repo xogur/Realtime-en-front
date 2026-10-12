@@ -48,6 +48,7 @@ vi.mock('@/lib/translator', async (importOriginal) => {
 });
 
 import ChatPopout from './page';
+import { useStore } from '@/stores/useStore';
 
 describe('chat translator cross-profile flow', () => {
   beforeEach(() => {
@@ -68,6 +69,25 @@ describe('chat translator cross-profile flow', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'translator-closed' })).toBeTruthy();
     });
+  });
+
+  it('reconnects the guide socket by itself when the backend was not ready on first load', () => {
+    vi.useFakeTimers();
+    try {
+      useStore.setState({ isConnected: false, isConnecting: false });
+      render(<ChatPopout />);
+      expect(mocks.connect).toHaveBeenCalledTimes(1);
+      act(() => { vi.advanceTimersByTime(3000); });
+      expect(mocks.connect.mock.calls.length).toBeGreaterThan(1);
+      expect(mocks.connect).toHaveBeenLastCalledWith({ role: 'viewer', startRecording: false });
+      const calls = mocks.connect.mock.calls.length;
+      useStore.setState({ isConnected: true });
+      act(() => { vi.advanceTimersByTime(10000); });
+      expect(mocks.connect).toHaveBeenCalledTimes(calls);
+    } finally {
+      useStore.setState({ isConnected: false, isConnecting: false });
+      vi.useRealTimers();
+    }
   });
 
   it('rolls back the local open state when cross-profile delivery fails', async () => {

@@ -22,7 +22,7 @@ describe('story library', () => {
     open();
     fireEvent.click(screen.getByRole('button', { name: '싸우기 싫은 용 시작' }));
     expect(screen.getByRole('heading', { name: '싸우기 싫은 용' })).toBeTruthy();
-    expect(screen.getByText('듣기')).toBeTruthy();
+    expect(screen.getByText('먼저 듣기')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /다른 이야기/ }));
     expect(screen.getByRole('heading', { name: '어떤 이야기를 볼까요?' })).toBeTruthy();
   });
@@ -53,7 +53,7 @@ describe('story library', () => {
     const { container } = open();
     fireEvent.click(screen.getByRole('button', { name: '오디세우스의 모험 시작' }));
     fireEvent.click(screen.getByRole('button', { name: /이야기 시작하기/ }));
-    fireEvent.click(screen.getByRole('button', { name: /2.*듣기 학습/ }));
+    fireEvent.click(screen.getByRole('button', { name: /3.*단어 복습/ }));
     fireEvent.click(screen.getByRole('button', { name: /단어 찾기 놀이/ }));
     for (const id of ['island', 'hero', 'ship']) {
       fireEvent.click(container.querySelector(`[data-hotspot="${id}"]`)!);

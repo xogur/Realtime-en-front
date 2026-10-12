@@ -39,6 +39,7 @@ export type StoryQuiz = {
   question: string;
   questionKo: string;
   options: readonly string[];
+  optionsKo: readonly string[];
   answer: number;
   /** Sentence index that holds the answer, replayed after answering. */
   evidence: number;
@@ -75,12 +76,13 @@ export type Story = {
   chapters: readonly StoryChapter[];
 };
 
-export const STORY_STEPS = ['listen', 'words', 'quiz', 'relisten'] as const;
+export const STORY_STEPS = ['listen', 'quiz', 'words', 'confirm', 'relisten'] as const;
 export type StoryStep = typeof STORY_STEPS[number];
 
 export const STORY_STEP_META: Record<StoryStep, { label: string; hint: string }> = {
-  listen: { label: '듣기', hint: '그림을 보며 이야기를 들어요' },
-  words: { label: '듣기 학습', hint: '장면 속 핵심 단어를 찾아요' },
-  quiz: { label: '문맥 이해', hint: '이야기 내용을 떠올려요' },
+  listen: { label: '먼저 듣기', hint: '글 없이 소리와 그림에 집중해요' },
+  words: { label: '단어 복습', hint: '들은 이야기의 핵심 단어를 찾아요' },
+  quiz: { label: '내용 확인', hint: '어려우면 필요한 부분만 도움받아요' },
+  confirm: { label: '혼자 듣기', hint: '글 없이 다시 듣고 마무리해요' },
   relisten: { label: '다시 듣기', hint: '글과 함께 다시 들어요' },
 };

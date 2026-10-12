@@ -4,11 +4,19 @@ import { NextRequest, NextResponse } from 'next/server';
 // run in separate browser profiles. Mirrors /api/translator-control.
 
 type StoryAction = 'open' | 'close';
+type TalkPhase = 'requested' | 'paused' | 'active';
+
+/** Where the guide window paused the story, so the avatar can explain what was heard. */
+type StoryPosition = { storyId: string; chapterIndex: number; heardThrough: number };
+
+/** Story playback and the avatar talk never run together; this records who holds the turn. */
+type StoryTalk = { phase: TalkPhase; requestId: string; position: StoryPosition | null };
 
 type StoryControlState = {
   action: StoryAction;
   storyId: string | null;
   returnTo: 'mode' | null;
+  talk: StoryTalk | null;
   version: number;
   clientId?: string;
   updatedAt: number;
@@ -26,6 +34,8 @@ const LONG_POLL_TIMEOUT_MS = 25_000;
 const MAX_CHANNELS = 128;
 const MAX_WAITERS_PER_CHANNEL = 8;
 const MAX_PROCESSED_COMMAND_IDS = 64;
+const MAX_CHAPTERS = 64;
+const MAX_SENTENCES = 512;
 
 const globalStore = globalThis as typeof globalThis & {
   __realtimeEnStoryChannels?: Map<string, StoryControlChannel>;
@@ -52,7 +62,7 @@ function getChannel(kioskId: string): StoryControlChannel | null {
   }
 
   const channel: StoryControlChannel = {
-    state: { action: 'close', storyId: null, returnTo: null, version: 0, updatedAt: Date.now() },
+    state: { action: 'close', storyId: null, returnTo: null, talk: null, version: 0, updatedAt: Date.now() },
     waiters: new Set(),
     processedCommandIds: new Set(),
   };
@@ -87,6 +97,34 @@ function isBoundedId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 128;
 }
 
+function isIndex(value: unknown, min: number, max: number): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
+}
+
+function parsePosition(value: unknown): StoryPosition | null | undefined {
+  if (value === null) return null;
+  if (!value || typeof value !== 'object') return undefined;
+  const position = value as Record<string, unknown>;
+  if (typeof position.storyId !== 'string' || !STORY_ID_PATTERN.test(position.storyId)) return undefined;
+  if (!isIndex(position.chapterIndex, 0, MAX_CHAPTERS - 1) || !isIndex(position.heardThrough, -1, MAX_SENTENCES - 1)) return undefined;
+  return { storyId: position.storyId, chapterIndex: position.chapterIndex, heardThrough: position.heardThrough };
+}
+
+/** Returns the next talk state, or null when the command does not follow the current turn. */
+function nextTalk(current: StoryTalk | null, phase: unknown, requestId: string, position: unknown): { talk: StoryTalk | null } | null {
+  const matches = current?.requestId === requestId;
+  if (phase === 'requested') return { talk: { phase, requestId, position: null } };
+  if (phase === 'off') return matches ? { talk: null } : null;
+  if (phase === 'paused') {
+    const parsed = parsePosition(position);
+    return matches && current?.phase === 'requested' && parsed !== undefined ? { talk: { phase, requestId, position: parsed } } : null;
+  }
+  if (phase === 'active') {
+    return matches && current?.phase === 'paused' && current.position ? { talk: { ...current, phase } } : null;
+  }
+  return null;
+}
+
 export async function GET(request: NextRequest) {
   const kioskId = getKioskId(request);
   if (!kioskId) return noStoreJson({ error: 'Invalid kioskId' }, 400);
@@ -115,8 +153,11 @@ export async function POST(request: NextRequest) {
     returnTo?: unknown;
     clientId?: unknown;
     commandId?: unknown;
+    phase?: unknown;
+    requestId?: unknown;
+    position?: unknown;
   } | null;
-  if (!body || (body.action !== 'open' && body.action !== 'close')) {
+  if (!body || (body.action !== 'open' && body.action !== 'close' && body.action !== 'talk')) {
     return noStoreJson({ error: 'Invalid action' }, 400);
   }
   if (body.action === 'open' && (typeof body.storyId !== 'string' || !STORY_ID_PATTERN.test(body.storyId))) {
@@ -138,10 +179,31 @@ export async function POST(request: NextRequest) {
     const oldestCommandId = channel.processedCommandIds.values().next().value;
     if (oldestCommandId) channel.processedCommandIds.delete(oldestCommandId);
   }
+  if (body.action === 'talk') {
+    if (!isBoundedId(body.requestId)) return noStoreJson({ error: 'Invalid requestId' }, 400);
+    const next = channel.state.action === 'open'
+      ? nextTalk(channel.state.talk, body.phase, body.requestId, body.position)
+      : null;
+    // A stale or out-of-order turn keeps the current owner; the caller reads the state back.
+    if (!next) {
+      channel.processedCommandIds.delete(body.commandId);
+      return noStoreJson({ error: 'Talk state conflict', state: channel.state }, 409);
+    }
+    channel.state = {
+      ...channel.state,
+      talk: next.talk,
+      version: channel.state.version + 1,
+      clientId: body.clientId,
+      updatedAt: Date.now(),
+    };
+    for (const notify of [...channel.waiters]) notify();
+    return noStoreJson(channel.state);
+  }
   channel.state = {
     action: body.action,
     storyId: body.action === 'open' ? body.storyId as string : null,
     returnTo: body.action === 'close' && body.returnTo === 'mode' ? 'mode' : null,
+    talk: null,
     version: channel.state.version + 1,
     clientId: body.clientId,
     updatedAt: Date.now(),

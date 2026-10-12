@@ -148,6 +148,29 @@ describe('mission guide audio WebSocket control', () => {
     await act(async () => socket.emit({ type: 'tts_chunk', generation_id: 111, content: 'free opening' }));
     expect(mocks.play).toHaveBeenCalledOnce();
   });
+  it('plays only its own controller session audio when another avatar window took over the kiosk', async () => {
+    const { result, socket } = await controller();
+    await act(async () => socket.emit({ type: 'kiosk_session_ready', kioskId: 'A01', connectionId: 'controller-old', sessionEpoch: 5 }));
+    act(() => result.current.startConversation('airport', 'beginner'));
+    await act(async () => socket.emit({ type: 'conversation_started', requestId: 'any' }));
+    // A newer controller (epoch 6) speaks; the broadcast reaches this stale window too.
+    await act(async () => socket.emit({ type: 'tts_chunk', generation_id: 1, content: 'newer window', sessionEpoch: 6 }));
+    expect(mocks.play).not.toHaveBeenCalled();
+    expect(socket.sent.map(v => typeof v === 'string' ? JSON.parse(v) : null)).not.toContainEqual({ type: 'tts_start' });
+    await act(async () => socket.emit({ type: 'tts_chunk', generation_id: 2, content: 'own window', sessionEpoch: 5 }));
+    expect(mocks.play).toHaveBeenCalledOnce();
+  });
+  it('reconnects after a disconnect that closed a socket still opening (dev StrictMode remount)', async () => {
+    const { result } = renderHook(() => useVoiceSocket());
+    act(() => result.current.connect({ role: 'viewer', startRecording: false }));
+    act(() => result.current.disconnect());
+    act(() => result.current.connect({ role: 'viewer', startRecording: false }));
+    expect(FakeSocket.instances).toHaveLength(2);
+    await act(async () => FakeSocket.instances[1].open());
+    await act(async () => FakeSocket.instances[1].emit({ type: 'learning_mission_entry', open: true, seq: 2, returnTo: null }));
+    expect(useStore.getState().isConnected).toBe(true);
+    expect(useMissionLearningStore.getState().entry?.open).toBe(true);
+  });
   it('waits for the exact server release acknowledgement instead of socket send', async () => {
     const { result } = renderHook(() => useVoiceSocket());
     act(() => result.current.connect({ role: 'viewer', startRecording: false }));

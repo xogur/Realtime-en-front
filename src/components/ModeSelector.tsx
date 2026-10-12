@@ -16,6 +16,7 @@ type ModeSelectorProps = {
   error?: string | null;
   onSelect: (mode: ConversationMode, preparedInput?: MediaStream) => void;
   onClose: () => void;
+  onRetryLearning?: () => void;
 };
 
 const cardClass =
@@ -33,6 +34,7 @@ export function ModeSelector({
   error,
   onSelect,
   onClose,
+  onRetryLearning,
 }: ModeSelectorProps) {
   const reduceMotion = useReducedMotion();
   const learningReady = learningAvailability === 'available';
@@ -87,6 +89,12 @@ export function ModeSelector({
             : voice.status === 'selected' ? '선택한 모드를 열고 있어요.' : '음성 선택을 준비하고 있어요.'}</span>
         </div>
         {voice.interim ? <p className="mt-2 text-sm text-[#6b625a]">인식 중: “{voice.interim}”</p> : null}
+        {learningAvailability === 'unavailable' && onRetryLearning ? (
+          <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl bg-[#fff1d6] p-3 text-sm text-[#784638]">
+            <span>학습 서버 연결을 다시 확인할 수 있어요.</span>
+            <button type="button" onClick={onRetryLearning} className="min-h-11 rounded-lg border border-[#b98b49] bg-white px-4 font-bold focus-visible:outline-2">연결 다시 확인</button>
+          </div>
+        ) : null}
 
         <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <ModeCard

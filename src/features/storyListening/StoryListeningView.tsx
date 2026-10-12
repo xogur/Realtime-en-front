@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import {
-  ArrowLeft, BookOpen, Captions, Check, ChevronRight, Clock, Gauge, Hand, Heart, Library, Lightbulb, Pause, Play,
+  ArrowLeft, BookOpen, Captions, Check, ChevronRight, Clock, Gauge, Hand, Heart, Library, Lightbulb, MessageCircle, Pause, Play,
   RotateCcw, Search, SkipBack, SkipForward, Sparkles, Trophy, X,
 } from 'lucide-react';
 
 import './story.css';
+import { ListeningHints, helpTarget, nextHelp, type ListeningHelp } from './ListeningHints';
 import { StoryStage, type StagePoint } from './StoryStage';
 import type { Atmosphere, SceneProps } from './scenes/odysseyScenes';
 import { SceneDefs } from './scenes/parts';
@@ -15,16 +16,29 @@ import { STORY_STEPS, STORY_STEP_META, type Story, type StoryAction, type StoryC
 import { useManualReader } from './useManualReader';
 import { useSentencePlayer, type ReadingSpeed } from './useSentencePlayer';
 import { getChapterAudio, type StoryAudioClip } from './storyAudio';
+import type { StoryPosition, StoryTalk } from './control';
 
 type StoryListeningViewProps = {
   isOpen: boolean;
   storyId: string | null;
   onBack: () => void;
   onClose: () => void;
+  /** The avatar's talk turn; while set, no story audio may play. */
+  talk?: StoryTalk | null;
+  /** Called once per requested talk, after story audio has stopped. */
+  onTalkPaused?: (requestId: string, position: StoryPosition | null) => void;
+  onEndTalk?: (requestId: string) => void;
 };
 
+/**
+ * Story audio and the avatar talk take turns. While `locked`, every narration
+ * player pauses and refuses to start; a player that was playing (or was asked
+ * to start) resumes when the talk ends. `report` tracks the sentence in view.
+ */
+const StoryTalkGate = createContext<{ locked: boolean; report: (index: number) => void }>({ locked: false, report: () => undefined });
+
 type SubtitleMode = 'off' | 'en' | 'both';
-type ChapterResult = { words?: boolean; quiz?: boolean; quizChoice?: number; done?: boolean };
+type ChapterResult = { words?: boolean; quiz?: boolean; quizChoice?: number; quizHelp?: ListeningHelp; done?: boolean };
 type SceneComponent = ComponentType<SceneProps>;
 type Mood = (beat: number) => Atmosphere;
 
@@ -43,6 +57,7 @@ const NARRATION_WORDS_PER_MINUTE = 147;
 const RUB_DISTANCE = 1400;
 const READING_META: Partial<Record<StoryStep, { label: string; hint: string }>> = {
   listen: { label: '읽기', hint: '그림을 보며 한 문장씩 넘겨 읽어요' },
+  confirm: { label: '내용 돌아보기', hint: '읽은 이야기를 떠올려 마무리해요' },
   relisten: { label: '다시 읽기', hint: '문장을 누르면 그 장면을 다시 봐요' },
 };
 
@@ -51,19 +66,59 @@ function stepMeta(step: StoryStep, narrated: boolean) {
   return (!narrated && READING_META[step]) || STORY_STEP_META[step];
 }
 
-export function StoryListeningView({ isOpen, storyId, onBack, onClose }: StoryListeningViewProps) {
+export function StoryListeningView({ isOpen, storyId, onBack, onClose, talk = null, onTalkPaused, onEndTalk }: StoryListeningViewProps) {
   // The avatar window opens the library; an unknown id still fails closed.
   if (!isOpen || !getStory(storyId)) return null;
-  return <StoryShell onBack={onBack} onClose={onClose} />;
+  return <StoryShell onBack={onBack} onClose={onClose} talk={talk} onTalkPaused={onTalkPaused} onEndTalk={onEndTalk} />;
 }
 
-function StoryShell({ onBack, onClose }: { onBack: () => void; onClose: () => void }) {
+type TalkProps = Pick<StoryListeningViewProps, 'talk' | 'onTalkPaused' | 'onEndTalk'>;
+
+function StoryShell({ onBack, onClose, talk = null, onTalkPaused, onEndTalk }: { onBack: () => void; onClose: () => void } & TalkProps) {
   const [chosen, setChosen] = useState<string | null>(null);
   const entry = getStory(chosen);
-  if (!entry) return <StoryLibrary onPick={setChosen} onBack={onBack} onClose={onClose} />;
-  // Remount per story so a newly chosen story always starts at its cover.
-  return <StoryPlayer key={entry.story.id} story={entry.story} scenes={entry.scenes} moods={entry.atmosphere}
-    onLibrary={() => setChosen(null)} onBack={onBack} onClose={onClose} />;
+  // In the library nothing has been heard yet, so the avatar gets no position.
+  const whereRef = useRef<() => StoryPosition | null>(() => null);
+  const answered = useRef<string | null>(null);
+  useEffect(() => {
+    if (talk?.phase !== 'requested' || answered.current === talk.requestId) return;
+    answered.current = talk.requestId;
+    // The players pause in their own effects of this commit; report after them.
+    const requestId = talk.requestId;
+    window.setTimeout(() => onTalkPaused?.(requestId, entry ? whereRef.current() : null), 0);
+  }, [entry, onTalkPaused, talk]);
+  return (
+    <>
+      {entry
+        // Remount per story so a newly chosen story always starts at its cover.
+        ? <StoryPlayer key={entry.story.id} story={entry.story} scenes={entry.scenes} moods={entry.atmosphere} locked={talk !== null} whereRef={whereRef}
+          onLibrary={() => setChosen(null)} onBack={onBack} onClose={onClose} />
+        : <StoryLibrary onPick={setChosen} onBack={onBack} onClose={onClose} locked={talk !== null} />}
+      {talk ? <TalkCover talk={talk} onEnd={() => onEndTalk?.(talk.requestId)} /> : null}
+    </>
+  );
+}
+
+/** Keeps the story in view but out of reach while the learner talks with the avatar. */
+function TalkCover({ talk, onEnd }: { talk: StoryTalk; onEnd: () => void }) {
+  const active = talk.phase === 'active';
+  return (
+    // Sits low over the scene (subtitles are off while talking) so the header and picture stay readable.
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[96] flex justify-center p-5 lg:right-[410px]">
+      <div role="status" className="story-ui-rise pointer-events-auto flex max-w-[min(94vw,640px)] items-center gap-3 rounded-3xl border-[3px] border-[#2a1b12] bg-white px-5 py-3 text-[#3d2a18] shadow-[0_6px_0_#2a1b12]">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#7ac7f0] to-[#4f8fe0] text-white">
+          <MessageCircle className="h-6 w-6" aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <p className="text-lg font-black">{active ? 'AI 선생님과 이야기하는 중' : '이야기를 잠깐 멈췄어요'}</p>
+          <p className="text-sm font-bold text-[#8a6a4a]">{active ? '다 물어보면 이야기를 이어서 들어요.' : '아바타 화면에서 대화를 시작할 수 있어요.'}</p>
+        </div>
+        <button type="button" onClick={onEnd} className={`${secondaryButton} ml-2 shrink-0`}>
+          <Play className="h-4 w-4" aria-hidden />이야기 계속
+        </button>
+      </div>
+    </div>
+  );
 }
 
 /** Narration length: measured clips when recorded, otherwise words at the measured narration pace. */
@@ -89,10 +144,10 @@ function StoryArt({ entry }: { entry: StoryEntry }) {
   );
 }
 
-function StoryLibrary({ onPick, onBack, onClose }: { onPick: (id: string) => void; onBack: () => void; onClose: () => void }) {
+function StoryLibrary({ onPick, onBack, onClose, locked }: { onPick: (id: string) => void; onBack: () => void; onClose: () => void; locked: boolean }) {
   const entries = Object.values(STORIES);
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="story-library-title"
+    <div role="dialog" aria-modal="true" aria-labelledby="story-library-title" inert={locked ? true : undefined}
       className="story-root fixed inset-0 z-[95] flex flex-col overflow-clip bg-[#f6efe4] text-[#3d2a18]">
       <header className="flex shrink-0 items-center gap-3 border-b-[3px] border-[#2a1b12] bg-[#fff6e6] px-4 py-2.5 sm:px-6">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border-[3px] border-[#2a1b12] bg-gradient-to-br from-[#f6bd62] to-[#d0741f] text-white shadow-[0_3px_0_#2a1b12]">
@@ -152,8 +207,9 @@ function StoryLibrary({ onPick, onBack, onClose }: { onPick: (id: string) => voi
   );
 }
 
-function StoryPlayer({ story, scenes, moods, onLibrary, onBack, onClose }: {
-  story: Story; scenes: Record<string, SceneComponent>; moods: Record<string, Mood>; onLibrary: () => void; onBack: () => void; onClose: () => void;
+function StoryPlayer({ story, scenes, moods, locked, whereRef, onLibrary, onBack, onClose }: {
+  story: Story; scenes: Record<string, SceneComponent>; moods: Record<string, Mood>; locked: boolean;
+  whereRef: { current: () => StoryPosition | null }; onLibrary: () => void; onBack: () => void; onClose: () => void;
 }) {
   const narrated = story.narration === 'recorded';
   const [phase, setPhase] = useState<'cover' | 'chapter' | 'recap'>('cover');
@@ -161,7 +217,6 @@ function StoryPlayer({ story, scenes, moods, onLibrary, onBack, onClose }: {
   const [step, setStep] = useState<StoryStep>('listen');
   const [replayReturnStep, setReplayReturnStep] = useState<StoryStep>('listen');
   const [results, setResults] = useState<Record<string, ChapterResult>>({});
-  const [subtitles, setSubtitles] = useState<SubtitleMode>('both');
   const [speed, setSpeed] = useState<ReadingSpeed>('normal');
   const chapter = story.chapters[chapterIndex];
   const Scene = scenes[chapter.id];
@@ -175,6 +230,7 @@ function StoryPlayer({ story, scenes, moods, onLibrary, onBack, onClose }: {
   const openChapter = useCallback((index: number) => {
     setChapterIndex(index);
     setStep('listen');
+    setSpeed('normal');
     setPhase('chapter');
   }, []);
 
@@ -197,11 +253,27 @@ function StoryPlayer({ story, scenes, moods, onLibrary, onBack, onClose }: {
 
   const recordWords = useCallback(() => record(chapter.id, { words: true }), [chapter.id, record]);
 
+  // First listening has reached only the sentence in view; every later step follows a full listen.
+  const sentenceRef = useRef(0);
+  const report = useCallback((index: number) => { sentenceRef.current = index; }, []);
+  const gate = useMemo(() => ({ locked, report }), [locked, report]);
+  useEffect(() => {
+    whereRef.current = () => {
+      const last = story.chapters.length - 1;
+      if (phase === 'cover') return { storyId: story.id, chapterIndex: 0, heardThrough: -1 };
+      if (phase === 'recap') return { storyId: story.id, chapterIndex: last, heardThrough: story.chapters[last].sentences.length - 1 };
+      const heardThrough = step === 'listen' ? sentenceRef.current : chapter.sentences.length - 1;
+      return { storyId: story.id, chapterIndex, heardThrough };
+    };
+  }, [chapter.sentences.length, chapterIndex, phase, step, story, whereRef]);
+
   return (
+    <StoryTalkGate.Provider value={gate}>
     <div
       role="dialog"
       aria-modal="true"
       aria-labelledby="story-title"
+      inert={locked ? true : undefined}
       className="story-root fixed inset-0 z-[95] flex flex-col overflow-clip bg-[#f6efe4] text-[#3d2a18]"
     >
       <header className="flex shrink-0 items-center gap-3 border-b-[3px] border-[#2a1b12] bg-[#fff6e6] px-4 py-2.5 sm:px-6">
@@ -211,7 +283,7 @@ function StoryPlayer({ story, scenes, moods, onLibrary, onBack, onClose }: {
         <div className="min-w-0">
           <p className="text-xs font-bold text-[#a0703f]">이야기 듣기 · {story.title}</p>
           <h1 id="story-title" className="truncate text-xl font-black tracking-[-0.02em]">
-            {phase === 'chapter' ? `${chapterIndex + 1}장. ${chapter.titleKo}` : story.titleKo}
+            {phase === 'chapter' ? (step === 'listen' && narrated ? `${chapterIndex + 1}장 · 먼저 듣기` : `${chapterIndex + 1}장. ${chapter.titleKo}`) : story.titleKo}
           </h1>
         </div>
         {phase !== 'cover' ? (
@@ -267,25 +339,30 @@ function StoryPlayer({ story, scenes, moods, onLibrary, onBack, onClose }: {
           <Recap story={story} results={results} Scene={scenes[finale.id]} onRestart={restart} onLibrary={onLibrary} onClose={onClose} />
         ) : step === 'listen' ? (
           <ListenStep key={`${chapter.id}-listen`} storyId={story.id} narrated={narrated} chapter={chapter} index={chapterIndex} Scene={Scene} mood={mood}
-            subtitles={subtitles} setSubtitles={setSubtitles} speed={speed} setSpeed={setSpeed} onNext={nextStep} />
+            speed={speed} setSpeed={setSpeed} onNext={nextStep} />
         ) : step === 'words' ? (
           <WordsStep key={`${chapter.id}-words`} storyId={story.id} narrated={narrated} chapter={chapter} Scene={Scene} mood={mood} onComplete={recordWords} onNext={nextStep} />
         ) : step === 'quiz' ? (
           <QuizStep key={`${chapter.id}-quiz`} storyId={story.id} narrated={narrated} chapter={chapter} Scene={Scene} mood={mood}
-            initialAnswer={results[chapter.id]?.quizChoice} onAnswer={(correct, quizChoice) => record(chapter.id, { quiz: correct, quizChoice })} isLast={chapterIndex === story.chapters.length - 1} onNext={finishChapter} />
+            initialAnswer={results[chapter.id]?.quizChoice} initialHelp={results[chapter.id]?.quizHelp}
+            onHelp={(quizHelp) => record(chapter.id, { quizHelp })}
+            onAnswer={(correct, quizChoice) => record(chapter.id, { quiz: correct, quizChoice })} onNext={nextStep} />
+        ) : step === 'confirm' ? (
+          <ConfirmStep key={`${chapter.id}-confirm`} storyId={story.id} narrated={narrated} chapter={chapter} Scene={Scene} mood={mood} isLast={chapterIndex === story.chapters.length - 1} onNext={finishChapter} />
         ) : (
           <RelistenStep key={`${chapter.id}-relisten`} storyId={story.id} narrated={narrated} chapter={chapter} Scene={Scene} mood={mood} speed={speed}
-            isLast={chapterIndex === story.chapters.length - 1} onNext={finishChapter} />
+            onNext={() => setStep(replayReturnStep)} />
         )}
       </main>
     </div>
+    </StoryTalkGate.Provider>
   );
 }
 
 function StepRail({ step, narrated, onSelect }: { step: StoryStep; narrated: boolean; onSelect: (step: StoryStep) => void }) {
   const current = LEARNING_STEPS.indexOf(step);
   return (
-    <ol aria-label="장면 학습 3단계" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[#6b4a2b]/10 bg-[#fffaf2] px-4 py-2 sm:px-6">
+    <ol aria-label="이야기 학습 4단계" className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-[#6b4a2b]/10 bg-[#fffaf2] px-4 py-2 sm:px-6">
       {LEARNING_STEPS.map((item, index) => {
         const active = index === current;
         const done = index < current;
@@ -317,7 +394,7 @@ function StagePane({ children }: { children: ReactNode }) {
 
 function Panel({ step, narrated = true, children, footer }: { step?: StoryStep; narrated?: boolean; children: ReactNode; footer?: ReactNode }) {
   return (
-    <aside className="flex max-h-[46dvh] min-h-0 flex-col border-t-[3px] border-[#2a1b12] bg-[#fffaf2] lg:max-h-none lg:border-l-[3px] lg:border-t-0">
+    <aside className={`flex ${step === 'quiz' ? 'max-h-[55dvh]' : 'max-h-[46dvh]'} min-h-0 flex-col border-t-[3px] border-[#2a1b12] bg-[#fffaf2] lg:max-h-none lg:border-l-[3px] lg:border-t-0`}>
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
         {step ? (
           <div className="story-ui-rise mb-4">
@@ -473,16 +550,39 @@ function useNarration(storyId: string, narrated: boolean, chapter: StoryChapter,
   const lines = useMemo(() => chapter.sentences.map((item) => item.en), [chapter]);
   const audio = useSentencePlayer(lines, speed, isBlocked, clips, singleSentence);
   const reader = useManualReader(lines.length, isBlocked);
-  return narrated ? { ...audio, next: () => audio.jump(audio.index + 1) } : reader;
+  const gate = useContext(StoryTalkGate);
+  const { report, locked } = gate;
+  const lockedRef = useRef(locked);
+  const resumeRef = useRef(false);
+  const busyRef = useRef(false);
+  const { pause, play, jump, release } = audio;
+  const index = narrated ? audio.index : reader.index;
+  const busy = audio.playing || audio.loading;
+  useEffect(() => { busyRef.current = busy; }, [busy]);
+  useEffect(() => { report(index); }, [index, report]);
+  useEffect(() => {
+    lockedRef.current = locked;
+    if (locked) {
+      if (busyRef.current) { resumeRef.current = true; pause(); }
+    } else if (resumeRef.current) {
+      resumeRef.current = false;
+      play();
+    }
+  }, [locked, pause, play]);
+  const guarded = useMemo(() => ({
+    play: () => { if (lockedRef.current) resumeRef.current = true; else play(); },
+    jump: (next: number, autoplay?: boolean) => { if (!lockedRef.current) jump(next, autoplay); },
+    release: () => { if (!lockedRef.current) release(); },
+  }), [jump, play, release]);
+  return narrated ? { ...audio, ...guarded, next: () => guarded.jump(audio.index + 1) } : reader;
 }
 
 function actionHeading(action: StoryAction) {
   return action.kind === 'hold' ? '길게 눌러요' : action.kind === 'rub' ? '문질러 닦아요' : action.kind === 'feel' ? '마음을 골라요' : '직접 해 봐요';
 }
 
-function ListenStep({ storyId, narrated, chapter, index, Scene, mood, subtitles, setSubtitles, speed, setSpeed, onNext }: {
+function ListenStep({ storyId, narrated, chapter, index, Scene, mood, speed, setSpeed, onNext }: {
   storyId: string; narrated: boolean; chapter: StoryChapter; index: number; Scene: SceneComponent; mood: Mood;
-  subtitles: SubtitleMode; setSubtitles: (mode: SubtitleMode) => void;
   speed: ReadingSpeed; setSpeed: (speed: ReadingSpeed) => void; onNext: () => void;
 }) {
   const [doneActions, setDoneActions] = useState<ReadonlySet<number>>(() => new Set());
@@ -503,7 +603,9 @@ function ListenStep({ storyId, narrated, chapter, index, Scene, mood, subtitles,
   const beat = !started ? 0 : action ? chapter.sentences[player.index - 1]?.beat ?? 0 : sentence.beat;
   const isLastSentence = player.index === chapter.sentences.length - 1;
   // Without a recording there is nothing to listen to, so subtitles always stay on.
-  const subtitleMode: SubtitleMode = !narrated && subtitles === 'off' ? 'en' : subtitles;
+  const [help, setHelp] = useState<{ index: number; level: ListeningHelp }>({ index: 0, level: 0 });
+  const helpLevel = help.index === player.index ? help.level : 0;
+  const subtitleMode: SubtitleMode = narrated ? 'off' : 'both';
 
   const start = useCallback(() => {
     setStarted(true);
@@ -587,17 +689,17 @@ function ListenStep({ storyId, narrated, chapter, index, Scene, mood, subtitles,
         <StoryStage
           Scene={Scene}
           beat={beat}
-          bubble={started && !action ? sentence.bubble : undefined}
+          bubble={started && !action && !narrated ? sentence.bubble : undefined}
           atmosphere={mood(beat)}
-          highlight={action?.target ?? null}
-          hint={started && !action}
+          highlight={action?.target ?? (helpLevel > 0 ? helpTarget(chapter, sentence) : null)}
+          hint={started && !action && (!narrated || helpLevel > 0)}
           intro
           label={`${chapter.titleKo} 장면. 그림을 누르면 영어 이름이 보여요.`}
           onHotspot={onHotspot}
           onPress={onPress}
           onDrag={action?.kind === 'rub' ? onDrag : undefined}
           effort={action?.kind === 'rub' ? rub.amount : undefined}
-          tapLabel={(id) => (action ? null : hotspotWord(chapter, id))}
+          tapLabel={(id) => (action || narrated ? null : hotspotWord(chapter, id))}
         >
           {started && !action ? <Subtitle en={sentence.en} ko={sentence.ko} mode={subtitleMode} /> : null}
           {started && !action && !narrated ? (
@@ -616,7 +718,7 @@ function ListenStep({ storyId, narrated, chapter, index, Scene, mood, subtitles,
               <p className="flex items-center justify-center gap-2 text-sm font-black text-[#d0741f]">
                 {action.kind === 'feel' ? <Heart className="h-5 w-5" aria-hidden /> : <Hand className="story-finger h-5 w-5" aria-hidden />}{actionHeading(action)}
               </p>
-              <p lang="en" className="mt-1 text-2xl font-black leading-snug text-[#2a1b12]">{action.promptEn}</p>
+              {!narrated ? <p lang="en" className="mt-1 text-2xl font-black leading-snug text-[#2a1b12]">{action.promptEn}</p> : null}
               <p className="mt-1 text-base font-bold text-[#8a6a4a]">{action.promptKo}</p>
               {(action.count ?? 1) > 1 ? (
                 <div className="mt-3 flex justify-center gap-2" aria-label={`${action.count}번 중 ${taps}번`}>
@@ -642,7 +744,7 @@ function ListenStep({ storyId, narrated, chapter, index, Scene, mood, subtitles,
                         ? 'story-ui-shake border-[#2a1b12] bg-[#fcebe6]' : 'border-[#e3d3bd] bg-[#fffaf2] hover:border-[#2a1b12]/60'}`}
                     >
                       <span className="text-4xl leading-none" aria-hidden>{choice.face}</span>
-                      <span lang="en" className="mt-1 text-lg font-black text-[#2a1b12]">{choice.en}</span>
+                      {!narrated ? <span lang="en" className="mt-1 text-lg font-black text-[#2a1b12]">{choice.en}</span> : null}
                       <span className="text-sm font-bold text-[#a08466]">{choice.ko}</span>
                     </button>
                   ))}
@@ -672,8 +774,8 @@ function ListenStep({ storyId, narrated, chapter, index, Scene, mood, subtitles,
               <span className="story-letterbox absolute inset-x-0 top-0 h-[12%] origin-top bg-black" />
               <span className="story-letterbox absolute inset-x-0 bottom-0 h-[12%] origin-bottom bg-black" />
               <p className="story-title-in text-lg font-black uppercase tracking-[0.3em] text-[#f6c47a]">Chapter {index + 1}</p>
-              <h2 className="story-title-in mt-2 px-6 text-4xl font-black text-white [text-shadow:0_4px_0_#2a1b12] sm:text-6xl" style={{ animationDelay: '.12s' }}>{chapter.title}</h2>
-              <p className="story-title-in mt-2 text-2xl font-black text-[#ffe2b0]" style={{ animationDelay: '.24s' }}>{chapter.titleKo}</p>
+              <h2 className="story-title-in mt-2 px-6 text-4xl font-black text-white [text-shadow:0_4px_0_#2a1b12] sm:text-6xl" style={{ animationDelay: '.12s' }}>{narrated ? '어떤 일이 생길까요?' : chapter.title}</h2>
+              <p className="story-title-in mt-2 text-2xl font-black text-[#ffe2b0]" style={{ animationDelay: '.24s' }}>{narrated ? '그림을 보며 귀 기울여 봐요' : chapter.titleKo}</p>
               <button type="button" onClick={start} className={`${primaryButton} story-title-in mt-8`} style={{ animationDelay: '.4s' }}>
                 <Play className="h-5 w-5" aria-hidden />바로 시작
               </button>
@@ -685,7 +787,7 @@ function ListenStep({ storyId, narrated, chapter, index, Scene, mood, subtitles,
         step="listen"
         narrated={narrated}
         footer={<button type="button" onClick={onNext} disabled={!reachedEnd} className={`${primaryButton} w-full`}>
-          다음: 듣기 학습<ChevronRight className="h-5 w-5" aria-hidden />
+          다음: 내용 확인<ChevronRight className="h-5 w-5" aria-hidden />
         </button>}
       >
         <SentenceProgress count={chapter.sentences.length} index={player.index} progress={player.progress}
@@ -724,10 +826,8 @@ function ListenStep({ storyId, narrated, chapter, index, Scene, mood, subtitles,
           </button>
         </div>
         <div className="mt-5 space-y-2.5">
-          <Segmented label="자막" icon={<Captions className="h-4 w-4" aria-hidden />} value={subtitleMode} onChange={setSubtitles}
-            options={narrated
-              ? [{ value: 'off', label: '끄기' }, { value: 'en', label: '영어' }, { value: 'both', label: '영어+한글' }]
-              : [{ value: 'en', label: '영어' }, { value: 'both', label: '영어+한글' }]} />
+          {narrated ? <ListeningHints chapter={chapter} sentence={sentence} level={helpLevel}
+            onChange={(level) => setHelp({ index: player.index, level })} onReplay={() => jumpTo(player.index)} /> : null}
           {narrated ? (
             <Segmented label="속도" icon={<Gauge className="h-4 w-4" aria-hidden />} value={speed} onChange={setSpeed}
               options={[{ value: 'slow', label: '천천히' }, { value: 'normal', label: '보통' }]} />
@@ -848,7 +948,7 @@ function WordsStep({ storyId, narrated, chapter, Scene, mood, onComplete, onNext
         step="words"
         narrated={narrated}
         footer={done
-          ? <button type="button" onClick={onNext} className={`${primaryButton} w-full`}>다음: 문맥 이해<ChevronRight className="h-5 w-5" aria-hidden /></button>
+          ? <button type="button" onClick={onNext} className={`${primaryButton} w-full`}>다음: 혼자 듣기<ChevronRight className="h-5 w-5" aria-hidden /></button>
           : game
             ? <button type="button" onClick={() => setGame(null)} className={`${secondaryButton} w-full`}>단어 다시 살펴보기</button>
             : (
@@ -917,101 +1017,113 @@ function WordsStep({ storyId, narrated, chapter, Scene, mood, onComplete, onNext
   );
 }
 
-function QuizStep({ storyId, narrated, chapter, Scene, mood, initialAnswer, onAnswer, isLast, onNext }: {
-  storyId: string; narrated: boolean; chapter: StoryChapter; Scene: SceneComponent; mood: Mood; initialAnswer?: number; onAnswer: (correct: boolean, choice: number) => void; isLast: boolean; onNext: () => void;
+function QuizStep({ storyId, narrated, chapter, Scene, mood, initialAnswer, initialHelp, onHelp, onAnswer, onNext }: {
+  storyId: string; narrated: boolean; chapter: StoryChapter; Scene: SceneComponent; mood: Mood; initialAnswer?: number; initialHelp?: ListeningHelp; onHelp: (level: ListeningHelp) => void; onAnswer: (correct: boolean, choice: number) => void; onNext: () => void;
 }) {
-  const player = useNarration(storyId, narrated, chapter, 'normal', undefined, true);
+  const [speed, setSpeed] = useState<ReadingSpeed>('normal');
+  const player = useNarration(storyId, narrated, chapter, speed, undefined, true);
   const [chosen, setChosen] = useState<number | null>(initialAnswer ?? null);
+  const [level, setLevel] = useState<ListeningHelp>(initialHelp ?? 0);
+  const changeHelp = (next: ListeningHelp) => { setLevel(next); onHelp(next); };
   const quiz = chapter.quiz;
   const evidence = chapter.sentences[quiz.evidence];
-  const answered = chosen !== null;
   const correct = chosen === quiz.answer;
-  const beat = answered ? evidence.beat : chapter.sentences[chapter.sentences.length - 1].beat;
-
+  const replay = () => player.jump(quiz.evidence);
   const choose = (index: number) => {
-    if (answered) return;
+    if (correct) return;
     setChosen(index);
     onAnswer(index === quiz.answer, index);
-    if (narrated) player.jump(quiz.evidence);
   };
-
+  const beat = level > 0 || player.playing || player.loading ? evidence.beat : chapter.sentences[0].beat;
   return (
     <>
       <StagePane>
-        <StoryStage
-          Scene={Scene}
-          beat={beat}
-          bubble={answered ? evidence.bubble : undefined}
-          atmosphere={answered && correct ? { ...mood(beat), particles: 'confetti' } : mood(beat)}
-          label={`${chapter.titleKo} 장면`}
-        >
-          {answered ? (
-            <div className="story-ui-rise pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-[#140c05]/90 via-[#140c05]/60 to-transparent px-6 pb-6 pt-20 text-center sm:px-12">
-              <p className="mb-2 inline-block rounded-full border-2 border-[#2a1b12] bg-[#f6bd62] px-3 py-1 text-sm font-black text-[#2a1b12]">이 문장에 답이 있어요</p>
-              <p lang="en" className="text-2xl font-black leading-snug text-white sm:text-[1.8rem]">{evidence.en}</p>
-              <p className="mt-2 text-lg font-bold text-[#ffe2b0]">{evidence.ko}</p>
-            </div>
-          ) : (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <span className="story-title-in rounded-full border-[3px] border-[#2a1b12] bg-white px-7 py-3 text-xl font-black text-[#2a1b12] shadow-[0_5px_0_#2a1b12]">이야기를 떠올려 보세요</span>
-            </div>
-          )}
-          {answered && correct ? (
-            <p className="story-cheer pointer-events-none absolute left-1/2 top-[30%] rounded-full border-[3px] border-[#2a1b12] bg-[#ffd84d] px-8 py-3 text-3xl font-black text-[#2a1b12] shadow-[0_6px_0_#2a1b12]">
-              Correct!
-            </p>
-          ) : null}
+        <StoryStage Scene={Scene} beat={beat} atmosphere={mood(beat)} label={`${chapter.titleKo} 내용 확인`}
+          highlight={level > 0 ? helpTarget(chapter, evidence) : null}>
+          <div className="pointer-events-none absolute left-1/2 top-5 w-[min(90%,560px)] -translate-x-1/2 rounded-3xl border-[3px] border-[#2a1b12] bg-white px-6 py-4 text-center shadow-[0_5px_0_#2a1b12]">
+            <p className="text-sm font-black text-[#d0741f]">이야기를 떠올려 봐요</p>
+            <p className="mt-1 text-xl font-black text-[#2a1b12]">{quiz.questionKo}</p>
+          </div>
+          {correct ? <p className="story-cheer pointer-events-none absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full border-[3px] border-[#2a1b12] bg-[#ffd84d] px-6 py-3 text-xl font-black">잘 들었어요!</p> : null}
         </StoryStage>
       </StagePane>
-      <Panel
-        step="quiz"
-        narrated={narrated}
-        footer={<button type="button" onClick={onNext} disabled={!answered} className={`${primaryButton} w-full`}>{isLast ? '이야기 마무리' : '다음 장으로'}<ChevronRight className="h-5 w-5" aria-hidden /></button>}
-      >
-        {answered && narrated ? <>
-          <button type="button" onClick={() => player.jump(quiz.evidence)} className={`${secondaryButton} mb-3`}>
-            <Play className="h-4 w-4" aria-hidden />근거 문장 듣기
-          </button>
-          <AudioNotice player={player} />
-        </> : null}
-        <p lang="en" className="text-2xl font-black leading-snug">{quiz.question}</p>
-        <p className="mt-1 text-base font-bold text-[#a08466]">{quiz.questionKo}</p>
-        <div className="mt-4 space-y-2.5">
-          {quiz.options.map((option, i) => {
-            const state = !answered ? 'idle' : i === quiz.answer ? 'right' : i === chosen ? 'wrong' : 'dim';
-            return (
-              <button
-                key={option}
-                type="button"
-                onClick={() => choose(i)}
-                disabled={answered && state === 'dim'}
-                aria-pressed={chosen === i}
-                className={`flex w-full items-center gap-3 rounded-2xl border-[3px] p-4 text-left text-lg font-extrabold ${pressable} ${focusRing} ${state === 'right'
-                  ? 'border-[#2a1b12] bg-[#eaf5e8] text-[#2f6b3e] shadow-[0_4px_0_#2a1b12]'
-                  : state === 'wrong' ? 'story-ui-shake border-[#2a1b12] bg-[#fcebe6] text-[#a1402c] shadow-[0_4px_0_#2a1b12]'
-                    : 'border-[#e3d3bd] bg-white hover:border-[#2a1b12]/60'}`}
-              >
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-[#2a1b12] text-base font-black ${state === 'right' ? 'bg-[#5fb36f] text-white' : state === 'wrong' ? 'bg-[#d0705a] text-white' : 'bg-[#f1e4d2] text-[#8a6440]'}`}>
-                  {state === 'right' ? <Check className="h-5 w-5" strokeWidth={3} aria-hidden /> : state === 'wrong' ? <X className="h-5 w-5" strokeWidth={3} aria-hidden /> : String.fromCharCode(65 + i)}
-                </span>
-                <span lang="en">{option}</span>
-              </button>
-            );
-          })}
+      <Panel step="quiz" narrated={narrated}
+        footer={<div>
+          {narrated ? <div className="mb-3 flex flex-wrap gap-2">
+            <button type="button" onClick={replay} className={`${secondaryButton} flex-1 text-base`}>해당 부분 다시 듣기</button>
+            <button type="button" onClick={() => changeHelp(level === 4 ? 0 : nextHelp(level))} className={`${secondaryButton} text-base`}>{level === 4 ? '도움 숨기기' : level === 3 ? '뜻 확인' : '힌트 주세요'}</button>
+          </div> : null}
+          <button type="button" onClick={onNext} disabled={!correct && level < 4} className={`${primaryButton} w-full`}>
+          {correct ? '다음: 단어 복습' : level === 4 ? '함께 확인하고 단어 복습' : '내용을 떠올려 골라봐요'}<ChevronRight className="h-5 w-5" aria-hidden />
+        </button></div>}>
+        <p className="text-xl font-black leading-8">{quiz.questionKo}</p>
+        <p className="mt-1 text-sm font-bold leading-6 text-[#8a6a4a]">모르겠으면 다시 들어도 괜찮아요.</p>
+        <div className="mt-4 space-y-2">
+          {quiz.optionsKo.map((option, i) => (
+            <button key={option} type="button" onClick={() => choose(i)} disabled={correct} aria-pressed={chosen === i}
+              className={`flex min-h-14 w-full items-center gap-3 rounded-2xl border-[3px] px-4 py-3 text-left text-base font-bold ${pressable} ${focusRing} ${chosen === i ? correct ? 'border-[#2a1b12] bg-[#eaf5e8]' : 'border-[#d09b53] bg-[#fff1d6]' : 'border-[#e3d3bd] bg-white'}`}>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#f1e4d2] font-black">{correct && chosen === i ? <Check className="h-5 w-5" aria-hidden /> : String.fromCharCode(65 + i)}</span>
+              <span>{option}</span>
+            </button>
+          ))}
         </div>
-        {answered ? (
-          <div role="status" className={`story-ui-rise mt-4 rounded-2xl p-4 ${correct ? 'bg-[#eaf5e8]' : 'bg-[#fff1d6]'}`}>
-            <p className={`text-lg font-black ${correct ? 'text-[#2f6b3e]' : 'text-[#a1402c]'}`}>{correct ? '정답이에요!' : '아쉬워요. 정답을 함께 볼까요?'}</p>
-            <p className="mt-1 text-base font-semibold leading-7 text-[#5a3d22]">{quiz.explainKo}</p>
+        {chosen !== null ? <p role="status" className={`mt-3 rounded-xl p-3 text-base font-bold ${correct ? 'bg-[#eaf5e8] text-[#2f6b3e]' : 'bg-[#fff1d6] text-[#8a6a4a]'}`}>
+          {correct ? '이야기를 잘 이해했어요!' : '그 부분을 다시 들어볼까요? 다른 답도 골라볼 수 있어요.'}
+        </p> : null}
+        {narrated ? <>
+          {level > 0 ? <ListeningHints chapter={chapter} sentence={evidence} level={level} onChange={changeHelp} onReplay={replay} showControls={false} /> : null}
+          <div className="mt-3 flex items-center gap-2">
+            <button type="button" onClick={() => player.pause()} disabled={!player.playing && !player.loading} className={ghostButton}>소리 멈추기</button>
+            <button type="button" aria-pressed={speed === 'slow'} onClick={() => setSpeed(speed === 'slow' ? 'normal' : 'slow')} className={ghostButton}>{speed === 'slow' ? '보통 속도로' : '천천히 듣기'}</button>
           </div>
-        ) : null}
+          <AudioNotice player={player} />
+        </> : <button type="button" onClick={() => changeHelp(4)} className={`${secondaryButton} mt-4`}>문장과 뜻 확인</button>}
+        {(!narrated && level === 4) ? <div className="mt-3 rounded-xl bg-[#fff1d6] p-3"><p lang="en">{evidence.en}</p><p>{evidence.ko}</p></div> : null}
+        {level === 4 ? <div className="mt-3 rounded-xl bg-[#eef4fb] p-3 text-sm font-semibold leading-6"><p>함께 확인: {quiz.optionsKo[quiz.answer]}</p><p>{quiz.explainKo}</p></div> : null}
       </Panel>
     </>
   );
 }
 
-function RelistenStep({ storyId, narrated, chapter, Scene, mood, speed, isLast, onNext }: {
-  storyId: string; narrated: boolean; chapter: StoryChapter; Scene: SceneComponent; mood: Mood; speed: ReadingSpeed; isLast: boolean; onNext: () => void;
+function ConfirmStep({ storyId, narrated, chapter, Scene, mood, isLast, onNext }: {
+  storyId: string; narrated: boolean; chapter: StoryChapter; Scene: SceneComponent; mood: Mood; isLast: boolean; onNext: () => void;
+}) {
+  const player = useNarration(storyId, narrated, chapter, 'normal', undefined, true);
+  const sentence = chapter.sentences[chapter.quiz.evidence];
+  const [started, setStarted] = useState(false);
+  const [felt, setFelt] = useState<'yes' | 'help' | null>(null);
+  const replay = () => { setStarted(true); player.jump(chapter.quiz.evidence); };
+  return (
+    <>
+      <StagePane>
+        <StoryStage Scene={Scene} beat={started ? sentence.beat : chapter.sentences[0].beat} atmosphere={mood(started ? sentence.beat : 0)} label={`${chapter.titleKo} 글 없이 다시 듣기`}>
+          <div className="pointer-events-none absolute left-1/2 top-5 w-[min(90%,500px)] -translate-x-1/2 rounded-3xl border-[3px] border-[#2a1b12] bg-white px-6 py-4 text-center shadow-[0_5px_0_#2a1b12]">
+            <p className="text-sm font-black text-[#d0741f]">마지막엔 다시 귀로</p><p className="mt-1 text-2xl font-black">글 없이 다시 들어요</p>
+          </div>
+        </StoryStage>
+      </StagePane>
+      <Panel step="confirm" narrated={narrated} footer={<button type="button" onClick={onNext} disabled={narrated && (!player.finished || felt === null)} className={`${primaryButton} w-full`}>
+        {isLast ? '이야기 마무리' : '다음 장으로'}<ChevronRight className="h-5 w-5" aria-hidden />
+      </button>}>
+        <p className="text-2xl font-black leading-9">도움 없이도 들릴까요?</p>
+        <p className="mt-2 text-base font-semibold leading-7 text-[#8a6a4a]">방금 배운 짧은 구간을 다시 들어봐요. 문장과 뜻은 잠시 숨겼어요.</p>
+        {narrated ? <>
+          <button type="button" onClick={replay} className={`${primaryButton} mt-5 w-full`}><Play className="h-5 w-5" aria-hidden />글 없이 듣기</button>
+          <button type="button" onClick={player.pause} disabled={!player.playing && !player.loading} className={`${ghostButton} mt-2`}>소리 멈추기</button>
+          <AudioNotice player={player} />
+          {player.finished ? <div className="mt-5 space-y-2"><p className="font-black">이번에는 어땠어요?</p>
+            <button type="button" aria-pressed={felt === 'yes'} onClick={() => setFelt('yes')} className={`${secondaryButton} w-full ${felt === 'yes' ? 'bg-[#eaf5e8]' : ''}`}>이제 무슨 말인지 알겠어요</button>
+            <button type="button" aria-pressed={felt === 'help'} onClick={() => setFelt('help')} className={`${secondaryButton} w-full ${felt === 'help' ? 'bg-[#fff1d6]' : ''}`}>아직 조금 어려워요</button>
+          </div> : null}
+          {felt === 'help' ? <p role="status" className="mt-3 rounded-xl bg-[#fff1d6] p-3 text-sm font-bold leading-6">괜찮아요. 한 번 더 듣거나 다음 장에서 계속 연습해요. 위의 내용 확인으로 돌아가 도움받아도 돼요.</p> : null}
+        </> : <p className="mt-4 text-base font-bold text-[#8a6a4a]">이 이야기는 아직 읽기 모드예요. 내용을 떠올린 뒤 다음 장으로 넘어가요.</p>}
+      </Panel>
+    </>
+  );
+}
+
+function RelistenStep({ storyId, narrated, chapter, Scene, mood, speed, onNext }: {
+  storyId: string; narrated: boolean; chapter: StoryChapter; Scene: SceneComponent; mood: Mood; speed: ReadingSpeed; onNext: () => void;
 }) {
   const player = useNarration(storyId, narrated, chapter, speed);
   const listRef = useRef<HTMLOListElement | null>(null);
@@ -1054,7 +1166,7 @@ function RelistenStep({ storyId, narrated, chapter, Scene, mood, speed, isLast, 
         step="relisten"
         narrated={narrated}
         footer={<button type="button" onClick={onNext} className={`${primaryButton} w-full`}>
-          {isLast ? '이야기 마무리' : '다음 장으로'}<ChevronRight className="h-5 w-5" aria-hidden />
+          학습으로 돌아가기<ChevronRight className="h-5 w-5" aria-hidden />
         </button>}
       >
         {narrated ? <AudioNotice player={player} /> : null}
