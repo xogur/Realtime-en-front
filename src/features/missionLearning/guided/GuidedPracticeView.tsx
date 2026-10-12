@@ -7,6 +7,8 @@ import { matchesGuidedVoiceScope, useGuidedLearningStore } from './store';
 import { Equalizer, guidedButton, guidedCard, guidedGhost, guidedPrimary, PHASE_META, SparkleBurst, stagger, ThinkingDots, VoiceOrb, type VoiceTone } from './ui';
 
 export { guidedButton } from './ui';
+// Mirrors the server cap on spoken attempts per node (guided_service.py attempt_count<4).
+const MAX_ATTEMPTS = 4;
 const inputLabels = { LOCKED: '잠시 기다려 주세요.', READY: '마이크를 준비하고 있어요.', PROCESSING: '말씀을 확인하고 있어요.' };
 
 export function GuidedPracticeView({ snapshot, busy, onCommand, onPlay, onCoach }: {
@@ -30,12 +32,20 @@ export function GuidedPracticeView({ snapshot, busy, onCommand, onPlay, onCoach 
   if (!g) return null;
   const can = (action: GuidedAction) => snapshot.allowedActions.includes(action);
   const command = (action: GuidedAction, extra?: Record<string, string>) => onCommand(action, { nodeId: g.nodeId, ...extra });
-  const retryLabel = can('RETRY_NODE') ? '다시 말해보기를 눌러 주세요.' : '도움받고 계속하거나 마무리할 수 있어요.';
+  const retryLabel = can('RETRY_NODE') ? '다시 말해보기를 눌러 주세요.' : '이 문장을 건너뛰거나 여기까지 마칠 수 있어요.';
   const listening = status === 'LISTENING' && (g.inputState === 'READY' || g.turnStatus === 'CAPTURING');
+  // The server allows four spoken attempts per node. Help (예시 듣기/힌트) clears the last
+  // outcome but not the count, so the mic stays locked; say so instead of "please wait".
+  const attemptsUsedUp = !g.outcome && g.attemptCount >= MAX_ATTEMPTS && g.phase !== 'DEMO';
+  const attemptsUsed = Math.min(g.attemptCount, MAX_ATTEMPTS);
+  const attemptsExhausted = g.attemptCount >= MAX_ATTEMPTS;
   // LOCKED is also the normal resting state (DEMO, finished attempt), not only a wait.
   const lockedLabel = g.phase === 'DEMO'
-    ? (can('NEXT_NODE') ? '대화를 들어 보고, 준비되면 ‘내 말로 바꾸기’를 눌러 주세요.' : '대화를 들어 보세요.')
+    ? '시범 대화를 들은 뒤 자동으로 내 문장 연습을 시작해요.'
     : g.outcome ? (can('NEXT_NODE') ? '이번 시도를 확인했어요. ‘다음으로’를 눌러 계속해요.' : retryLabel)
+    : attemptsUsedUp ? (g.bonusAttemptUsed === false && can('PLAY_MODEL')
+      ? '이 문장은 말하기 기회를 모두 썼어요. ‘예시 듣기’를 누르면 한 번 더 말해 볼 수 있어요.'
+      : '이 문장은 말하기 기회를 모두 썼어요. 예문을 확인한 뒤 ‘이 문장 건너뛰기’나 ‘여기까지’를 눌러 주세요.')
     : g.voiceStarted === false ? '마이크를 연결하고 있어요.' : inputLabels.LOCKED;
   const statusLabel = g.recoveryReason === 'VOICE_NOT_READY' ? `마이크 또는 음성 연결을 준비하지 못했어요. 아바타 화면의 마이크 권한과 연결을 확인하고 ${retryLabel}`
     : g.recoveryReason === 'NO_SPEECH' ? `말소리가 들리지 않았어요. ${retryLabel}`
@@ -54,11 +64,10 @@ export function GuidedPracticeView({ snapshot, busy, onCommand, onPlay, onCoach 
     : g.turnStatus === 'ASSESSING' || g.inputState === 'PROCESSING' ? 'thinking'
     : listening ? (transcript ? 'hearing' : 'listening')
     : g.inputState === 'LOCKED' && g.phase === 'DEMO' ? 'idle'
-    : g.inputState === 'LOCKED' && g.outcome ? 'done' : 'waiting';
+    : g.inputState === 'LOCKED' && (g.outcome || attemptsUsedUp) ? 'done' : 'waiting';
   const meta = PHASE_META[g.phase];
   const PhaseIcon = meta.icon;
   const d = g.display;
-  const [intentTitle, ...intentDetails] = g.intentKo.split('. ');
   const firstSpeaker = d.demo?.[0]?.speaker;
   const sentence = d.modelEn ? { label: '예문', text: d.modelEn } : d.frameEn ? { label: '문장 틀', text: d.frameEn } : null;
   const hasSupport = !!(d.demo?.length || sentence || d.cueEn || d.meaningKo || d.contentCues.length || g.choices.length);
@@ -75,8 +84,8 @@ export function GuidedPracticeView({ snapshot, busy, onCommand, onPlay, onCoach 
   if (can('PLAY_MODEL')) actions.push({ key: 'play', label: g.phase === 'DEMO' ? '다시 듣기' : '예시 듣기', icon: Volume2, kind: 'secondary', onClick: onPlay });
   if (can('SHOW_SUPPORT') && nextSupport) actions.push({ key: 'support', label: hintLabel, icon: Eye, kind: 'secondary', onClick: showHint });
   if (can('REDUCE_SUPPORT')) actions.push({ key: 'reduce', label: '도움 줄여보기', icon: EyeOff, kind: 'secondary', onClick: () => command('REDUCE_SUPPORT') });
-  if (can('SKIP_NODE')) actions.push({ key: 'skip', label: '도움받고 계속', icon: SkipForward, kind: 'secondary', onClick: () => command('SKIP_NODE') });
-  if (can('END_LESSON')) actions.push({ key: 'end', label: g.phase === 'TRANSFER' ? '여기까지' : '마무리', icon: Flag, kind: 'ghost', onClick: () => onCommand('END_LESSON') });
+  if (can('SKIP_NODE')) actions.push({ key: 'skip', label: '이 문장 건너뛰기', icon: SkipForward, kind: 'secondary', onClick: () => command('SKIP_NODE') });
+  if (can('END_LESSON')) actions.push({ key: 'end', label: '여기까지', icon: Flag, kind: 'ghost', onClick: () => onCommand('END_LESSON') });
   if (hasNext) actions.push({ key: 'next', label: g.phase === 'DEMO' ? '내 말로 바꾸기' : g.phase === 'REHEARSE' ? '준비됐어요' : '다음으로', icon: ArrowRight, kind: 'primary', onClick: () => command('NEXT_NODE') });
 
   return <div className="flex h-full flex-col gap-5 [@media(max-height:820px)]:gap-3">
@@ -86,8 +95,8 @@ export function GuidedPracticeView({ snapshot, busy, onCommand, onPlay, onCoach 
       <p className="inline-flex items-center gap-2 rounded-full bg-[#e7efe8] px-3 py-1 text-sm font-bold text-[#34513c]">
         <PhaseIcon aria-hidden className="h-4 w-4" />{meta.hint}
       </p>
-      <h2 className="text-3xl font-extrabold leading-snug tracking-tight text-[#231f1b] [@media(max-height:820px)]:text-2xl">{intentTitle}</h2>
-      {intentDetails.length > 0 && <p aria-label="상황 조건" className="rounded-2xl bg-white/70 px-4 py-3 text-base leading-relaxed text-[#5f5851]">{intentDetails.join('. ')}</p>}
+      <h2 className="text-3xl font-extrabold leading-snug tracking-tight text-[#231f1b] [@media(max-height:820px)]:text-2xl">{g.intentKo}</h2>
+      {g.conditionsKo && <p aria-label="상황 조건" className="rounded-2xl bg-white/70 px-4 py-3 text-base leading-relaxed text-[#5f5851]">{g.conditionsKo}</p>}
     </div>
 
     {g.promptEn && <div className="guided-slide-left flex items-end gap-3" style={stagger(1)}>
@@ -148,6 +157,17 @@ export function GuidedPracticeView({ snapshot, busy, onCommand, onPlay, onCoach 
           {tone === 'thinking' && <span className="text-[#4f6b57]"><ThinkingDots /></span>}
         </div>
       </div>
+      {showTranscript && <div role="status" aria-label={`말하기 기회 ${MAX_ATTEMPTS}번 중 ${attemptsUsed}번 사용`}
+        className={`mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl px-4 py-2.5 ${attemptsExhausted ? 'bg-[#fdf1ee] ring-1 ring-[#c8553d]/30' : 'bg-[#f4f8f4] ring-1 ring-[#4f6b57]/15'}`}>
+        <span className="text-sm font-extrabold text-[#4a443d]">말하기 기회</span>
+        <span aria-hidden className="flex items-center gap-1.5">
+          {Array.from({ length: MAX_ATTEMPTS }, (_, i) => <span key={i}
+            className={`h-3 w-3 rounded-full ${i < attemptsUsed ? (attemptsExhausted ? 'bg-[#c8553d]' : 'bg-[#d99a2b]') : 'border-2 border-[#4f6b57]/40 bg-white'}`} />)}
+        </span>
+        <span className={`text-sm font-bold ${attemptsExhausted ? 'text-[#8f3422]' : 'text-[#34513c]'}`}>
+          {attemptsExhausted ? (g.bonusAttemptUsed === false ? '기회를 모두 썼어요 · 예시를 들으면 1번 더' : '기회를 모두 썼어요') : `${attemptsUsed}/${MAX_ATTEMPTS} 사용 · ${MAX_ATTEMPTS - attemptsUsed}번 남음`}
+        </span>
+      </div>}
       {showTranscript && <section aria-label="실시간 음성 인식" className="mt-4 rounded-2xl bg-white/90 p-4 ring-1 ring-[#483c2d]/8">
         <p className="text-xs font-extrabold uppercase tracking-wider text-[#4f6b57]">지금 인식한 말</p>
         <p className={`mt-1 min-h-8 break-words text-xl transition-colors duration-300 ${transcript ? 'font-semibold text-[#231f1b]' : 'text-[#a0968c]'}`}>{transcript || '말하면 인식한 내용이 여기에 보여요.'}{transcript && live && <span aria-hidden className="guided-caret ml-0.5 inline-block h-6 w-[2px] translate-y-1 bg-[#34513c]" />}</p>

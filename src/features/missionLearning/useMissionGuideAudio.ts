@@ -96,10 +96,10 @@ export function useMissionGuideAudio({ enabled, snapshot, setGuideAudio }: {
 
   const speak = useCallback(async (text: string | Array<{ text: string; language?: string; voice?: number }>, slow = false) => {
     const lines = typeof text === 'string' ? [{ text, language: 'en-US' }] : text;
-    if (!enabled || !lines.some(line => line.text.trim())) return;
+    if (!enabled || !lines.some(line => line.text.trim())) return false;
     const cancelled = cancelAndWait();
     const generation = generationRef.current;
-    if (!await cancelled || generation !== generationRef.current) return;
+    if (!await cancelled || generation !== generationRef.current) return false;
     setError(null);
     setIsPlaying(true);
     // Include acquisition/ack latency in the limit so local speech stops before server expiry.
@@ -120,16 +120,18 @@ export function useMissionGuideAudio({ enabled, snapshot, setGuideAudio }: {
       let accepted = false;
       try { accepted = await setGuideAudio?.(true, lease.sessionId, lease.playbackId) ?? false; }
       catch { /* Failure to pause capture must not start playback. */ }
-      if (generation !== generationRef.current) { await release(lease); return; }
+      if (generation !== generationRef.current) { await release(lease); return false; }
       if (!accepted) {
         if (timerRef.current) window.clearTimeout(timerRef.current);
         timerRef.current = null;
         void release(lease);
         setError('도움 카드 음성을 준비하지 못했어요. 화면의 문장을 보고 연습해 주세요.');
         setIsPlaying(false);
-        return;
+        return false;
       }
     }
+    let completed = false;
+    let released = true;
     try {
       for (const line of lines) {
         if (generation !== generationRef.current) break;
@@ -140,7 +142,8 @@ export function useMissionGuideAudio({ enabled, snapshot, setGuideAudio }: {
           : await speakTts(line.text, line.language ?? 'en-US', slow ? 0.7 : undefined);
         if (played === false) throw new Error('playback failed');
       }
-      if (lease && generation === generationRef.current) lease.succeeded = true;
+      completed = generation === generationRef.current;
+      if (lease && completed) lease.succeeded = true;
     } catch {
       if (generation === generationRef.current) setError('음성을 재생하지 못했어요. 다시 눌러 주세요.');
     } finally {
@@ -149,8 +152,9 @@ export function useMissionGuideAudio({ enabled, snapshot, setGuideAudio }: {
         if (timerRef.current) window.clearTimeout(timerRef.current);
         timerRef.current = null;
       }
-      if (lease) await release(lease);
+      if (lease) released = await release(lease);
     }
+    return completed && released && generation === generationRef.current;
   }, [cancel, cancelAndWait, enabled, release, setGuideAudio, snapshot, speakTts]);
 
   const nodeId = snapshot && 'guided' in snapshot ? snapshot.guided?.nodeId : undefined;

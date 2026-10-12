@@ -13,6 +13,46 @@ const snapshot = {
 } as MissionSnapshot;
 
 describe('mission guide playback', () => {
+  it.each([true, false])('reports success only after the matching release is acknowledged (%s)', async accepted => {
+    vi.useFakeTimers();
+    const guided = guidedFixture();
+    const setGuideAudio = vi.fn<SetMissionGuideAudio>(async active => active || accepted);
+    const { result } = renderHook(() => useMissionGuideAudio({ enabled: true, snapshot: guided, setGuideAudio }));
+    let value: unknown = 'pending';
+    await act(async () => { void result.current.speak('Water, please.').then(answer => { value = answer; }); });
+    expect(value).toBe('pending');
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(value).toBe(accepted);
+  });
+
+  it('reports failed or cancelled speech as unsuccessful even if the lease releases', async () => {
+    vi.useFakeTimers();
+    const guided = guidedFixture();
+    const setGuideAudio = vi.fn<SetMissionGuideAudio>(async () => true);
+    mocks.speak.mockResolvedValueOnce(false);
+    const { result } = renderHook(() => useMissionGuideAudio({ enabled: true, snapshot: guided, setGuideAudio }));
+    let value: unknown;
+    await act(async () => { void result.current.speak('Water, please.').then(answer => { value = answer; }); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(value).toBe(false);
+    expect(setGuideAudio).toHaveBeenLastCalledWith(false, guided.sessionId, expect.any(String), false);
+  });
+
+  it('reports cancellation as unsuccessful when a late browser completion arrives', async () => {
+    vi.useFakeTimers();
+    const guided = guidedFixture();
+    const setGuideAudio = vi.fn<SetMissionGuideAudio>(async () => true);
+    let finish!: (played: boolean) => void;
+    mocks.speak.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const { result } = renderHook(() => useMissionGuideAudio({ enabled: true, snapshot: guided, setGuideAudio }));
+    let value: unknown = 'pending';
+    await act(async () => { void result.current.speak('Water, please.').then(answer => { value = answer; }); });
+    act(() => result.current.cancel());
+    await act(async () => { finish(true); await vi.advanceTimersByTimeAsync(300); });
+    expect(value).toBe(false);
+    expect(setGuideAudio).toHaveBeenLastCalledWith(false, guided.sessionId, expect.any(String), false);
+  });
+
   it('waits for automatic ROLE cancellation acknowledgement even without a browser speech lease', async () => {
     const guided = guidedFixture(); guided.guided!.audioOwner = 'ROLE';
     const roleAudio = { sessionId: guided.sessionId, nodeId: guided.guided!.nodeId, attemptId: guided.guided!.attemptId, playbackId: 'automatic-role' };
@@ -98,7 +138,7 @@ describe('mission guide playback', () => {
     }
     setGuideAudio.mockClear(); mocks.speak.mockClear();
     mocks.speak.mockImplementationOnce(() => new Promise(resolve => { spoken = resolve; }));
-    let first!: Promise<void>; let latest!: Promise<void>;
+    let first!: Promise<boolean>; let latest!: Promise<boolean>;
     await act(async () => {
       first = result.current.speak('Superseded.');
       latest = result.current.speak('Latest.');
@@ -116,7 +156,7 @@ describe('mission guide playback', () => {
     const guided = guidedFixture();
     const setGuideAudio = vi.fn<SetMissionGuideAudio>(async active => active);
     const { result } = renderHook(() => useMissionGuideAudio({ enabled: true, snapshot: guided, setGuideAudio }));
-    let playback!: Promise<void>;
+    let playback!: Promise<boolean>;
     await act(async () => { playback = result.current.speak('Water, please.'); });
     await act(async () => { await vi.advanceTimersByTimeAsync(300); await playback; });
     expect(await result.current.cancelAndWait()).toBe(false);
@@ -136,7 +176,7 @@ describe('mission guide playback', () => {
     vi.useFakeTimers();
     const setGuideAudio = vi.fn<SetMissionGuideAudio>(async () => true);
     const { result } = renderHook(() => useMissionGuideAudio({ enabled: true, snapshot: guidedFixture(), setGuideAudio }));
-    let playback!: Promise<void>;
+    let playback!: Promise<boolean>;
     await act(async () => { playback = result.current.speak([{ text: 'Hello.' }, { text: 'Water, please.' }]); });
     expect(setGuideAudio).toHaveBeenCalledWith(true, 'guided-one', expect.any(String));
     expect(mocks.speak.mock.calls.map(c => c[0])).toEqual(['Hello.', 'Water, please.']);
@@ -149,7 +189,7 @@ describe('mission guide playback', () => {
     mocks.speak.mockResolvedValueOnce(false);
     const setGuideAudio = vi.fn<SetMissionGuideAudio>(async () => true);
     const { result } = renderHook(() => useMissionGuideAudio({ enabled: true, snapshot: guidedFixture(), setGuideAudio }));
-    let playback!: Promise<void>;
+    let playback!: Promise<boolean>;
     await act(async () => { playback = result.current.speak('Water, please.'); });
     await act(async () => { await vi.advanceTimersByTimeAsync(300); await playback; });
     expect(setGuideAudio).toHaveBeenLastCalledWith(false, 'guided-one', expect.any(String), false);
@@ -162,7 +202,7 @@ describe('mission guide playback', () => {
     const setGuideAudio = vi.fn<SetMissionGuideAudio>(async () => true);
     setGuideAudio.mockImplementationOnce(() => new Promise(resolve => { ready = resolve; }));
     const { result } = renderHook(() => useMissionGuideAudio({ enabled: true, snapshot: guided, setGuideAudio }));
-    let playback!: Promise<void>;
+    let playback!: Promise<boolean>;
     act(() => { playback = result.current.speak('Water, please.'); });
     await waitFor(() => expect(setGuideAudio).toHaveBeenCalledOnce());
     vi.useFakeTimers();
@@ -179,7 +219,7 @@ describe('mission guide playback', () => {
     setGuideAudio.mockImplementationOnce(() => new Promise((resolve) => { ready = resolve; }));
     mocks.speak.mockImplementationOnce(() => new Promise((resolve) => { finished = resolve; }));
     const { result } = renderHook(() => useMissionGuideAudio({ enabled: true, snapshot, setGuideAudio }));
-    let playback!: Promise<void>;
+    let playback!: Promise<boolean>;
     act(() => { playback = result.current.speak('Iced, please.'); });
     await waitFor(() => expect(setGuideAudio).toHaveBeenCalledOnce());
     expect(mocks.speak).not.toHaveBeenCalled();

@@ -18,7 +18,7 @@ describe('guided practice UI', () => {
   });
   it('keeps scenario conditions visible separately from the short task heading', () => {
     const s = guidedFixture();
-    s.guided = { ...s.guided!, intentKo: '함께할 계획 제안하기. 총 60분. cooking 20분, walking 30분.', supportVisible: 'NONE', display: { contentCues: [] } };
+    s.guided = { ...s.guided!, intentKo: '함께할 계획 제안하기', conditionsKo: '총 60분. cooking 20분, walking 30분.', supportVisible: 'NONE', display: { contentCues: [] } };
     render(<GuidedPracticeView snapshot={s} busy={false} onCommand={vi.fn()} onPlay={vi.fn()} />);
     expect(screen.getByRole('heading', { name: '함께할 계획 제안하기' })).toBeTruthy();
     expect(screen.getByLabelText('상황 조건').textContent).toBe('총 60분. cooking 20분, walking 30분.');
@@ -100,11 +100,35 @@ describe('guided practice UI', () => {
     const s = guidedFixture({ allowedActions: ['PLAY_MODEL', 'NEXT_NODE', 'ABANDON'] });
     s.guided = { ...s.guided!, phase: 'DEMO', inputState: 'LOCKED', display: { contentCues: [] }, choices: [] };
     const { rerender } = render(<GuidedPracticeView snapshot={s} busy={false} onCommand={vi.fn()} onPlay={vi.fn()} />);
-    expect(screen.getByText('대화를 들어 보고, 준비되면 ‘내 말로 바꾸기’를 눌러 주세요.')).toBeTruthy();
+    expect(screen.getByText('시범 대화를 들은 뒤 자동으로 내 문장 연습을 시작해요.')).toBeTruthy();
     expect(screen.queryByText('잠시 기다려 주세요.')).toBeNull();
     s.guided = { ...s.guided, phase: 'GUIDED', outcome: { meaningStatus: 'MET', inputKind: 'SPEECH', recognitionStatus: 'CLEAR', supportExposure: 'FRAME' } };
     rerender(<GuidedPracticeView snapshot={s} busy={false} onCommand={vi.fn()} onPlay={vi.fn()} />);
     expect(screen.getByText('이번 시도를 확인했어요. ‘다음으로’를 눌러 계속해요.')).toBeTruthy();
+  });
+  it('explains used-up attempts after help cleared the last outcome instead of an endless wait', () => {
+    const s = guidedFixture();
+    // Server caps four spoken attempts per node; PLAY_MODEL/SHOW_SUPPORT then clear the outcome.
+    s.guided = { ...s.guided!, phase: 'GUIDED', inputState: 'LOCKED', attemptCount: 4, stallCount: 4, outcome: null };
+    render(<GuidedPracticeView snapshot={s} busy={false} onCommand={vi.fn()} onPlay={vi.fn()} />);
+    expect(screen.queryByText('잠시 기다려 주세요.')).toBeNull();
+    expect(screen.getByText(/이 문장은 말하기 기회를 모두 썼어요/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: '이 문장 건너뛰기' })).toBeTruthy();
+  });
+  it('shows how many spoken attempts are used and marks when they are all used up', () => {
+    const s = guidedFixture();
+    s.guided = { ...s.guided!, phase: 'GUIDED', attemptCount: 2, stallCount: 1 };
+    const { rerender } = render(<GuidedPracticeView snapshot={s} busy={false} onCommand={vi.fn()} onPlay={vi.fn()} />);
+    expect(screen.getByRole('status', { name: '말하기 기회 4번 중 2번 사용' })).toBeTruthy();
+    expect(screen.getByText('2/4 사용 · 2번 남음')).toBeTruthy();
+    s.guided = { ...s.guided, attemptCount: 4 };
+    rerender(<GuidedPracticeView snapshot={s} busy={false} onCommand={vi.fn()} onPlay={vi.fn()} />);
+    expect(screen.getByRole('status', { name: '말하기 기회 4번 중 4번 사용' })).toBeTruthy();
+    expect(screen.getByText('기회를 모두 썼어요')).toBeTruthy();
+    // Server says the one-time bonus is still available: promise it explicitly.
+    s.guided = { ...s.guided, bonusAttemptUsed: false, outcome: null, inputState: 'LOCKED' };
+    rerender(<GuidedPracticeView snapshot={s} busy={false} onCommand={vi.fn()} onPlay={vi.fn()} />);
+    expect(screen.getByText(/예시 듣기’를 누르면 한 번 더 말해 볼 수 있어요/)).toBeTruthy();
   });
   it('selection sends only a command and never fabricates an achievement', () => {
     const command = vi.fn();

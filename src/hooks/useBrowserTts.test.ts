@@ -56,7 +56,7 @@ describe('useBrowserTts', () => {
     vi.unstubAllGlobals();
   });
 
-  it('uses a local Korean voice for mode guidance even when a network voice ranks higher', async () => {
+  it('uses the preferred Korean voice for mode guidance just like free-talk guidance', async () => {
     const local = voice('Microsoft Heami - Korean (Korean)', 'ko-KR');
     const network = { ...voice('Google 한국의', 'ko-KR'), localService: false };
     const synthesis = {
@@ -69,15 +69,16 @@ describe('useBrowserTts', () => {
     let playback!: Promise<boolean>;
     await act(async () => { playback = result.current.speak('안내가 끝나면 프리토킹 또는 학습모드라고 말씀해 주세요.'); });
     expect(synthesis.speak).toHaveBeenCalledOnce();
-    expect(synthesis.speak.mock.calls[0][0].voice).toBe(local);
+    expect(synthesis.speak.mock.calls[0][0].voice).toBe(network);
+    expect(synthesis.speak.mock.calls[0][0]).toMatchObject({ rate: 1, pitch: 1 });
     act(() => result.current.cancel());
     await expect(playback).resolves.toBe(false);
   });
 
-  it('falls back to touch instead of queueing network mode guidance when no local Korean voice exists', async () => {
+  it('falls back to touch when no matching Korean voice exists', async () => {
     const synthesis = {
       cancel: vi.fn(), speak: vi.fn(),
-      getVoices: vi.fn(() => [voice('English', 'en-US'), { ...voice('Google 한국의', 'ko-KR'), localService: false }]),
+      getVoices: vi.fn(() => [voice('English', 'en-US')]),
       addEventListener: vi.fn(), removeEventListener: vi.fn(),
     };
     vi.stubGlobal('speechSynthesis', synthesis);
@@ -89,6 +90,55 @@ describe('useBrowserTts', () => {
     });
     expect(synthesis.speak).not.toHaveBeenCalled();
     expect(outcome).toBe(false);
+  });
+
+  it('allows the existing free-talk network voice when it is the only Korean voice', async () => {
+    const network = { ...voice('Google 한국의', 'ko-KR'), localService: false };
+    const synthesis = {
+      cancel: vi.fn(), speak: vi.fn<(utterance: SpeechSynthesisUtterance) => void>(),
+      getVoices: vi.fn(() => [voice('English', 'en-US'), network]),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal('speechSynthesis', synthesis);
+    vi.stubGlobal('SpeechSynthesisUtterance', class { constructor(public text: string) {} });
+    const { result } = renderHook(() => useBrowserTts('mode-selector'));
+    let playback!: Promise<boolean>;
+    await act(async () => { playback = result.current.speak('원하는 모드를 말씀해 주세요.'); });
+    const utterance = synthesis.speak.mock.calls[0][0];
+    expect(utterance.voice).toBe(network);
+    act(() => { utterance.onstart?.call(utterance, {} as SpeechSynthesisEvent); });
+    expect(result.current.isSpeaking).toBe(true);
+    act(() => result.current.cancel());
+    await expect(playback).resolves.toBe(false);
+    expect(synthesis.cancel).toHaveBeenCalledOnce();
+    act(() => { utterance.onend?.call(utterance, {} as SpeechSynthesisEvent); });
+    expect(result.current.isSpeaking).toBe(false);
+  });
+
+  it('uses the same voice, pitch and rate before and after selecting free talk', async () => {
+    const local = voice('Microsoft Heami', 'ko-KR');
+    const network = { ...voice('Google 한국의', 'ko-KR'), localService: false };
+    const synthesis = {
+      cancel: vi.fn(), speak: vi.fn<(utterance: SpeechSynthesisUtterance) => void>(),
+      getVoices: vi.fn(() => [local, network]), addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal('speechSynthesis', synthesis);
+    vi.stubGlobal('SpeechSynthesisUtterance', class { constructor(public text: string) {} });
+    const mode = renderHook(() => useBrowserTts('mode-selector'));
+    const topic = renderHook(() => useBrowserTts('topic-selector'));
+    let modePlayback!: Promise<boolean>;
+    await act(async () => { modePlayback = mode.result.current.speak('원하는 모드를 선택해 주세요.'); });
+    const modeUtterance = synthesis.speak.mock.calls[0][0];
+    act(() => { modeUtterance.onend?.call(modeUtterance, {} as SpeechSynthesisEvent); });
+    await expect(modePlayback).resolves.toBe(true);
+    let topicPlayback!: Promise<boolean>;
+    await act(async () => { topicPlayback = topic.result.current.speak('프리토킹 난이도를 선택해 주세요.'); });
+    const topicUtterance = synthesis.speak.mock.calls[1][0];
+    expect({ voice: modeUtterance.voice, pitch: modeUtterance.pitch, rate: modeUtterance.rate })
+      .toEqual({ voice: topicUtterance.voice, pitch: topicUtterance.pitch, rate: topicUtterance.rate });
+    expect(modeUtterance.voice).toBe(network);
+    act(() => topic.result.current.cancel());
+    await expect(topicPlayback).resolves.toBe(false);
   });
 
   it('does not enqueue a mode prompt if selection cancels it while installed voices load', async () => {

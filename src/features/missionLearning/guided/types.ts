@@ -15,13 +15,15 @@ export type GuidedSnapshot = {
     phase: typeof PHASES[number]; nodeId: string; attemptId: string;
     inputState: 'LOCKED' | 'READY' | 'PROCESSING';
     audioOwner: 'NONE' | 'MODEL' | 'COACH' | 'ROLE';
-    intentKo: string; promptEn?: string; promptKo?: string; audioId?: string;
+    intentKo: string; conditionsKo?: string; promptEn?: string; promptKo?: string; audioId?: string;
     supportVisible: Support; supportExposure: Support;
     display: { frameEn?: string; modelEn?: string; cueEn?: string; meaningKo?: string; contentCues: string[]; demo?: Array<{ speaker: string; text: string; meaningKo: string }> };
     choices: Array<{ id: string; labelEn: string }>; selectedChoiceId: string | null;
     stallCount: number; attemptCount: number;
     voiceStarted?: boolean; captureEpoch?: number; controllerEpoch?: number;
     retryRequested?: boolean;
+    /** False while hearing the model after the attempts run out still grants one more try. */
+    bonusAttemptUsed?: boolean;
     turnStatus?: 'NONE' | 'CAPTURING' | 'ASSESSING';
     recoveryReason?: null | 'NO_SPEECH' | 'NO_FINAL' | 'VOICE_NOT_READY';
     outcome: null | { meaningStatus: string; inputKind: string; recognitionStatus: string; supportExposure: Support; replyEn?: string; coachKo?: string; said?: string; sceneResultKo?: string };
@@ -59,9 +61,10 @@ export function parseGuidedSnapshot(value: unknown): GuidedSnapshot | null {
     if (!member(g.phase, PHASES) || !str(g.nodeId) || !str(g.attemptId)
       || !member(g.inputState, ['LOCKED', 'READY', 'PROCESSING'])
       || !member(g.audioOwner, ['NONE', 'MODEL', 'COACH', 'ROLE'])
-      || !str(g.intentKo) || !optionalString(g.promptEn) || !optionalString(g.promptKo) || !optionalString(g.audioId)
+      || !str(g.intentKo) || !optionalString(g.conditionsKo) || !optionalString(g.promptEn) || !optionalString(g.promptKo) || !optionalString(g.audioId)
       || !(g.voiceStarted === undefined || typeof g.voiceStarted === 'boolean')
       || !(g.retryRequested === undefined || typeof g.retryRequested === 'boolean')
+      || !(g.bonusAttemptUsed === undefined || typeof g.bonusAttemptUsed === 'boolean')
       || !(g.turnStatus === undefined || member(g.turnStatus, ['NONE', 'CAPTURING', 'ASSESSING']))
       || !(g.recoveryReason === undefined || g.recoveryReason === null || member(g.recoveryReason, ['NO_SPEECH', 'NO_FINAL', 'VOICE_NOT_READY']))
       || !['captureEpoch', 'controllerEpoch'].every(k => g[k] === undefined || integer(g[k]))

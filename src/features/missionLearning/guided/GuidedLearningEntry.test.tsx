@@ -5,9 +5,10 @@ import { GuidedLearningEntry } from './GuidedLearningEntry';
 import { guidedFixture } from './fixtures';
 import { useGuidedLearningStore } from './store';
 import type { GuidedHome, GuidedSnapshot } from './types';
+import { GuidedApiError } from './api';
 
 const api = vi.hoisted(() => ({ getGuidedHome: vi.fn(), getGuidedSession: vi.fn(), saveGuidedProfile: vi.fn(), sendGuidedCommand: vi.fn(), startGuidedLesson: vi.fn() }));
-const audio = vi.hoisted(() => ({ speak: vi.fn(async () => undefined), cancel: vi.fn(), cancelAndWait: vi.fn(async () => true), reconcileIdle: vi.fn(), isPlaying: false, error: null }));
+const audio = vi.hoisted(() => ({ speak: vi.fn<(...args: unknown[]) => Promise<boolean>>(async () => false), cancel: vi.fn(), cancelAndWait: vi.fn(async () => true), reconcileIdle: vi.fn(), isPlaying: false, error: null }));
 vi.mock('./api', async importOriginal => ({ ...await importOriginal<typeof import('./api')>(), ...api }));
 vi.mock('../useMissionGuideAudio', () => ({ useMissionGuideAudio: () => audio }));
 
@@ -18,6 +19,8 @@ function phase(name: NonNullable<GuidedSnapshot['guided']>['phase'], revision: n
     s.allowedActions.push('PLAY_MODEL'); s.guided.audioId = 'd1'; s.guided.supportVisible = 'MODEL';
     s.guided.display.demo = [{ speaker: '직원', text: 'What would you like?', meaningKo: '무엇을 드릴까요?' }, { speaker: '나', text: 'Water, please.', meaningKo: '물을 주세요.' }];
   }
+  // Existing manual transport tests do not simulate the controller voice ACK.
+  s.guided.voiceStarted = false;
   if (name === 'TRANSFER') { s.guided.supportVisible = 'NONE'; s.guided.supportExposure = 'NONE'; }
   if (name === 'RECAP') { s.allowedActions = ['FINISH']; s.recap = { observations: [{ textKo: '새 장면에서 예문 없이 부탁했어요.', said: 'A towel, please.' }], freeTalkAvailable: false, nextLessons: [] }; }
   return s;
@@ -73,10 +76,74 @@ describe('guided lesson entry orchestration', () => {
     await waitFor(() => expect(useGuidedLearningStore.getState().snapshot?.sessionId).toBe('replay-new'));
     expect(useGuidedLearningStore.getState().retiredSessions).toContain(current.sessionId);
   });
-  beforeEach(() => { vi.clearAllMocks(); audio.isPlaying = false; audio.cancelAndWait.mockResolvedValue(true); useGuidedLearningStore.setState({ snapshot: null, error: null, retiredSessions: [] }); });
+  beforeEach(() => { vi.clearAllMocks(); api.sendGuidedCommand.mockReset(); audio.isPlaying = false; audio.speak.mockReset().mockResolvedValue(false); audio.cancelAndWait.mockReset().mockResolvedValue(true); useGuidedLearningStore.setState({ snapshot: null, error: null, retiredSessions: [] }); });
   afterEach(cleanup);
+  it.each(['same', 'replaced', 'twice'])('bounds automatic playback revision recovery for %s scope', async boundary => {
+    const demo = phase('DEMO', 2); demo.guided!.voiceStarted = true;
+    useGuidedLearningStore.setState({ snapshot: demo });
+    api.getGuidedHome.mockResolvedValue({ contractVersion: 2, contentVersion: 'v2', levels: [], profile: { level: 'beginner', revision: 1 }, lessons: [], activeSessionId: demo.sessionId });
+    api.getGuidedSession.mockResolvedValue(demo);
+    const refreshed = { ...demo, revision: 3, guided: { ...demo.guided!, attemptId: boundary === 'replaced' ? 'replacement' : demo.guided!.attemptId } };
+    api.sendGuidedCommand.mockRejectedValueOnce(new GuidedApiError('new revision', 'REVISION_CONFLICT', refreshed));
+    if (boundary === 'twice') api.sendGuidedCommand.mockRejectedValueOnce(new GuidedApiError('still changing', 'REVISION_CONFLICT', { ...refreshed, revision: 4 }));
+    else api.sendGuidedCommand.mockResolvedValueOnce({ ...refreshed, revision: 4, guided: { ...refreshed.guided!, attemptId: 'playing' } });
+    render(<GuidedLearningEntry onBack={vi.fn()} onClose={vi.fn()} />);
+    if (boundary === 'same') {
+      await waitFor(() => expect(audio.speak).toHaveBeenCalledOnce());
+      expect(api.sendGuidedCommand).toHaveBeenNthCalledWith(2, expect.objectContaining({ revision: 3 }), 'PLAY_MODEL', expect.anything());
+    } else {
+      await screen.findByRole('alert');
+      expect(audio.speak).not.toHaveBeenCalled();
+    }
+    expect(api.sendGuidedCommand).toHaveBeenCalledTimes(boundary === 'replaced' ? 1 : 2);
+  });
+  it('automatically plays the demo once after voice readiness, then rehearses after successful release', async () => {
+    const brief = guidedFixture({ stage: 'BRIEF', guided: null, revision: 1, allowedActions: ['START_PREP', 'ABANDON'] });
+    useGuidedLearningStore.setState({ snapshot: brief });
+    api.getGuidedHome.mockResolvedValue({ contractVersion: 2, contentVersion: 'v2', levels: [], profile: { level: 'beginner', revision: 1 }, lessons: [], activeSessionId: brief.sessionId });
+    api.getGuidedSession.mockResolvedValue(brief);
+    const demo = phase('DEMO', 2);
+    const playing = phase('DEMO', 4); playing.guided!.voiceStarted = true;
+    const rehearse = phase('REHEARSE', 6); rehearse.guided!.voiceStarted = true;
+    const model = { ...rehearse, revision: 7, guided: { ...rehearse.guided!, attemptId: 'model-ready', display: { modelEn: 'Water, please.', contentCues: [] }, supportVisible: 'MODEL' as const } };
+    rehearse.allowedActions = ['PLAY_MODEL', 'ABANDON']; rehearse.guided!.audioId = 'rehearse';
+    model.allowedActions = rehearse.allowedActions;
+    api.sendGuidedCommand.mockResolvedValueOnce(demo).mockResolvedValueOnce(playing).mockResolvedValueOnce(rehearse).mockResolvedValueOnce(model);
+    let finish!: (success: boolean) => void;
+    audio.speak.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    render(<GuidedLearningEntry onBack={vi.fn()} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: '보고 연습하기' }));
+    await screen.findByText('What would you like?');
+    expect(audio.speak).not.toHaveBeenCalled();
+    act(() => { useGuidedLearningStore.getState().pushSnapshot({ ...demo, revision: 3, guided: { ...demo.guided!, voiceStarted: true } }); });
+    await waitFor(() => expect(audio.speak).toHaveBeenCalledOnce());
+    expect(api.sendGuidedCommand.mock.calls.map(call => call[1])).toEqual(['START_PREP', 'PLAY_MODEL']);
+    act(() => { useGuidedLearningStore.getState().pushSnapshot({ ...playing, revision: 5 }); });
+    expect(audio.speak).toHaveBeenCalledOnce();
+    await act(async () => finish(true));
+    await waitFor(() => expect(api.sendGuidedCommand.mock.calls.map(call => call[1])).toEqual(['START_PREP', 'PLAY_MODEL', 'NEXT_NODE', 'PLAY_MODEL']));
+    expect(audio.speak).toHaveBeenLastCalledWith('Water, please.');
+  });
+
+  it.each(['failed', 'replaced', 'unmounted'])('does not advance a demo when playback is %s', async boundary => {
+    const demo = phase('DEMO', 2); demo.guided!.voiceStarted = true;
+    useGuidedLearningStore.setState({ snapshot: demo });
+    api.getGuidedHome.mockResolvedValue({ contractVersion: 2, contentVersion: 'v2', levels: [], profile: { level: 'beginner', revision: 1 }, lessons: [], activeSessionId: demo.sessionId });
+    api.getGuidedSession.mockResolvedValue(demo);
+    const playing = { ...demo, revision: 3, guided: { ...demo.guided!, attemptId: 'playing-demo' } };
+    api.sendGuidedCommand.mockResolvedValue(playing);
+    let finish!: (success: boolean) => void;
+    audio.speak.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const view = render(<GuidedLearningEntry onBack={vi.fn()} onClose={vi.fn()} />);
+    await waitFor(() => expect(audio.speak).toHaveBeenCalledOnce());
+    if (boundary === 'replaced') act(() => { useGuidedLearningStore.getState().pushSnapshot({ ...playing, revision: 4, guided: { ...playing.guided!, attemptId: 'replacement' } }); });
+    if (boundary === 'unmounted') view.unmount();
+    await act(async () => finish(boundary !== 'failed'));
+    expect(api.sendGuidedCommand.mock.calls.map(call => call[1])).toEqual(['PLAY_MODEL']);
+  });
   it('keeps Stop/Exit available during playback and waits release before Retry', async () => {
     const current = guidedFixture({ allowedActions: ['RETRY_NODE', 'ABANDON'] });
+    current.guided!.voiceStarted = false;
     audio.isPlaying = true;
     useGuidedLearningStore.setState({ snapshot: current });
     api.getGuidedHome.mockResolvedValue({ contractVersion: 2, contentVersion: 'v2', levels: [], profile: { level: 'beginner', revision: 1 }, lessons: [], activeSessionId: current.sessionId });
@@ -87,7 +154,7 @@ describe('guided lesson entry orchestration', () => {
     render(<GuidedLearningEntry onBack={vi.fn()} onClose={vi.fn()} />);
     expect(await screen.findByRole('button', { name: '듣기 멈추기' })).toBeTruthy();
     expect((screen.getByRole('button', { name: '나가기' }) as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: '다시 말해보기' }));
+    fireEvent.click(await screen.findByRole('button', { name: '다시 말해보기' }));
     await act(async () => undefined);
     expect(api.sendGuidedCommand).not.toHaveBeenCalled();
     api.getGuidedSession.mockResolvedValue({ ...current, revision: 3 });
@@ -96,6 +163,7 @@ describe('guided lesson entry orchestration', () => {
   });
   it.each(['release', 'refresh', 'role-start'])('does not apply the old Retry to an attempt replaced during %s', async boundary => {
     const current = guidedFixture({ allowedActions: ['RETRY_NODE', 'ABANDON'] });
+    current.guided!.voiceStarted = false;
     const next = guidedFixture({ revision: 4, allowedActions: ['RETRY_NODE', 'ABANDON'] });
     next.guided!.attemptId = boundary === 'role-start' ? current.guided!.attemptId : 'replacement'; next.guided!.audioOwner = 'ROLE';
     useGuidedLearningStore.setState({ snapshot: current });

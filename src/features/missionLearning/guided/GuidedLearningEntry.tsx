@@ -33,8 +33,11 @@ export function GuidedLearningEntry({ onBack, onClose, setGuideAudio }: {
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
   const mountedRef = useRef(true);
+  const autoPreparation = useRef({ sessionId: '', nodes: new Set<string>() });
   const tts = useMissionGuideAudio({ enabled: true, snapshot, setGuideAudio });
   const cancelAudio = tts.cancel;
+  const cancelAudioAndWait = tts.cancelAndWait;
+  const speakAudio = tts.speak;
   const reconcileAudioIdle = tts.reconcileIdle;
   useEffect(() => { if (storeError) cancelAudio(); }, [storeError, cancelAudio]);
   useEffect(() => useGuidedLearningStore.subscribe(state => {
@@ -78,10 +81,10 @@ export function GuidedLearningEntry({ onBack, onClose, setGuideAudio }: {
     void reload().catch(() => undefined);
   }, [stored, reload]);
 
-  const command = (action: GuidedAction, payload?: Record<string, string>) => run(async () => {
+  const command = useCallback((action: GuidedAction, payload?: Record<string, string>) => run(async () => {
     if (useGuidedLearningStore.getState().error && action !== 'ABANDON') return;
     const requested = useGuidedLearningStore.getState().snapshot;
-    if (!await tts.cancelAndWait()) return;
+    if (!await cancelAudioAndWait()) return;
     let current = useGuidedLearningStore.getState().snapshot;
     const sameRequest = (value: GuidedSnapshot | null) => !!requested && value?.sessionId === requested.sessionId
       && value?.guided?.nodeId === requested.guided?.nodeId && value?.guided?.attemptId === requested.guided?.attemptId;
@@ -107,27 +110,69 @@ export function GuidedLearningEntry({ onBack, onClose, setGuideAudio }: {
       }
     }
     if (action === 'FINISH' || action === 'ABANDON') onClose();
-  });
-  const play = async () => {
+  }), [run, cancelAudioAndWait, onClose]);
+  const play = useCallback(async () => {
     let text: string | Array<{ text: string; language: string; voice?: number }> | undefined;
+    let playedScope: { sessionId: string; nodeId: string; attemptId: string } | undefined;
     await run(async () => {
-    if (!await tts.cancelAndWait()) return;
+    if (!await cancelAudioAndWait()) return;
     if (useGuidedLearningStore.getState().error) return;
     const current = useGuidedLearningStore.getState().snapshot;
     if (!current?.guided?.audioId || !current.allowedActions.includes('PLAY_MODEL')) return;
-    const next = await sendGuidedCommand(current, 'PLAY_MODEL', { nodeId: current.guided.nodeId, audioId: current.guided.audioId });
+    const payload = { nodeId: current.guided.nodeId, audioId: current.guided.audioId };
+    let next: GuidedSnapshot;
+    try { next = await sendGuidedCommand(current, 'PLAY_MODEL', payload); }
+    catch (caught) {
+      // Voice binding can publish an idle gate revision while this request is
+      // in flight. A revision conflict occurs before mutation; retry once only
+      // for the same node/attempt/controller, never after another user action.
+      if (!(caught instanceof GuidedApiError) || caught.code !== 'REVISION_CONFLICT' || !caught.snapshot) throw caught;
+      useGuidedLearningStore.getState().pushSnapshot(caught.snapshot);
+      const refreshed = useGuidedLearningStore.getState().snapshot;
+      if (!mountedRef.current || useGuidedLearningStore.getState().error || !refreshed?.guided
+        || refreshed.sessionId !== current.sessionId || refreshed.guided.nodeId !== current.guided.nodeId
+        || refreshed.guided.attemptId !== current.guided.attemptId
+        || refreshed.guided.controllerEpoch !== current.guided.controllerEpoch
+        || refreshed.guided.audioOwner !== 'NONE' || refreshed.guided.outcome || refreshed.guided.recoveryReason
+        || !refreshed.allowedActions.includes('PLAY_MODEL')) throw caught;
+      next = await sendGuidedCommand(refreshed, 'PLAY_MODEL', payload);
+    }
     useGuidedLearningStore.getState().pushSnapshot(next);
     const latest = useGuidedLearningStore.getState().snapshot;
-    if (!latest || latest.sessionId !== next.sessionId || latest.revision !== next.revision
-      || latest.guided?.attemptId !== next.guided?.attemptId) return;
+    if (!latest || latest.sessionId !== next.sessionId || latest.guided?.nodeId !== next.guided?.nodeId
+      || latest.guided?.attemptId !== next.guided?.attemptId || latest.guided?.supportVisible !== 'MODEL') return;
     // Read only the now-authorized projection; never keep an unrevealed model in the DOM.
-    const display = next.guided?.display;
+    const display = latest.guided.display;
     // One voice per speaker, matching the left/right bubbles (first speaker = voice 0).
     const firstSpeaker = display?.demo?.[0]?.speaker;
     text = display?.demo?.map(line => ({ text: line.text, language: 'en-US', voice: line.speaker === firstSpeaker ? 0 : 1 })) || display?.modelEn;
+    playedScope = { sessionId: latest.sessionId, nodeId: latest.guided.nodeId, attemptId: latest.guided.attemptId };
     });
-    if (text) void tts.speak(text);
-  };
+    if (!text || !playedScope || !mountedRef.current) return;
+    const succeeded = await speakAudio(text);
+    const state = useGuidedLearningStore.getState();
+    const latest = state.snapshot;
+    if (!succeeded || !mountedRef.current || state.error || latest?.sessionId !== playedScope.sessionId
+      || latest.guided?.nodeId !== playedScope.nodeId || latest.guided?.attemptId !== playedScope.attemptId
+      || latest.guided.phase !== 'DEMO' || latest.guided.audioOwner !== 'NONE'
+      || latest.guided.outcome || !latest.allowedActions.includes('NEXT_NODE')) return;
+    await command('NEXT_NODE', { nodeId: playedScope.nodeId });
+  }, [run, cancelAudioAndWait, speakAudio, command]);
+  useEffect(() => {
+    const g = snapshot?.guided;
+    if (!home || !snapshot || !g || busy || error || storeError || tts.error || tts.isPlaying
+      || !g.voiceStarted || g.recoveryReason || g.outcome || g.audioOwner !== 'NONE'
+      || g.inputState === 'PROCESSING' || !['DEMO', 'REHEARSE'].includes(g.phase)
+      || !snapshot.allowedActions.includes('PLAY_MODEL')) return;
+    if (autoPreparation.current.sessionId !== snapshot.sessionId) {
+      autoPreparation.current = { sessionId: snapshot.sessionId, nodes: new Set() };
+    }
+    // Revisions and attempts can change during voice binding/playback. Enter each
+    // preparation node once; explicit replay remains available after cancellation.
+    if (autoPreparation.current.nodes.has(g.nodeId)) return;
+    autoPreparation.current.nodes.add(g.nodeId);
+    void play();
+  }, [home, snapshot, busy, error, storeError, tts.error, tts.isPlaying, play]);
   const saveLevel = (level: GuidedLevel) => run(async () => {
     if (useGuidedLearningStore.getState().error) return;
     await saveGuidedProfile(level, home?.profile?.revision ?? 0); await reload(); setEditing(false);
