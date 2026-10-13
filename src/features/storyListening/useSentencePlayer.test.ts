@@ -6,8 +6,10 @@ import { ODYSSEY } from './stories/odyssey';
 import manifest from './audioManifest.json';
 import dragonManifest from './dragonAudioManifest.json';
 import { RELUCTANT_DRAGON } from './stories/reluctantDragon';
+import gulliverManifest from './gulliverAudioManifest.json';
+import { GULLIVER } from './stories/gulliver';
 
-describe.each([[ODYSSEY, manifest], [RELUCTANT_DRAGON, dragonManifest]] as const)('recorded $0.id audio', (story, recording) => {
+describe.each([[ODYSSEY, manifest], [RELUCTANT_DRAGON, dragonManifest], [GULLIVER, gulliverManifest]] as const)('recorded $0.id audio', (story, recording) => {
   it.each(story.chapters)('$id has an intact recording for every authored sentence', chapter => {
     const clips = getChapterAudio(story.id, chapter);
     expect(clips).toHaveLength(chapter.sentences.length);

@@ -18,9 +18,8 @@ import { getConversationDifficulty, type DifficultyId } from '@/lib/conversation
 import { TEXT_ONLY_TEST_MODE } from '@/lib/testMode';
 import { isTranslatorWindowMessage, TRANSLATOR_WINDOW_MESSAGE } from '@/lib/translator';
 import { getKioskIdFromLocation } from '@/lib/kioskIdentity';
-import { publishStoryControl, publishStoryTalk, subscribeStoryControl, type StoryTalk } from '@/features/storyListening/control';
-import { DEFAULT_STORY_ID } from '@/features/storyListening/stories';
-import { StoryTalkAvatar } from '@/features/storyListening/StoryTalkAvatar';
+import { publishStoryControl, subscribeStoryControl } from '@/features/storyListening/control';
+import { StoryAvatarMode } from '@/features/storyListening/StoryAvatarMode';
 // import { LearningExperience } from '@/features/learning/LearningExperience';
 // import { buildKioskUrl } from '@/lib/kioskIdentity';
 
@@ -57,9 +56,9 @@ export function ControlPanel({
         startGuidedLearningVoice,
         prepareGuidedMicrophone,
         syncGuidedCapture,
-        startStoryTalk,
-        listenStoryTalk,
-        endStoryTalk,
+        sendStoryCheck,
+        setStoryMicrophone,
+        stopAvatarSpeech,
         // 학습하기 UI를 다시 노출할 때 함께 복구합니다.
         // startLearningSession,
         // learningCommand,
@@ -81,20 +80,9 @@ export function ControlPanel({
     const guidedSnapshot = useGuidedLearningStore((state) => state.snapshot);
     const learningEntryActive = Boolean(missionEntry?.open || (guidedSnapshot && !isGuidedTerminal(guidedSnapshot)));
     const handledMissionEntrySeqRef = useRef(0);
-    // The story itself plays on the guide display (/chat); this window only opens and closes it,
-    // and talks about it with the avatar when the learner pauses it.
+    // The avatar tells the story and asks about it; the guide display (/chat) only mirrors the scene.
     const storyOpenRef = useRef(false);
     const [storyOpen, setStoryOpen] = useState(false);
-    const [storyTalk, setStoryTalkState] = useState<StoryTalk | null>(null);
-    const storyTalkRef = useRef<StoryTalk | null>(null);
-    const endStoryTalkRef = useRef(endStoryTalk);
-    useEffect(() => { endStoryTalkRef.current = endStoryTalk; }, [endStoryTalk]);
-    const setStoryTalk = useCallback((next: StoryTalk | null) => {
-        // Leaving an active talk from any side stops the avatar's microphone and voice.
-        if (storyTalkRef.current?.phase === 'active' && next?.phase !== 'active') endStoryTalkRef.current();
-        storyTalkRef.current = next;
-        setStoryTalkState(next);
-    }, []);
     useMissionRoleplayVoice({
         enabled: learningAvailability === 'available',
         startLearningRoleplay,
@@ -172,8 +160,9 @@ export function ControlPanel({
             setEntryStep(null);
             storyOpenRef.current = true;
             setStoryOpen(true);
-            setStoryTalk(null);
-            void publishStoryControl({ action: 'open', storyId: DEFAULT_STORY_ID }, getKioskIdFromLocation()).then((published) => {
+            // The avatar's questions after each chapter need the voice connection (no microphone yet).
+            if (!isConnected) connect({ role: 'controller', startRecording: false });
+            void publishStoryControl({ action: 'open', storyId: null }, getKioskIdFromLocation()).then((published) => {
                 if (published) return;
                 storyOpenRef.current = false;
                 setStoryOpen(false);
@@ -185,7 +174,6 @@ export function ControlPanel({
         if (storyOpenRef.current) {
             storyOpenRef.current = false;
             setStoryOpen(false);
-            setStoryTalk(null);
             void publishStoryControl({ action: 'close' }, getKioskIdFromLocation());
         }
         if (mode === 'learning') {
@@ -207,17 +195,26 @@ export function ControlPanel({
         }
         setEntryStep(null);
         setIsTopicSelectorOpen(true);
-    }, [connectForLearning, isRecording, learningAvailability, pauseConversationForUsageEnd, prepareGuidedMicrophone, setStoryTalk, stopListening]);
+    }, [connect, connectForLearning, isConnected, isRecording, learningAvailability, pauseConversationForUsageEnd, prepareGuidedMicrophone, stopListening]);
+
+    const exitStory = useCallback(() => {
+        storyOpenRef.current = false;
+        setStoryOpen(false);
+        setEntryStep('mode');
+        void publishStoryControl({ action: 'close' }, getKioskIdFromLocation());
+    }, []);
 
     useEffect(() => subscribeStoryControl(getKioskIdFromLocation(), (state, { initial }) => {
-        storyOpenRef.current = state.action === 'open';
-        setStoryOpen(state.action === 'open');
-        // A talk replayed on load has no live avatar conversation behind it; hand the story back.
-        if (initial && state.talk) void publishStoryTalk({ phase: 'off', requestId: state.talk.requestId }, getKioskIdFromLocation());
-        setStoryTalk(initial || state.action !== 'open' ? null : state.talk);
-        // Only a fresh "모드 다시 선택" from the story screen reopens the choice, not a replay on load.
-        if (!initial && state.action === 'close' && state.returnTo === 'mode') setEntryStep('mode');
-    }), [setStoryTalk]);
+        // The story lives in this window: one replayed on load lost its narration, so close it.
+        if (initial && state.action === 'open') {
+            void publishStoryControl({ action: 'close' }, getKioskIdFromLocation());
+            return;
+        }
+        if (state.action === 'close' && storyOpenRef.current) {
+            storyOpenRef.current = false;
+            setStoryOpen(false);
+        }
+    }), []);
 
     // "모드 다시 선택" on the guide display brings the mode choice back here.
     useEffect(() => {
@@ -376,22 +373,21 @@ export function ControlPanel({
         };
     }, [closeConversationEntry, isRecording, startListening, stopListening]);
 
-    const storyTalkActive = storyOpen && storyTalk?.phase === 'active';
+    const storyActive = storyOpen && !learningEntryActive;
 
     return (
         <>
-        {storyOpen && !learningEntryActive ? (
-            <StoryTalkAvatar
+        {storyActive ? (
+            <StoryAvatarMode
                 kioskId={getKioskIdFromLocation()}
-                talk={storyTalk}
-                onTalkChange={setStoryTalk}
-                startTalk={startStoryTalk}
-                listen={listenStoryTalk}
-                mute={stopListening}
-                talkError={conversationStartStatus === 'error' ? conversationStartError : null}
+                isConnected={isConnected}
+                sendStoryCheck={sendStoryCheck}
+                setStoryMicrophone={setStoryMicrophone}
+                stopAvatarSpeech={stopAvatarSpeech}
+                onExit={exitStory}
             />
         ) : null}
-        {storyTalkActive ? null : (
+        {storyActive ? null : (
         <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}

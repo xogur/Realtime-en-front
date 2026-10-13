@@ -24,14 +24,8 @@ import { LearningModeEntry } from '@/features/missionLearning/LearningModeEntry'
 import { setMissionEntry } from '@/features/missionLearning/api';
 import { MISSION_LEARNING_ENABLED } from '@/features/missionLearning/config';
 import { isTerminalSnapshot, useMissionLearningStore } from '@/features/missionLearning/store';
-import { StoryListeningView } from '@/features/storyListening/StoryListeningView';
-import {
-    publishStoryControl,
-    publishStoryTalk,
-    subscribeStoryControl,
-    type StoryPosition,
-    type StoryTalk,
-} from '@/features/storyListening/control';
+import { StoryStageViewer } from '@/features/storyListening/StoryStageViewer';
+import { subscribeStoryControl, type StoryView } from '@/features/storyListening/control';
 // import { LearningExperience } from '@/features/learning/LearningExperience';
 
 const RECONNECT_INTERVAL_MS = 2000;
@@ -59,30 +53,11 @@ export default function ChatPopout() {
         });
     }, []);
 
-    // Story listening is chosen on the avatar screen and plays here.
-    const [storyId, setStoryId] = useState<string | null>(null);
-    // The avatar asks for a talk turn; story audio stays stopped until the turn ends.
-    const [storyTalk, setStoryTalk] = useState<StoryTalk | null>(null);
+    // Story listening runs on the avatar screen; this screen only mirrors its scene.
+    const [story, setStory] = useState<{ storyId: string | null; view: StoryView | null } | null>(null);
     useEffect(() => subscribeStoryControl(getKioskIdFromLocation(), (state) => {
-        setStoryId(state.action === 'open' ? state.storyId : null);
-        setStoryTalk(state.action === 'open' ? state.talk : null);
+        setStory(state.action === 'open' ? { storyId: state.storyId, view: state.view } : null);
     }), []);
-    const closeStory = useCallback((returnTo: 'mode' | null) => {
-        setStoryId(null);
-        setStoryTalk(null);
-        void publishStoryControl({ action: 'close', returnTo }, getKioskIdFromLocation());
-    }, []);
-    const reportStoryPaused = useCallback((requestId: string, position: StoryPosition | null) => {
-        setStoryTalk((current) => (current?.requestId === requestId ? { ...current, phase: 'paused', position } : current));
-        void publishStoryTalk({ phase: 'paused', requestId, position }, getKioskIdFromLocation()).then((published) => {
-            // The avatar gave up or the relay is gone: hand the story back.
-            if (!published) setStoryTalk((current) => (current?.requestId === requestId ? null : current));
-        });
-    }, []);
-    const endStoryTalk = useCallback((requestId: string) => {
-        setStoryTalk((current) => (current?.requestId === requestId ? null : current));
-        void publishStoryTalk({ phase: 'off', requestId }, getKioskIdFromLocation());
-    }, []);
 
     useEffect(() => {
         socketControlsRef.current = { connect, disconnect };
@@ -236,15 +211,9 @@ export default function ChatPopout() {
             onBack={() => closeLearning('mode')}
             onClose={() => closeLearning(null)}
         />
-        <StoryListeningView
-            isOpen={storyId !== null && !learningOpen && !reservationIntro.active && !reservationFollowup.locked}
-            storyId={storyId}
-            onBack={() => closeStory('mode')}
-            onClose={() => closeStory(null)}
-            talk={storyTalk}
-            onTalkPaused={reportStoryPaused}
-            onEndTalk={endStoryTalk}
-        />
+        {story && !learningOpen && !reservationIntro.active && !reservationFollowup.locked ? (
+            <StoryStageViewer storyId={story.storyId} view={story.view} />
+        ) : null}
         </>
     );
 }

@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
   setMissionEntry: vi.fn(),
   getMissionHome: vi.fn(),
   publishStoryControl: vi.fn(),
-  storyListener: null as null | ((state: { action: 'open' | 'close'; storyId: string | null; returnTo: 'mode' | null; version: number }, meta: { initial: boolean }) => void),
+  storyListener: null as null | ((state: { action: 'open' | 'close'; storyId: string | null; returnTo: 'mode' | null; view: null; version: number }, meta: { initial: boolean }) => void),
 }));
 
 vi.mock('@/hooks/useVoiceSocket', () => ({ useVoiceSocket: mocks.useVoiceSocket }));
@@ -25,6 +25,7 @@ vi.mock('@/features/missionLearning/useMissionLearningAvailability', () => ({
 }));
 vi.mock('@/features/storyListening/control', () => ({
   publishStoryControl: mocks.publishStoryControl,
+  createStoryViewPublisher: () => ({ publish: vi.fn(), reset: vi.fn() }),
   subscribeStoryControl: (_kioskId: string, listener: typeof mocks.storyListener) => {
     mocks.storyListener = listener;
     return () => { mocks.storyListener = null; };
@@ -58,6 +59,8 @@ const controls = {
   startGuidedLearningVoice: vi.fn(() => true),
   syncGuidedCapture: vi.fn(),
   connect: vi.fn(),
+  sendStoryCheck: vi.fn(() => true),
+  stopAvatarSpeech: vi.fn(),
   isConnected: true,
   isSttReady: true,
   isRecording: false,
@@ -129,10 +132,13 @@ describe('ControlPanel mode selection', () => {
     expect(controls.startListening).not.toHaveBeenCalled();
   });
 
-  it('opens the story on the guide screen without learning or free talk', async () => {
+  it('opens the story on the avatar screen without learning or free talk', async () => {
     openEntry();
     await act(async () => fireEvent.click(screen.getByRole('button', { name: /^이야기 듣기/ })));
-    expect(mocks.publishStoryControl).toHaveBeenCalledWith({ action: 'open', storyId: 'odyssey' }, expect.any(String));
+    expect(mocks.publishStoryControl).toHaveBeenCalledWith({ action: 'open', storyId: null }, expect.any(String));
+    expect(screen.getByRole('heading', { name: '어떤 이야기를 들을까요?' })).toBeTruthy();
+    // The avatar is the main screen: only story controls, no free-talk bar.
+    expect(screen.queryByRole('button', { name: 'Turn microphone on' })).toBeNull();
     expect(controls.pauseConversationForUsageEnd).toHaveBeenCalledTimes(1);
     expect(controls.clearHistory).not.toHaveBeenCalled();
     expect(mocks.setMissionEntry).not.toHaveBeenCalled();
@@ -149,20 +155,20 @@ describe('ControlPanel mode selection', () => {
     expect(screen.getByText('이야기 화면을 열지 못했어요. 잠시 후 다시 시도해 주세요.')).toBeTruthy();
   });
 
-  it('closes an open story when another mode is chosen', async () => {
+  it('leaves the story back to the mode choice and closes the guide scene', async () => {
     openEntry();
     await act(async () => fireEvent.click(screen.getByRole('button', { name: /^이야기 듣기/ })));
-    fireEvent.click(screen.getByRole('button', { name: 'Turn microphone on' }));
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: /^프리토킹/ })));
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: /모드 다시 선택/ })));
     expect(mocks.publishStoryControl).toHaveBeenLastCalledWith({ action: 'close' }, expect.any(String));
+    expect(screen.getByRole('dialog', { name: '원하는 모드를 선택하세요' })).toBeTruthy();
+    expect(controls.sendStoryCheck).toHaveBeenCalledWith({ type: 'story_check_end' });
   });
 
-  it('reopens the mode choice when the story screen asks for it, ignoring the replayed state', async () => {
+  it('closes a story replayed on load, whose narration lived in the reloaded window', async () => {
     render(<ControlPanel onOpenSettings={vi.fn()} />);
-    await act(async () => mocks.storyListener?.({ action: 'close', storyId: null, returnTo: 'mode', version: 3 }, { initial: true }));
-    expect(screen.queryByRole('dialog', { name: '원하는 모드를 선택하세요' })).toBeNull();
-    await act(async () => mocks.storyListener?.({ action: 'close', storyId: null, returnTo: 'mode', version: 4 }, { initial: false }));
-    expect(screen.getByRole('dialog', { name: '원하는 모드를 선택하세요' })).toBeTruthy();
+    await act(async () => mocks.storyListener?.({ action: 'open', storyId: 'odyssey', returnTo: null, view: null, version: 3 }, { initial: true }));
+    expect(mocks.publishStoryControl).toHaveBeenCalledWith({ action: 'close' }, expect.any(String));
+    expect(screen.queryByRole('heading', { name: '어떤 이야기를 들을까요?' })).toBeNull();
   });
 
   it('connects the avatar screen when learning mode is chosen while offline', async () => {

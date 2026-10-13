@@ -1,33 +1,28 @@
 import { createClientCommandId } from '@/lib/kioskIdentity';
 
 /*
- * Story screen state shared by the avatar window (chooses the mode) and the
- * guide window (/chat, shows the story). The windows can live in separate
- * Chrome profiles, so the relay goes through /api/story-control like the
- * translator control.
+ * Story screen state shared by the avatar window (owns the story: playback,
+ * questions, controls) and the guide window (/chat, only shows the scene). The
+ * windows can live in separate Chrome profiles, so the relay goes through
+ * /api/story-control like the translator control.
  */
+
+export type StoryViewPhase = 'picker' | 'listening' | 'paused' | 'checking' | 'recap';
+export const STORY_VIEW_PHASES: readonly StoryViewPhase[] = ['picker', 'listening', 'paused', 'checking', 'recap'];
+
+/** What the guide window shows: the avatar publishes it whenever the sentence or phase changes. */
+export type StoryView = { phase: StoryViewPhase; chapterIndex: number; sentenceIndex: number };
 
 export type StoryControlCommand =
-  | { action: 'open'; storyId: string }
+  | { action: 'open'; storyId: string | null }
+  | { action: 'view'; storyId: string; view: StoryView }
   | { action: 'close'; returnTo?: 'mode' | null };
-
-/** Where the guide window paused: the chapter and the last sentence the learner has heard in it (-1: none). */
-export type StoryPosition = { storyId: string; chapterIndex: number; heardThrough: number };
-
-/**
- * Story audio and the avatar talk never run together.
- * requested (avatar) → paused (guide stopped audio, reports position) → active (avatar talking) → off.
- */
-export type StoryTalk = { phase: 'requested' | 'paused' | 'active'; requestId: string; position: StoryPosition | null };
-export type StoryTalkCommand =
-  | { phase: 'requested' | 'active' | 'off'; requestId: string }
-  | { phase: 'paused'; requestId: string; position: StoryPosition | null };
 
 export type StoryControlState = {
   action: 'open' | 'close';
   storyId: string | null;
   returnTo: 'mode' | null;
-  talk: StoryTalk | null;
+  view: StoryView | null;
   version: number;
 };
 
@@ -49,27 +44,16 @@ function controlUrl(kioskId: string, after?: number) {
   return url.toString();
 }
 
-function isIndex(value: unknown, min: number): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= min;
+function isIndex(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
 }
 
-function parsePosition(value: unknown): StoryPosition | null | undefined {
+export function parseStoryView(value: unknown): StoryView | null | undefined {
   if (value === null || value === undefined) return null;
   if (typeof value !== 'object') return undefined;
-  const position = value as Record<string, unknown>;
-  if (typeof position.storyId !== 'string' || !isIndex(position.chapterIndex, 0) || !isIndex(position.heardThrough, -1)) return undefined;
-  return { storyId: position.storyId, chapterIndex: position.chapterIndex, heardThrough: position.heardThrough };
-}
-
-function parseTalk(value: unknown): StoryTalk | null | undefined {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== 'object') return undefined;
-  const talk = value as Record<string, unknown>;
-  if (talk.phase !== 'requested' && talk.phase !== 'paused' && talk.phase !== 'active') return undefined;
-  if (typeof talk.requestId !== 'string' || !talk.requestId) return undefined;
-  const position = parsePosition(talk.position);
-  if (position === undefined) return undefined;
-  return { phase: talk.phase, requestId: talk.requestId, position };
+  const view = value as Record<string, unknown>;
+  if (!STORY_VIEW_PHASES.includes(view.phase as StoryViewPhase) || !isIndex(view.chapterIndex) || !isIndex(view.sentenceIndex)) return undefined;
+  return { phase: view.phase as StoryViewPhase, chapterIndex: view.chapterIndex, sentenceIndex: view.sentenceIndex };
 }
 
 export function parseStoryControlState(value: unknown): (StoryControlState & { clientId?: string }) | null {
@@ -80,13 +64,13 @@ export function parseStoryControlState(value: unknown): (StoryControlState & { c
   if (state.storyId !== null && typeof state.storyId !== 'string') return null;
   if (state.returnTo !== null && state.returnTo !== 'mode') return null;
   if (state.clientId !== undefined && typeof state.clientId !== 'string') return null;
-  const talk = parseTalk(state.talk);
-  if (talk === undefined) return null;
+  const view = parseStoryView(state.view);
+  if (view === undefined) return null;
   return {
     action: state.action,
     storyId: state.storyId as string | null,
     returnTo: state.returnTo as 'mode' | null,
-    talk,
+    view,
     version: state.version,
     clientId: state.clientId as string | undefined,
   };
@@ -102,6 +86,8 @@ export async function publishStoryControl(command: StoryControlCommand, kioskId:
         body,
       });
       if (response.ok) return true;
+      // A rejected command is final: the story was closed or the request is invalid.
+      if (response.status === 409 || response.status === 400) return false;
     } catch {
       // Retried below; the other window may be in a different profile.
     }
@@ -113,27 +99,35 @@ export async function publishStoryControl(command: StoryControlCommand, kioskId:
   return false;
 }
 
-/** Moves the talk turn; false when the relay refused it (stale turn) or could not be reached. */
-export async function publishStoryTalk(command: StoryTalkCommand, kioskId: string): Promise<boolean> {
-  const body = JSON.stringify({ action: 'talk', ...command, clientId: getStoryClientId(), commandId: createClientCommandId() });
-  for (let attempt = 0; attempt < PUBLISH_ATTEMPTS; attempt += 1) {
-    try {
-      const response = await fetch(controlUrl(kioskId), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-      });
-      if (response.ok) return true;
-      // A conflict is final: another turn owns the story now.
-      if (response.status === 409 || response.status === 400) return false;
-    } catch {
-      // Retried below.
+/**
+ * Publishes view updates one at a time and drops intermediate ones, so the
+ * guide window always ends on the newest sentence even if requests overlap.
+ */
+export function createStoryViewPublisher(kioskId: string) {
+  let pending: { storyId: string; view: StoryView } | null = null;
+  let running = false;
+  let last = '';
+  const drain = async () => {
+    running = true;
+    while (pending) {
+      const next = pending;
+      pending = null;
+      const key = JSON.stringify(next);
+      if (key === last) continue;
+      if (await publishStoryControl({ action: 'view', ...next }, kioskId)) last = key;
     }
-    if (attempt + 1 < PUBLISH_ATTEMPTS) {
-      await new Promise((resolve) => window.setTimeout(resolve, PUBLISH_RETRY_MS));
-    }
-  }
-  return false;
+    running = false;
+  };
+  return {
+    publish(storyId: string, view: StoryView) {
+      pending = { storyId, view };
+      if (!running) void drain();
+    },
+    reset() {
+      pending = null;
+      last = '';
+    },
+  };
 }
 
 /**
@@ -173,7 +167,7 @@ export function subscribeStoryControl(
         lastVersion = state.version;
         if (controller.signal.aborted) break;
         if (changed && (initial || state.clientId !== clientId)) {
-          onState({ action: state.action, storyId: state.storyId, returnTo: state.returnTo, talk: state.talk, version: state.version }, { initial });
+          onState({ action: state.action, storyId: state.storyId, returnTo: state.returnTo, view: state.view, version: state.version }, { initial });
         }
       } catch {
         if (controller.signal.aborted) break;

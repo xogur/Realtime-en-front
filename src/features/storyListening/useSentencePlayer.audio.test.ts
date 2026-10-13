@@ -29,6 +29,36 @@ describe('story audio playback', () => {
     await act(async () => audio().finish()); expect(result.current.finished).toBe(false);
     await act(async () => audio().finish()); expect(result.current).toMatchObject({ playing: false, finished: true });
   });
+  it('seeks two seconds within a sentence and across sentence edges', async () => {
+    const { result } = renderHook(() => useSentencePlayer(LINES, 'normal', undefined, CLIPS));
+    await start(result.current);
+    await act(async () => audio().finish());
+    const second = audio(); second.currentTime = 1.5;
+    await act(async () => result.current.seekBy(2));
+    expect(second.currentTime).toBe(3.5);
+    expect(result.current).toMatchObject({ index: 1, playing: true });
+    second.currentTime = 1;
+    await act(async () => result.current.seekBy(-2));
+    expect(result.current.index).toBe(0);
+    expect(audio()).not.toBe(second);
+    expect(audio().currentTime).toBe(3); // 1s before the start of "Two." is 3s into "One."
+    audio().currentTime = 3.5;
+    await act(async () => result.current.seekBy(2));
+    expect(result.current.index).toBe(1);
+    expect(audio().currentTime).toBe(1.5);
+  });
+  it('never seeks past the end of the last sentence and resumes a paused clip', async () => {
+    const { result } = renderHook(() => useSentencePlayer(LINES, 'normal', undefined, CLIPS));
+    await act(async () => result.current.jump(2));
+    await act(async () => result.current.pause());
+    const last = audio(); last.currentTime = 3;
+    await act(async () => result.current.seekBy(2));
+    expect(result.current).toMatchObject({ index: 2, finished: false, playing: true });
+    expect(last.currentTime).toBeCloseTo(3.7);
+    expect(last.play).toHaveBeenCalledTimes(2);
+    await act(async () => result.current.seekBy(-9));
+    expect(result.current.index).toBe(1);
+  });
   it('waits for an activity and ignores duplicate releases', async () => {
     const blocked = new Set([1]);
     const { result } = renderHook(() => useSentencePlayer(LINES, 'normal', i => blocked.has(i), CLIPS));
@@ -85,5 +115,17 @@ describe('story audio playback', () => {
     await act(async () => audio().finish());
     expect(result.current).toMatchObject({ index: 1, playing: false, finished: true });
     expect(TestAudio.all).toHaveLength(1);
+  });
+  it('routes each clip through onAudio once and releases it when the clip is replaced', async () => {
+    const released: string[] = [];
+    const onAudio = vi.fn((element: HTMLAudioElement) => () => { released.push((element as unknown as TestAudio).src); });
+    const { result, unmount } = renderHook(() => useSentencePlayer(LINES, 'normal', undefined, CLIPS, false, onAudio));
+    await start(result.current);
+    expect(onAudio).toHaveBeenCalledTimes(1);
+    await act(async () => audio().finish());
+    expect(onAudio).toHaveBeenCalledTimes(2);
+    expect(released).toEqual([CLIPS[0].src]);
+    unmount();
+    expect(released).toEqual([CLIPS[0].src, CLIPS[1].src]);
   });
 });

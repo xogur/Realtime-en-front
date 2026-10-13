@@ -10,17 +10,20 @@ type PlayerState = {
   index: number; playing: boolean; finished: boolean; waiting: boolean;
   loading: boolean; blocked: boolean; error: string | null; progress: number; duration: number;
 };
-type Lease = { audio: HTMLAudioElement; index: number; wanted: boolean; intent: number; timer?: number; detach: () => void };
+type Lease = { audio: HTMLAudioElement; index: number; wanted: boolean; intent: number; timer?: number; detach: () => void; release?: () => void };
 const INITIAL: PlayerState = { index: 0, playing: false, finished: false, waiting: false, loading: false, blocked: false, error: null, progress: 0, duration: 0 };
 
-/** A sentence advances only when its own audio drains naturally. */
-export function useSentencePlayer(sentences: readonly string[], speed: ReadingSpeed, isBlocked?: (index: number) => boolean, clips?: readonly StoryAudioClip[], singleSentence = false) {
+/**
+ * A sentence advances only when its own audio drains naturally.
+ * `onAudio` may route each clip elsewhere (the avatar's lip-sync graph) and returns its cleanup.
+ */
+export function useSentencePlayer(sentences: readonly string[], speed: ReadingSpeed, isBlocked?: (index: number) => boolean, clips?: readonly StoryAudioClip[], singleSentence = false, onAudio?: (audio: HTMLAudioElement) => () => void) {
   const [state, setState] = useState<PlayerState>(INITIAL);
   const stateRef = useRef(INITIAL);
-  const inputs = useRef({ sentences, speed, isBlocked, clips, singleSentence });
+  const inputs = useRef({ sentences, speed, isBlocked, clips, singleSentence, onAudio });
   const leaseRef = useRef<Lease | null>(null);
   const mounted = useRef(true);
-  useEffect(() => { inputs.current = { sentences, speed, isBlocked, clips, singleSentence }; }, [sentences, speed, isBlocked, clips, singleSentence]);
+  useEffect(() => { inputs.current = { sentences, speed, isBlocked, clips, singleSentence, onAudio }; }, [sentences, speed, isBlocked, clips, singleSentence, onAudio]);
   const update = useCallback((patch: Partial<PlayerState>) => {
     stateRef.current = { ...stateRef.current, ...patch };
     if (mounted.current) setState(stateRef.current);
@@ -32,10 +35,11 @@ export function useSentencePlayer(sentences: readonly string[], speed: ReadingSp
     if (!lease) return;
     lease.wanted = false; lease.intent += 1;
     clearTimer(lease); lease.detach(); lease.audio.pause();
+    lease.release?.();
     lease.audio.removeAttribute('src'); lease.audio.load();
   }, [clearTimer]);
 
-  const begin = useCallback(function beginPlayback(index: number, reset: boolean, released = false) {
+  const begin = useCallback(function beginPlayback(index: number, reset: boolean, released = false, startAt = 0) {
     if (!mounted.current) return;
     const input = inputs.current;
     if (!released && input.isBlocked?.(index)) {
@@ -52,7 +56,7 @@ export function useSentencePlayer(sentences: readonly string[], speed: ReadingSp
     if (!lease) {
       const audio = new Audio(clip.src);
       audio.preload = 'auto'; audio.preservesPitch = true;
-      lease = { audio, index, wanted: false, intent: 0, detach: () => {} };
+      lease = { audio, index, wanted: false, intent: 0, detach: () => {}, release: input.onAudio?.(audio) };
       leaseRef.current = lease;
       const owned = lease;
       const fail = (message: string) => {
@@ -86,6 +90,7 @@ export function useSentencePlayer(sentences: readonly string[], speed: ReadingSp
     owned.wanted = true;
     const intent = ++owned.intent;
     owned.audio.playbackRate = RATE[input.speed];
+    if (startAt > 0) owned.audio.currentTime = startAt;
     update({ index, playing: false, loading: true, finished: false, waiting: false, blocked: false, error: null, ...(reset ? { progress: 0 } : {}), duration: clip.durationMs / RATE[input.speed] });
     clearTimer(owned);
     owned.timer = window.setTimeout(() => {
@@ -124,6 +129,34 @@ export function useSentencePlayer(sentences: readonly string[], speed: ReadingSp
     if (autoplay) begin(index, true);
     else { dispose(); update({ ...INITIAL, index, waiting: Boolean(inputs.current.isBlocked?.(index)) }); }
   }, [begin, dispose, update]);
+  /** Moves by `seconds` of narration, crossing into the previous or next sentence; playback continues. */
+  const seekBy = useCallback((seconds: number) => {
+    if (!Number.isFinite(seconds) || seconds === 0) return;
+    const { index } = stateRef.current;
+    const lease = leaseRef.current;
+    const clipSeconds = (at: number) => {
+      const audio = lease?.index === at ? lease.audio : null;
+      return audio && Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : (inputs.current.clips?.[at]?.durationMs ?? 0) / 1000;
+    };
+    const current = lease?.index === index ? lease.audio.currentTime : 0;
+    const target = current + seconds;
+    const duration = clipSeconds(index);
+    const last = inputs.current.sentences.length - 1;
+    if (target < 0) {
+      if (index === 0) { begin(0, true); return; }
+      const previous = clipSeconds(index - 1);
+      begin(index - 1, true, false, Math.max(0, previous + target));
+      return;
+    }
+    if (target >= duration) {
+      // The last sentence is never skipped past: the chapter ends only by listening to its end.
+      if (index >= last) { if (lease?.index === index) lease.audio.currentTime = Math.max(0, duration - 0.3); begin(index, false); return; }
+      begin(index + 1, true, false, Math.min(target - duration, Math.max(0, clipSeconds(index + 1) - 0.3)));
+      return;
+    }
+    if (lease?.index === index) lease.audio.currentTime = target;
+    begin(index, !lease || lease.index !== index, false, lease?.index === index ? 0 : target);
+  }, [begin]);
   const release = useCallback(() => {
     if (stateRef.current.waiting) begin(stateRef.current.index, true, true);
   }, [begin]);
@@ -135,5 +168,5 @@ export function useSentencePlayer(sentences: readonly string[], speed: ReadingSp
     }
   }, [speed, clips, update]);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; dispose(); }; }, [dispose]);
-  return { ...state, play, pause, jump, release };
+  return { ...state, play, pause, jump, seekBy, release };
 }

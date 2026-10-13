@@ -168,13 +168,11 @@ export type ChatMessage = {
     topicId?: TopicId;
     createdAt?: string;
     isOpening?: boolean;
-    /** Set by the server on messages of a story talk (its request id). */
-    storyTalkId?: string;
 };
 
 export type ChatMessageMetadata = Pick<
     ChatMessage,
-    'learningSessionId' | 'segmentId' | 'topicId' | 'createdAt' | 'isOpening' | 'storyTalkId'
+    'learningSessionId' | 'segmentId' | 'topicId' | 'createdAt' | 'isOpening'
 >;
 
 export type EvaluationBatchStatus = {
@@ -242,6 +240,9 @@ interface AppState {
     // Avatar Selection
     currentAvatarId: string;
     setCurrentAvatar: (id: string) => void;
+    /** Shown instead of currentAvatarId while a mode uses its own presenter (story); voice settings stay untouched. */
+    avatarOverrideId: string | null;
+    setAvatarOverride: (id: string | null) => void;
 
     // ... existing ...
     voice: string;
@@ -331,6 +332,10 @@ export const AVATAR_VOICE_MAP: Record<string, string> = {
 };
 
 export const DEFAULT_AVATAR_ID = 'Ryan';
+
+/** The avatar on screen: a mode override (story presenter) or the chosen free-talk avatar. */
+export const selectDisplayedAvatarId = (state: { avatarOverrideId: string | null; currentAvatarId: string }) =>
+    state.avatarOverrideId ?? state.currentAvatarId;
 export const DEFAULT_VOICE_ID = AVATAR_VOICE_MAP[DEFAULT_AVATAR_ID];
 const MAX_ACTIVE_MISSIONS = 3;
 const MAX_QUEUED_MISSIONS = 12;
@@ -1025,6 +1030,7 @@ export const useStore = create<AppState>((set, get) => ({
     showReplySuggestions: true,
     avatarName: 'avatar',
     currentAvatarId: DEFAULT_AVATAR_ID,
+    avatarOverrideId: null,
     lipSyncMode: 'heuristic',
     ttsSegments: {},
     lipSyncDebugEnabled: false,
@@ -1728,6 +1734,7 @@ export const useStore = create<AppState>((set, get) => ({
     toggleReplySuggestions: () =>
         set((state) => ({ showReplySuggestions: !state.showReplySuggestions })),
     setAvatarName: (name) => set({ avatarName: name }),
+    setAvatarOverride: (id) => set({ avatarOverrideId: id }),
     setCurrentAvatar: (id) => {
         const voiceId = AVATAR_VOICE_MAP[id] || DEFAULT_VOICE_ID;
         set({ currentAvatarId: id, voice: voiceId });

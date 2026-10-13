@@ -1,0 +1,496 @@
+{
+  "version": 1,
+  "storyId": "gulliver",
+  "source": "Qwen3 TTS (kiosk NIPA endpoint /tts/generate/en, speaker Serena, storyteller instruct), best of 3 takes per sentence",
+  "alignment": "One synthesized take per sentence; take chosen by faster-whisper turbo exact transcript, pause and pace; human listening not yet verified",
+  "chapters": {
+    "storm": {
+      "sourceSha256": "9ab593f77453916d01fa8d8ceb4fe4b04f673edb7659b703d3e4f9459274cf1d",
+      "durationSeconds": 31.95,
+      "clips": [
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/storm/s01.wav",
+          "text": "Long ago, a ship doctor named Gulliver loved to sail to faraway lands.",
+          "durationMs": 6710.0,
+          "startSeconds": 0.0,
+          "endSeconds": 6.71,
+          "sha256": "dd7f93b04b9544beec4ff816e2134c1be6dd97b2b218ab8b6542d78f01e2ae74"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/storm/s02.wav",
+          "text": "One night, a terrible storm hit his ship.",
+          "durationMs": 4400.0,
+          "startSeconds": 6.71,
+          "endSeconds": 11.11,
+          "sha256": "d76cbc7bda28395a635c07eb0ddfc6e75722bcf805ad01f4db23599116ac4574"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/storm/s03.wav",
+          "text": "Big waves broke the ship, and Gulliver fell into the cold sea.",
+          "durationMs": 5430.0,
+          "startSeconds": 11.11,
+          "endSeconds": 16.54,
+          "sha256": "22c101a90408b4e162f19ca9a63a6fb0169febfdc885a48d290d70518f2a365d"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/storm/s04.wav",
+          "text": "He swam and swam until his feet touched the sand.",
+          "durationMs": 4160.0,
+          "startSeconds": 16.54,
+          "endSeconds": 20.7,
+          "sha256": "ed1ddea8153887e65aca74579105c302b24ff4708bdd892bf0fb5250c9588cf8"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/storm/s05.wav",
+          "text": "He was so tired that he lay down on the soft grass.",
+          "durationMs": 5840.0,
+          "startSeconds": 20.7,
+          "endSeconds": 26.54,
+          "sha256": "8fd0f71d3adcef497397e0a5a73a09f835cbf05b64aca48c5811e7c047ac62c8"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/storm/s06.wav",
+          "text": "Soon, he fell fast asleep under the stars.",
+          "durationMs": 5410.0,
+          "startSeconds": 26.54,
+          "endSeconds": 31.95,
+          "sha256": "9890ae74f31d57a377e414e65d7d3f964d92bd98929947fb7da80c6459ae71d6"
+        }
+      ]
+    },
+    "tied": {
+      "sourceSha256": "2e730f72a874a21822be7384a3a882a03203d51d7f6ea400c81976f887abdc5f",
+      "durationSeconds": 38.67,
+      "clips": [
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/tied/s01.wav",
+          "text": "When Gulliver woke up, the sun was shining, but he could not move!",
+          "durationMs": 5830.0,
+          "startSeconds": 0.0,
+          "endSeconds": 5.83,
+          "sha256": "406dcd5ff38ed156bba6aef27c4dda47e36e4394b3717162d148ecd73c843325"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/tied/s02.wav",
+          "text": "His arms, his legs and even his long hair were tied down with tiny ropes.",
+          "durationMs": 7600.0,
+          "startSeconds": 5.83,
+          "endSeconds": 13.43,
+          "sha256": "2f5cd82f5786dcedffe8334e98c10eb0cc047281aaf641959e2b61f9f1356eaa"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/tied/s03.wav",
+          "text": "Then something walked up his leg and stood on his chest.",
+          "durationMs": 4640.0,
+          "startSeconds": 13.43,
+          "endSeconds": 18.07,
+          "sha256": "1f015c568da6c4c1284188d72f6dff7625639f6c17fc4d6eda4d51d869b82f91"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/tied/s04.wav",
+          "text": "It was a little man, no bigger than Gulliver's finger!",
+          "durationMs": 4790.0,
+          "startSeconds": 18.07,
+          "endSeconds": 22.86,
+          "sha256": "2dae58410b1cb1515496312c5f624ed558f7fdf50b90201159ebd2b151b80b7e"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/tied/s05.wav",
+          "text": "Hundreds more stood around him with tiny bows and arrows.",
+          "durationMs": 4880.0,
+          "startSeconds": 22.86,
+          "endSeconds": 27.74,
+          "sha256": "bd333037df6edaa9e7462ca89044935a5994c059fd02965c12b4113ecadaf164"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/tied/s06.wav",
+          "text": "The arrows felt like needles. \"Ouch!\" cried Gulliver.",
+          "durationMs": 4480.0,
+          "startSeconds": 27.74,
+          "endSeconds": 32.22,
+          "sha256": "edeffd9c9dd669fec08f2a8a646def93c64bccd445c77488342ec9021ce454d1"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/tied/s07.wav",
+          "text": "He rubbed his face and decided to be gentle with the tiny people.",
+          "durationMs": 6450.0,
+          "startSeconds": 32.22,
+          "endSeconds": 38.67,
+          "sha256": "3444f28d9391ec8a8ef116e5d48982d143972015e212d3c71fa25f59a57e587c"
+        }
+      ]
+    },
+    "food": {
+      "sourceSha256": "8c49575b306a48e842bfcfad8d5c37fb5ce9ae5ca1909eb062536239ead1e3c3",
+      "durationSeconds": 37.88,
+      "clips": [
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/food/s01.wav",
+          "text": "Gulliver pointed to his mouth. He was very, very hungry.",
+          "durationMs": 5520.0,
+          "startSeconds": 0.0,
+          "endSeconds": 5.52,
+          "sha256": "4a5647ac5f4049f7c209d6791ce09532d9c346e5cc0184bc2ca07940f6db72ba"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/food/s02.wav",
+          "text": "The little people climbed up ladders with baskets of food.",
+          "durationMs": 4230.0,
+          "startSeconds": 5.52,
+          "endSeconds": 9.75,
+          "sha256": "406eebde3a76eb7d72c19d57c3fc8269aa15326d25c8dfd15c995831d0593abe"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/food/s03.wav",
+          "text": "Each loaf of bread was as small as a cookie, so he ate three at a time.",
+          "durationMs": 8320.0,
+          "startSeconds": 9.75,
+          "endSeconds": 18.07,
+          "sha256": "aace2657c4e8bc401c6b27949028d73c774571d57b71688ee94b996234f99b81"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/food/s04.wav",
+          "text": "He drank a whole barrel of milk in just one sip.",
+          "durationMs": 4880.0,
+          "startSeconds": 18.07,
+          "endSeconds": 22.95,
+          "sha256": "46b6716920b333b0e63e04a50608681fff3942accd33344c0722afbad3474ee9"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/food/s05.wav",
+          "text": "The tiny people cheered and danced on his hand.",
+          "durationMs": 4240.0,
+          "startSeconds": 22.95,
+          "endSeconds": 27.19,
+          "sha256": "045518e54bc33d4643dd9472c1bacf03e59b831ee013e33a0002b9aa434635bb"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/food/s06.wav",
+          "text": "Then nine hundred workers lifted him onto a giant wagon.",
+          "durationMs": 4880.0,
+          "startSeconds": 27.19,
+          "endSeconds": 32.07,
+          "sha256": "c2b5711e38d5cc4356fc4bf12f6ed69290cf2f209a04a4af7c8307dc18101d00"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/food/s07.wav",
+          "text": "Fifteen hundred little horses pulled him all the way to their city.",
+          "durationMs": 5810.0,
+          "startSeconds": 32.07,
+          "endSeconds": 37.88,
+          "sha256": "b14976245d3fb3cb11bc989b8b8934fd1852b9fcb4e4ef16c277e0036fb37e08"
+        }
+      ]
+    },
+    "pockets": {
+      "sourceSha256": "d72adaacb4d1a5aa34592e0384fae106d709d842fcc9076c2a5ea7842c46eea8",
+      "durationSeconds": 45.5,
+      "clips": [
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/pockets/s01.wav",
+          "text": "The country was called Lilliput, and it had a tiny emperor.",
+          "durationMs": 5040.0,
+          "startSeconds": 0.0,
+          "endSeconds": 5.04,
+          "sha256": "07639ce8d99974cbf3d9e8f007343208fde758d8e536beffe5dd2c2c63cd01fb"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/pockets/s02.wav",
+          "text": "The emperor rode up on his little horse and looked up bravely.",
+          "durationMs": 4800.0,
+          "startSeconds": 5.04,
+          "endSeconds": 9.84,
+          "sha256": "a514f8ed3e836023ecb219850fb151505172c0daa10c489eee208bb3d864edcd"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/pockets/s03.wav",
+          "text": "\"Promise to be our friend, and we will set you free,\" he said.",
+          "durationMs": 6960.0,
+          "startSeconds": 9.84,
+          "endSeconds": 16.8,
+          "sha256": "97bb5ead4c319a4df7850ca6752141a8a11fd071cace52ed50aa9f025cbadf5b"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/pockets/s04.wav",
+          "text": "Gulliver promised, and two officers climbed into his pockets to search them.",
+          "durationMs": 6240.0,
+          "startSeconds": 16.8,
+          "endSeconds": 23.04,
+          "sha256": "ec2c074d88995f64a537c1865fef8abb5c64ceb87a58673a9270de763c8701e9"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/pockets/s05.wav",
+          "text": "They found a huge silver box full of brown dust that made them sneeze.",
+          "durationMs": 6640.0,
+          "startSeconds": 23.04,
+          "endSeconds": 29.68,
+          "sha256": "d00dd687c9586b44bfcb796ef08a80f6ad226df6889ccb3755357d52e8349031"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/pockets/s06.wav",
+          "text": "Then they found a strange machine that went tick, tick, tick.",
+          "durationMs": 4960.0,
+          "startSeconds": 29.68,
+          "endSeconds": 34.64,
+          "sha256": "6dd00b560a927e9388aca420d2163d71fae870df79f58d9e069d2e21ecff0975"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/pockets/s07.wav",
+          "text": "\"It must be his god,\" they whispered, \"because he looks at it all the time!\"",
+          "durationMs": 10860.0,
+          "startSeconds": 34.64,
+          "endSeconds": 45.5,
+          "sha256": "6b74d1dc7d5678a4f7143df7e4215d5cbb261332c999cb4c44f0085c27666f07"
+        }
+      ]
+    },
+    "eggs": {
+      "sourceSha256": "0dd8f03a88a2dc8310d564ed984ff075bcba8df3816fe679165a671d4497066a",
+      "durationSeconds": 34.93,
+      "clips": [
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/eggs/s01.wav",
+          "text": "Soon, Gulliver became good friends with the little people.",
+          "durationMs": 4400.0,
+          "startSeconds": 0.0,
+          "endSeconds": 4.4,
+          "sha256": "b057edefc1e769469bf086a65ca98075f7c3281842b7b18d514ace10bb62bec9"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/eggs/s02.wav",
+          "text": "One day, a wise old minister told him a secret.",
+          "durationMs": 4720.0,
+          "startSeconds": 4.4,
+          "endSeconds": 9.12,
+          "sha256": "72fcacc5af54938df72609d81b595b814db3e2ae7817b77cb94a501d12f2d000"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/eggs/s03.wav",
+          "text": "Lilliput was at war with Blefuscu, an island across the sea.",
+          "durationMs": 4640.0,
+          "startSeconds": 9.12,
+          "endSeconds": 13.76,
+          "sha256": "700cb2e4672d4ae789a1812091459c9a1449bfefee05f52ebd1e401632a98f37"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/eggs/s04.wav",
+          "text": "And do you know why? It was all about eggs!",
+          "durationMs": 4240.0,
+          "startSeconds": 13.76,
+          "endSeconds": 18.0,
+          "sha256": "50e2fd576a88f0a4dfbe75102a2ac64f7bedbeb3f1af26bc6f92f470af1db9af"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/eggs/s05.wav",
+          "text": "In Lilliput, people had to break their eggs on the small end.",
+          "durationMs": 5120.0,
+          "startSeconds": 18.0,
+          "endSeconds": 23.12,
+          "sha256": "cb9e1a4e5992f04ad5bda1b95c422acc95bb537dc0bc20f27c4372d3a5d0cb91"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/eggs/s06.wav",
+          "text": "But in Blefuscu, people broke their eggs on the big end.",
+          "durationMs": 5600.0,
+          "startSeconds": 23.12,
+          "endSeconds": 28.72,
+          "sha256": "bf5c377ad72f9299c8c5a7c7a3b8256d5ea7975174e36d2b77afd813a52e90ef"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/eggs/s07.wav",
+          "text": "Gulliver tried hard not to laugh. \"A war about eggs?\" he thought.",
+          "durationMs": 6210.0,
+          "startSeconds": 28.72,
+          "endSeconds": 34.93,
+          "sha256": "1eb9e04f60a4ddefef6ada8e623c1dbebc6a3bedf37d70e837e1f07f0ce28bd6"
+        }
+      ]
+    },
+    "fleet": {
+      "sourceSha256": "7d8c2f901ce79e73e03275823bd8ee9c48fa7007bd6353f38f8257435e53ff15",
+      "durationSeconds": 33.49,
+      "clips": [
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fleet/s01.wav",
+          "text": "Soon, fifty warships from Blefuscu were ready to attack Lilliput.",
+          "durationMs": 5360.0,
+          "startSeconds": 0.0,
+          "endSeconds": 5.36,
+          "sha256": "d69509c95f81ddfe3d0d18fb051b6e1df803ec64a7fb41edba0bac17d207ff23"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fleet/s02.wav",
+          "text": "Gulliver had a clever plan. He made fifty strong hooks.",
+          "durationMs": 4960.0,
+          "startSeconds": 5.36,
+          "endSeconds": 10.32,
+          "sha256": "ae7dcab9f286bf433b5fc2778b4d1f091700b1158730f9873c54d23bbc9fffd5"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fleet/s03.wav",
+          "text": "He walked into the sea. The deep water came only up to his chest.",
+          "durationMs": 6800.0,
+          "startSeconds": 10.32,
+          "endSeconds": 17.12,
+          "sha256": "d60e2b1dfe8396628fc39cd84e68de844e2504d779ecc465e009c0e24b733911"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fleet/s04.wav",
+          "text": "Enemy soldiers shot arrows, so he put on his glasses to save his eyes.",
+          "durationMs": 6240.0,
+          "startSeconds": 17.12,
+          "endSeconds": 23.36,
+          "sha256": "5b56231f268e25e368fd3dfe7e8c184b37d4a52224a8886604d5378c72652f75"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fleet/s05.wav",
+          "text": "He hooked every ship and pulled them all back to Lilliput!",
+          "durationMs": 4960.0,
+          "startSeconds": 23.36,
+          "endSeconds": 28.32,
+          "sha256": "38b658d43974f80b42ca445193971053ff32e780a925900d58d3b75653170591"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fleet/s06.wav",
+          "text": "\"Long live the great Gulliver!\" shouted the little people.",
+          "durationMs": 5170.0,
+          "startSeconds": 28.32,
+          "endSeconds": 33.49,
+          "sha256": "596391aa8d188ee30afd6e30bbf263a4eb6b454db45b90647e3558c7dffdc053"
+        }
+      ]
+    },
+    "fire": {
+      "sourceSha256": "2c28540648edf2065a290bf0ebd240dacee7428775de3b86b4ad7d5ad72b8e56",
+      "durationSeconds": 37.96,
+      "clips": [
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fire/s01.wav",
+          "text": "One night, Gulliver heard tiny bells ringing everywhere.",
+          "durationMs": 4880.0,
+          "startSeconds": 0.0,
+          "endSeconds": 4.88,
+          "sha256": "9aced1528d1dcef4979b9370d253504f232d284c1fd2b1389633469e13f3354f"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fire/s02.wav",
+          "text": "The royal palace was on fire!",
+          "durationMs": 2960.0,
+          "startSeconds": 4.88,
+          "endSeconds": 7.84,
+          "sha256": "46b8c3cb0c0e7674fe942a7aa619291abf0925768dfff17ee82d262cacca7d89"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fire/s03.wav",
+          "text": "The little people threw water with buckets as small as teacups.",
+          "durationMs": 5120.0,
+          "startSeconds": 7.84,
+          "endSeconds": 12.96,
+          "sha256": "fba208ebd37f2ef91aff99dd12906020dc9f8c2a002fd29eb2d6ad21e658156c"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fire/s04.wav",
+          "text": "But it was not enough. The fire grew bigger and bigger.",
+          "durationMs": 6070.0,
+          "startSeconds": 12.96,
+          "endSeconds": 19.03,
+          "sha256": "6840e598b4be1db7b3e26730ef3a82d62bb2879c43b712d0d44d9c79250d0dfc"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fire/s05.wav",
+          "text": "Gulliver filled his hat with water from the lake and poured it on the palace.",
+          "durationMs": 5840.0,
+          "startSeconds": 19.03,
+          "endSeconds": 24.87,
+          "sha256": "420b207ab240a407156c6586fa208d69d19915edd498bc837ad4c4103389567c"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fire/s06.wav",
+          "text": "Splash! The fire went out, and the palace was safe.",
+          "durationMs": 5520.0,
+          "startSeconds": 24.87,
+          "endSeconds": 30.39,
+          "sha256": "26977f550e45405fcb3165159d0f890c4a977736e9f5ec84e44915074f5fb5be"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/fire/s07.wav",
+          "text": "But some ministers frowned. \"He is too big and too dangerous,\" they said.",
+          "durationMs": 7570.0,
+          "startSeconds": 30.39,
+          "endSeconds": 37.96,
+          "sha256": "9de9fb08f7222996892266dee4adeab2bd7c54a21a2c556b76b0f7053e41e34f"
+        }
+      ]
+    },
+    "home": {
+      "sourceSha256": "cb02cb8057aa931199ff6397b30ad95ef8d8c209254ecba0f3ffb8b60e94f748",
+      "durationSeconds": 45.63,
+      "clips": [
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/home/s01.wav",
+          "text": "Late one night, the wise minister came to see Gulliver in secret.",
+          "durationMs": 7350.0,
+          "startSeconds": 0.0,
+          "endSeconds": 7.35,
+          "sha256": "2e961f224cb56016f53f5d2c4dffb163add2cec549be552a146d641867f4543d"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/home/s02.wav",
+          "text": "\"Some people want to hurt you. You must leave now!\" he whispered.",
+          "durationMs": 5360.0,
+          "startSeconds": 7.35,
+          "endSeconds": 12.71,
+          "sha256": "816f25476bf87a2be3cb384c7cbc7e7dafa2f0b34561f263074980ca38d4b4e0"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/home/s03.wav",
+          "text": "So Gulliver walked across the sea to Blefuscu.",
+          "durationMs": 4880.0,
+          "startSeconds": 12.71,
+          "endSeconds": 17.59,
+          "sha256": "ec28934e40f068d9c88ad82e6c75d05bd01306e390ba02c9522b233b90ff0712"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/home/s04.wav",
+          "text": "There, on the beach, he found a real boat, just his size!",
+          "durationMs": 5200.0,
+          "startSeconds": 17.59,
+          "endSeconds": 22.79,
+          "sha256": "f0405ddc3a3f0a47e472a1112a19691d0c20812d9effe77d46d0034c7b0fdb46"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/home/s05.wav",
+          "text": "He cleaned and fixed the old boat, and the people gave him food for the trip.",
+          "durationMs": 6000.0,
+          "startSeconds": 22.79,
+          "endSeconds": 28.79,
+          "sha256": "ec2c2f0c3405cfd4ece01d3e4623b6088a743025d93994c0aa2553d38616f4be"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/home/s06.wav",
+          "text": "He put some tiny cows and sheep in his pocket and sailed away.",
+          "durationMs": 5840.0,
+          "startSeconds": 28.79,
+          "endSeconds": 34.63,
+          "sha256": "c621805b2b223ff496c7fe3b94eceed1a16e777f40fca3470cb008a722c385e0"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/home/s07.wav",
+          "text": "At last, a big English ship found him and took him home.",
+          "durationMs": 5990.0,
+          "startSeconds": 34.63,
+          "endSeconds": 40.62,
+          "sha256": "ad53a833e91f00f880819f6a107fd1e8b7164c492311d011b5f040080a6976d1"
+        },
+        {
+          "src": "/story-audio/gulliver/9212d4faa694/home/s08.wav",
+          "text": "Nobody believed his story, until he showed them the tiny sheep!",
+          "durationMs": 5010.0,
+          "startSeconds": 40.62,
+          "endSeconds": 45.63,
+          "sha256": "c8a9248d97d86c6194110d74ec802f394aab0fb932f222a3c739562adbb8a5d5"
+        }
+      ]
+    }
+  }
+}

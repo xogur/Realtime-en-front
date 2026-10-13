@@ -6,7 +6,7 @@ import { Suspense, useEffect, useLayoutEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { Character } from './Character';
 import { OptimizedLights } from './OptimizedLights';
-import { useStore } from '@/stores/useStore';
+import { selectDisplayedAvatarId, useStore } from '@/stores/useStore';
 import { getAvatarCameraFrame } from './avatarCameraFrame';
 
 function CameraController() {
@@ -76,7 +76,7 @@ function ContextLostHandler() {
 }
 
 export function Scene() {
-    const currentAvatarId = useStore((state) => state.currentAvatarId);
+    const currentAvatarId = useStore(selectDisplayedAvatarId);
 
     return (
         <div className="w-full h-full min-h-[500px] bg-transparent">

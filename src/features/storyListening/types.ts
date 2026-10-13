@@ -70,19 +70,8 @@ export type Story = {
   cover: { chapterId: string; beats: readonly number[] };
   /**
    * recorded: reviewed clips in the audio manifest drive the story.
-   * pending: no recordings yet, so the learner turns each sentence by touch.
+   * pending: no recordings yet, so the avatar cannot tell it and it is not offered.
    */
   narration: 'recorded' | 'pending';
   chapters: readonly StoryChapter[];
-};
-
-export const STORY_STEPS = ['listen', 'quiz', 'words', 'confirm', 'relisten'] as const;
-export type StoryStep = typeof STORY_STEPS[number];
-
-export const STORY_STEP_META: Record<StoryStep, { label: string; hint: string }> = {
-  listen: { label: '먼저 듣기', hint: '글 없이 소리와 그림에 집중해요' },
-  words: { label: '단어 복습', hint: '들은 이야기의 핵심 단어를 찾아요' },
-  quiz: { label: '내용 확인', hint: '어려우면 필요한 부분만 도움받아요' },
-  confirm: { label: '혼자 듣기', hint: '글 없이 다시 듣고 마무리해요' },
-  relisten: { label: '다시 듣기', hint: '글과 함께 다시 들어요' },
 };

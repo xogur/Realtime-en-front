@@ -75,6 +75,49 @@ describe('useBrowserTts', () => {
     await expect(playback).resolves.toBe(false);
   });
 
+  it('silences a late network download after cancel with a silent same-voice flush', async () => {
+    const network = { ...voice('Google 한국의', 'ko-KR'), localService: false };
+    const synthesis = {
+      cancel: vi.fn(), speak: vi.fn<(utterance: SpeechSynthesisUtterance) => void>(), getVoices: vi.fn(() => [network]),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal('speechSynthesis', synthesis);
+    vi.stubGlobal('SpeechSynthesisUtterance', class { volume = 1; constructor(public text: string) {} });
+    const { result } = renderHook(() => useBrowserTts('mode-selector'));
+    await act(async () => { void result.current.speak('안내가 끝나면 프리토킹, 학습모드, 이야기 듣기 중에서 말씀해 주세요.'); });
+
+    act(() => result.current.cancel());
+
+    expect(synthesis.speak).toHaveBeenCalledTimes(2);
+    const flush = synthesis.speak.mock.calls[1][0];
+    expect(flush).toMatchObject({ voice: network, volume: 0, lang: 'ko-KR' });
+    expect(synthesis.cancel.mock.invocationCallOrder[0]).toBeLessThan(synthesis.speak.mock.invocationCallOrder[1]);
+
+    // The next guidance drops a still-queued flush instead of waiting behind it.
+    synthesis.cancel.mockClear();
+    await act(async () => { void result.current.speak('다시 말씀해 주세요.'); });
+    expect(synthesis.cancel).toHaveBeenCalledOnce();
+    expect(synthesis.speak).toHaveBeenCalledTimes(3);
+    expect(synthesis.speak.mock.calls[2][0]).toMatchObject({ text: '다시 말씀해 주세요.', volume: 1 });
+    act(() => result.current.cancel());
+  });
+
+  it('does not flush after cancelling an installed voice', async () => {
+    const local = voice('Microsoft Heami - Korean (Korean)', 'ko-KR');
+    const synthesis = {
+      cancel: vi.fn(), speak: vi.fn<(utterance: SpeechSynthesisUtterance) => void>(), getVoices: vi.fn(() => [local]),
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    };
+    vi.stubGlobal('speechSynthesis', synthesis);
+    vi.stubGlobal('SpeechSynthesisUtterance', class { volume = 1; constructor(public text: string) {} });
+    const { result } = renderHook(() => useBrowserTts('mode-selector'));
+    await act(async () => { void result.current.speak('모드를 선택해 주세요.'); });
+
+    act(() => result.current.cancel());
+
+    expect(synthesis.speak).toHaveBeenCalledOnce();
+  });
+
   it('falls back to touch when no matching Korean voice exists', async () => {
     const synthesis = {
       cancel: vi.fn(), speak: vi.fn(),

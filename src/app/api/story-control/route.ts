@@ -1,22 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-// Relays the story screen state between the avatar and guide windows, which may
-// run in separate browser profiles. Mirrors /api/translator-control.
+// Relays the story screen state from the avatar window (owner) to the guide
+// window (viewer); they may run in separate browser profiles. Mirrors
+// /api/translator-control.
 
 type StoryAction = 'open' | 'close';
-type TalkPhase = 'requested' | 'paused' | 'active';
+type ViewPhase = 'picker' | 'listening' | 'paused' | 'checking' | 'recap';
 
-/** Where the guide window paused the story, so the avatar can explain what was heard. */
-type StoryPosition = { storyId: string; chapterIndex: number; heardThrough: number };
-
-/** Story playback and the avatar talk never run together; this records who holds the turn. */
-type StoryTalk = { phase: TalkPhase; requestId: string; position: StoryPosition | null };
+/** What the guide window shows. */
+type StoryView = { phase: ViewPhase; chapterIndex: number; sentenceIndex: number };
 
 type StoryControlState = {
   action: StoryAction;
   storyId: string | null;
   returnTo: 'mode' | null;
-  talk: StoryTalk | null;
+  view: StoryView | null;
   version: number;
   clientId?: string;
   updatedAt: number;
@@ -30,6 +28,7 @@ type StoryControlChannel = {
 
 const KIOSK_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
 const STORY_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const VIEW_PHASES: readonly ViewPhase[] = ['picker', 'listening', 'paused', 'checking', 'recap'];
 const LONG_POLL_TIMEOUT_MS = 25_000;
 const MAX_CHANNELS = 128;
 const MAX_WAITERS_PER_CHANNEL = 8;
@@ -62,7 +61,7 @@ function getChannel(kioskId: string): StoryControlChannel | null {
   }
 
   const channel: StoryControlChannel = {
-    state: { action: 'close', storyId: null, returnTo: null, talk: null, version: 0, updatedAt: Date.now() },
+    state: { action: 'close', storyId: null, returnTo: null, view: null, version: 0, updatedAt: Date.now() },
     waiters: new Set(),
     processedCommandIds: new Set(),
   };
@@ -97,32 +96,16 @@ function isBoundedId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 128;
 }
 
-function isIndex(value: unknown, min: number, max: number): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
+function isIndex(value: unknown, max: number): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= max;
 }
 
-function parsePosition(value: unknown): StoryPosition | null | undefined {
-  if (value === null) return null;
-  if (!value || typeof value !== 'object') return undefined;
-  const position = value as Record<string, unknown>;
-  if (typeof position.storyId !== 'string' || !STORY_ID_PATTERN.test(position.storyId)) return undefined;
-  if (!isIndex(position.chapterIndex, 0, MAX_CHAPTERS - 1) || !isIndex(position.heardThrough, -1, MAX_SENTENCES - 1)) return undefined;
-  return { storyId: position.storyId, chapterIndex: position.chapterIndex, heardThrough: position.heardThrough };
-}
-
-/** Returns the next talk state, or null when the command does not follow the current turn. */
-function nextTalk(current: StoryTalk | null, phase: unknown, requestId: string, position: unknown): { talk: StoryTalk | null } | null {
-  const matches = current?.requestId === requestId;
-  if (phase === 'requested') return { talk: { phase, requestId, position: null } };
-  if (phase === 'off') return matches ? { talk: null } : null;
-  if (phase === 'paused') {
-    const parsed = parsePosition(position);
-    return matches && current?.phase === 'requested' && parsed !== undefined ? { talk: { phase, requestId, position: parsed } } : null;
-  }
-  if (phase === 'active') {
-    return matches && current?.phase === 'paused' && current.position ? { talk: { ...current, phase } } : null;
-  }
-  return null;
+function parseView(value: unknown): StoryView | null {
+  if (!value || typeof value !== 'object') return null;
+  const view = value as Record<string, unknown>;
+  if (!VIEW_PHASES.includes(view.phase as ViewPhase)) return null;
+  if (!isIndex(view.chapterIndex, MAX_CHAPTERS - 1) || !isIndex(view.sentenceIndex, MAX_SENTENCES - 1)) return null;
+  return { phase: view.phase as ViewPhase, chapterIndex: view.chapterIndex, sentenceIndex: view.sentenceIndex };
 }
 
 export async function GET(request: NextRequest) {
@@ -153,16 +136,18 @@ export async function POST(request: NextRequest) {
     returnTo?: unknown;
     clientId?: unknown;
     commandId?: unknown;
-    phase?: unknown;
-    requestId?: unknown;
-    position?: unknown;
+    view?: unknown;
   } | null;
-  if (!body || (body.action !== 'open' && body.action !== 'close' && body.action !== 'talk')) {
+  if (!body || (body.action !== 'open' && body.action !== 'close' && body.action !== 'view')) {
     return noStoreJson({ error: 'Invalid action' }, 400);
   }
-  if (body.action === 'open' && (typeof body.storyId !== 'string' || !STORY_ID_PATTERN.test(body.storyId))) {
+  const storyIdValid = typeof body.storyId === 'string' && STORY_ID_PATTERN.test(body.storyId);
+  if (body.action === 'open' && body.storyId !== null && body.storyId !== undefined && !storyIdValid) {
     return noStoreJson({ error: 'Invalid storyId' }, 400);
   }
+  if (body.action === 'view' && !storyIdValid) return noStoreJson({ error: 'Invalid storyId' }, 400);
+  const view = body.action === 'view' ? parseView(body.view) : null;
+  if (body.action === 'view' && !view) return noStoreJson({ error: 'Invalid view' }, 400);
   if (body.returnTo !== undefined && body.returnTo !== null && body.returnTo !== 'mode') {
     return noStoreJson({ error: 'Invalid returnTo' }, 400);
   }
@@ -174,40 +159,26 @@ export async function POST(request: NextRequest) {
   if (channel.processedCommandIds.has(body.commandId)) {
     return noStoreJson(channel.state);
   }
+  if (body.action === 'view' && channel.state.action !== 'open') {
+    // A late view update must not reopen a story that was closed.
+    return noStoreJson({ error: 'Story is closed', state: channel.state }, 409);
+  }
   channel.processedCommandIds.add(body.commandId);
   if (channel.processedCommandIds.size > MAX_PROCESSED_COMMAND_IDS) {
     const oldestCommandId = channel.processedCommandIds.values().next().value;
     if (oldestCommandId) channel.processedCommandIds.delete(oldestCommandId);
   }
-  if (body.action === 'talk') {
-    if (!isBoundedId(body.requestId)) return noStoreJson({ error: 'Invalid requestId' }, 400);
-    const next = channel.state.action === 'open'
-      ? nextTalk(channel.state.talk, body.phase, body.requestId, body.position)
-      : null;
-    // A stale or out-of-order turn keeps the current owner; the caller reads the state back.
-    if (!next) {
-      channel.processedCommandIds.delete(body.commandId);
-      return noStoreJson({ error: 'Talk state conflict', state: channel.state }, 409);
-    }
+  const base = { version: channel.state.version + 1, clientId: body.clientId, updatedAt: Date.now() };
+  if (body.action === 'view') {
+    channel.state = { ...channel.state, ...base, storyId: body.storyId as string, view };
+  } else if (body.action === 'open') {
     channel.state = {
-      ...channel.state,
-      talk: next.talk,
-      version: channel.state.version + 1,
-      clientId: body.clientId,
-      updatedAt: Date.now(),
+      ...base, action: 'open', storyId: storyIdValid ? body.storyId as string : null, returnTo: null,
+      view: { phase: 'picker', chapterIndex: 0, sentenceIndex: 0 },
     };
-    for (const notify of [...channel.waiters]) notify();
-    return noStoreJson(channel.state);
+  } else {
+    channel.state = { ...base, action: 'close', storyId: null, returnTo: body.returnTo === 'mode' ? 'mode' : null, view: null };
   }
-  channel.state = {
-    action: body.action,
-    storyId: body.action === 'open' ? body.storyId as string : null,
-    returnTo: body.action === 'close' && body.returnTo === 'mode' ? 'mode' : null,
-    talk: null,
-    version: channel.state.version + 1,
-    clientId: body.clientId,
-    updatedAt: Date.now(),
-  };
   for (const notify of [...channel.waiters]) notify();
 
   return noStoreJson(channel.state);

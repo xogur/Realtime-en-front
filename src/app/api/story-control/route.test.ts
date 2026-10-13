@@ -17,88 +17,68 @@ function publish(kioskId: string, body: Record<string, unknown>) {
   }));
 }
 
+const VIEW = { phase: 'listening', chapterIndex: 2, sentenceIndex: 4 };
+
 describe('story control relay', () => {
-  it('relays the opened story and a close that returns to mode selection', async () => {
+  it('opens on the picker, mirrors the avatar view and closes back to mode selection', async () => {
     const kioskId = `story-${Date.now()}`;
-    expect((await publish(kioskId, { action: 'open', storyId: 'odyssey' })).status).toBe(200);
-    await expect((await GET(request(kioskId))).json()).resolves.toMatchObject({ action: 'open', storyId: 'odyssey', version: 1 });
+    expect((await publish(kioskId, { action: 'open', storyId: null })).status).toBe(200);
+    await expect((await GET(request(kioskId))).json()).resolves.toMatchObject({
+      action: 'open', storyId: null, view: { phase: 'picker', chapterIndex: 0, sentenceIndex: 0 }, version: 1,
+    });
+
+    expect((await publish(kioskId, { action: 'view', storyId: 'odyssey', view: VIEW })).status).toBe(200);
+    await expect((await GET(request(kioskId))).json()).resolves.toMatchObject({ action: 'open', storyId: 'odyssey', view: VIEW, version: 2 });
 
     await publish(kioskId, { action: 'close', returnTo: 'mode' });
-    await expect((await GET(request(kioskId))).json()).resolves.toMatchObject({ action: 'close', storyId: null, returnTo: 'mode', version: 2 });
+    await expect((await GET(request(kioskId))).json()).resolves.toMatchObject({
+      action: 'close', storyId: null, view: null, returnTo: 'mode', version: 3,
+    });
   });
 
-  it('wakes a long-poll waiter when the state changes', async () => {
+  it('wakes a long-poll waiter when the view changes', async () => {
     const kioskId = `story-wait-${Date.now()}`;
-    const waiting = GET(request(kioskId, undefined, 0));
-    await publish(kioskId, { action: 'open', storyId: 'odyssey' });
-    await expect((await waiting).json()).resolves.toMatchObject({ action: 'open', version: 1 });
+    await publish(kioskId, { action: 'open', storyId: null });
+    const waiting = GET(request(kioskId, undefined, 1));
+    await publish(kioskId, { action: 'view', storyId: 'reluctant-dragon', view: VIEW });
+    await expect((await waiting).json()).resolves.toMatchObject({ storyId: 'reluctant-dragon', version: 2 });
   });
 
   it('ignores a repeated command id', async () => {
     const kioskId = `story-dup-${Date.now()}`;
-    const body = { action: 'open', storyId: 'odyssey', commandId: 'same' };
+    const body = { action: 'open', storyId: null, commandId: 'same' };
     await publish(kioskId, body);
     await publish(kioskId, body);
     await expect((await GET(request(kioskId))).json()).resolves.toMatchObject({ version: 1 });
   });
 
-  it.each([
-    [{ action: 'open' }],
-    [{ action: 'open', storyId: '../etc' }],
-    [{ action: 'close', returnTo: 'home' }],
-    [{ action: 'play', storyId: 'odyssey' }],
-    [{ action: 'open', storyId: 'odyssey', clientId: '' }],
-  ])('rejects invalid commands %j', async (body) => {
-    expect((await publish('A02', body)).status).toBe(400);
-  });
-
-  it('moves the talk turn only in order and clears it when the story closes', async () => {
-    const kioskId = `story-talk-${Date.now()}`;
-    const position = { storyId: 'odyssey', chapterIndex: 1, heardThrough: 3 };
-    // No talk before a story is open.
-    expect((await publish(kioskId, { action: 'talk', phase: 'requested', requestId: 't1' })).status).toBe(409);
-    await publish(kioskId, { action: 'open', storyId: 'odyssey' });
-    // Active needs the guide's pause (and its position) first.
-    expect((await publish(kioskId, { action: 'talk', phase: 'requested', requestId: 't1' })).status).toBe(200);
-    expect((await publish(kioskId, { action: 'talk', phase: 'active', requestId: 't1' })).status).toBe(409);
-    expect((await publish(kioskId, { action: 'talk', phase: 'paused', requestId: 'old', position })).status).toBe(409);
-    expect((await publish(kioskId, { action: 'talk', phase: 'paused', requestId: 't1', position })).status).toBe(200);
-    expect((await publish(kioskId, { action: 'talk', phase: 'active', requestId: 't1' })).status).toBe(200);
-    await expect((await GET(request(kioskId))).json()).resolves.toMatchObject({
-      action: 'open', storyId: 'odyssey', talk: { phase: 'active', requestId: 't1', position },
-    });
-    expect((await publish(kioskId, { action: 'talk', phase: 'off', requestId: 'other' })).status).toBe(409);
-    await publish(kioskId, { action: 'close' });
-    await expect((await GET(request(kioskId))).json()).resolves.toMatchObject({ action: 'close', talk: null });
-  });
-
-  it('lets a refused talk command be retried with the same command id', async () => {
-    const kioskId = `story-talk-retry-${Date.now()}`;
-    await publish(kioskId, { action: 'open', storyId: 'odyssey' });
-    const early = { action: 'talk', phase: 'off', requestId: 't1', commandId: 'same-off' };
-    expect((await publish(kioskId, early)).status).toBe(409);
-    await publish(kioskId, { action: 'talk', phase: 'requested', requestId: 't1' });
-    expect((await publish(kioskId, early)).status).toBe(200);
-    await expect((await GET(request(kioskId))).json()).resolves.toMatchObject({ talk: null });
+  it('refuses a view update for a closed story so a late update cannot reopen it', async () => {
+    const kioskId = `story-late-${Date.now()}`;
+    expect((await publish(kioskId, { action: 'view', storyId: 'odyssey', view: VIEW })).status).toBe(409);
+    await expect((await GET(request(kioskId))).json()).resolves.toMatchObject({ action: 'close', version: 0 });
   });
 
   it.each([
-    [{ phase: 'paused', requestId: 't1', position: { storyId: '../x', chapterIndex: 0, heardThrough: 0 } }],
-    [{ phase: 'paused', requestId: 't1', position: { storyId: 'odyssey', chapterIndex: -1, heardThrough: 0 } }],
-    [{ phase: 'paused', requestId: 't1', position: { storyId: 'odyssey', chapterIndex: 0, heardThrough: 0.5 } }],
-    [{ phase: 'later', requestId: 't1' }],
-  ])('refuses malformed talk %j', async (talk) => {
-    const kioskId = `bad-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    await publish(kioskId, { action: 'open', storyId: 'odyssey' });
-    await publish(kioskId, { action: 'talk', phase: 'requested', requestId: 't1' });
-    expect((await publish(kioskId, { action: 'talk', ...talk })).status).toBe(409);
+    { action: 'talk' },
+    { action: 'open', storyId: '../x' },
+    { action: 'view', storyId: 'odyssey' },
+    { action: 'view', storyId: 'Odyssey', view: VIEW },
+    { action: 'view', storyId: 'odyssey', view: { ...VIEW, phase: 'quiz' } },
+    { action: 'view', storyId: 'odyssey', view: { ...VIEW, chapterIndex: -1 } },
+    { action: 'view', storyId: 'odyssey', view: { ...VIEW, sentenceIndex: 0.5 } },
+    { action: 'view', storyId: 'odyssey', view: { ...VIEW, sentenceIndex: 512 } },
+    { action: 'close', returnTo: 'library' },
+  ])('refuses malformed command %j', async (body) => {
+    const kioskId = `story-bad-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await publish(kioskId, { action: 'open', storyId: null });
+    expect((await publish(kioskId, body)).status).toBe(400);
   });
 
-  it('rejects a talk command without a request id', async () => {
-    expect((await publish('A02', { action: 'talk', phase: 'requested' })).status).toBe(400);
-  });
-
-  it('rejects an invalid kiosk id', async () => {
-    expect((await GET(request('../x'))).status).toBe(400);
+  it('refuses invalid kiosk and client ids', async () => {
+    expect((await GET(request('../bad'))).status).toBe(400);
+    const response = await POST(request(`story-id-${Date.now()}`, {
+      method: 'POST', body: JSON.stringify({ action: 'open', storyId: null, clientId: '', commandId: 'c1' }),
+    }));
+    expect(response.status).toBe(400);
   });
 });

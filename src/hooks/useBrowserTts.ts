@@ -16,6 +16,8 @@ type ActiveSpeech = {
 
 let activeSpeech: ActiveSpeech | null = null;
 let pendingSpeechOwner: BrowserTtsOwner | null = null;
+/** A silent flush utterance is still queued in the engine (see flushNetworkVoice). */
+let flushPending = false;
 let speechGeneration = 0;
 const listeners = new Set<() => void>();
 
@@ -93,11 +95,33 @@ function settleActive(result: boolean) {
   emitChange();
 }
 
+/**
+ * Chrome's Google network voices only pause their audio element on cancel().
+ * When the speech audio is still downloading, it starts playing once it
+ * arrives, although speechSynthesis already reports idle. Speaking a silent
+ * utterance with the same voice replaces the engine's current utterance and
+ * audio source, so the late download is dropped (or plays at volume 0).
+ */
+function flushNetworkVoice(voice: SpeechSynthesisVoice, language: string) {
+  const flush = new SpeechSynthesisUtterance('.');
+  flush.voice = voice;
+  flush.lang = language;
+  flush.volume = 0;
+  flush.rate = 2;
+  flushPending = true;
+  const done = () => { flushPending = false; };
+  flush.onend = done;
+  flush.onerror = done;
+  window.speechSynthesis.speak(flush);
+}
+
 function cancelOwnedSpeech(owner: BrowserTtsOwner) {
   if (pendingSpeechOwner === owner) { speechGeneration += 1; pendingSpeechOwner = null; }
   if (!activeSpeech || activeSpeech.owner !== owner) return;
+  const { voice, lang } = activeSpeech.utterance;
   window.speechSynthesis?.cancel();
   settleActive(false);
+  if (voice && !voice.localService) flushNetworkVoice(voice, lang);
 }
 
 async function speakOwned(owner: BrowserTtsOwner, text: string, language: string, rate?: number, requireVoice = false, voiceVariant = 0) {
@@ -106,8 +130,10 @@ async function speakOwned(owner: BrowserTtsOwner, text: string, language: string
   const generation = ++speechGeneration;
   pendingSpeechOwner = owner;
 
-  if (activeSpeech) {
+  if (activeSpeech || flushPending) {
+    // A queued flush must not delay the next guidance on a slow network.
     window.speechSynthesis.cancel();
+    flushPending = false;
     settleActive(false);
   }
   // Mode entry uses the same ranked voice as free-talk guidance. Still wait

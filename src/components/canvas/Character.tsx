@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useGLTF, useAnimations } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
-import { DEFAULT_AVATAR_ID, useStore } from '@/stores/useStore';
+import { DEFAULT_AVATAR_ID, selectDisplayedAvatarId, useStore } from '@/stores/useStore';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three-stdlib';
 import {
@@ -21,10 +21,15 @@ import { createSpeechState, updateSpeechState } from '@/lib/lipsync/speechStateM
 import { resolveTimelineFrame } from '@/lib/lipsync/timelineResolver';
 import { mixVisemeFrame } from '@/lib/lipsync/visemeMixer';
 
+/** Models are not all the same height; lift shorter ones so the face sits at the same place on screen. */
+const AVATAR_BASE_Y_OVERRIDES: Record<string, number> = {
+    Serena: -0.32,
+};
+
 export const AVATAR_CONFIGS = AVATARS.reduce((acc, avatar) => {
     acc[avatar.id] = {
         file: avatar.modelPath,
-        baseY: -0.5,
+        baseY: AVATAR_BASE_Y_OVERRIDES[avatar.id] ?? -0.5,
         scale: 1.7,
     };
     return acc;
@@ -40,6 +45,8 @@ const DEFAULT_ANIMS = {
 try {
     useGLTF.preload(AVATAR_CONFIGS[DEFAULT_AVATAR_ID].file);
     useGLTF.preload(AVATAR_CONFIGS['Sohee']?.file || AVATAR_CONFIGS[DEFAULT_AVATAR_ID].file);
+    // Story mode presenter, so entering a story does not wait for the model download.
+    useGLTF.preload(AVATAR_CONFIGS['Serena']?.file || AVATAR_CONFIGS[DEFAULT_AVATAR_ID].file);
     useGLTF.preload(DEFAULT_ANIMS.idle);
     // Thinking animation preload is temporarily disabled.
     // useGLTF.preload(DEFAULT_ANIMS.thinking);
@@ -64,7 +71,7 @@ function applyMorph(
 }
 
 export const Character = React.memo(function Character() {
-    const currentAvatarId = useStore((state) => state.currentAvatarId);
+    const currentAvatarId = useStore(selectDisplayedAvatarId);
     const config = AVATAR_CONFIGS[currentAvatarId] || AVATAR_CONFIGS[DEFAULT_AVATAR_ID];
 
     const group = useRef<THREE.Group>(null);
@@ -170,7 +177,9 @@ export const Character = React.memo(function Character() {
         });
     }, [scene]);
 
-    useEffect(() => {
+    // Start idle before the first frame is drawn and apply its pose at once;
+    // a passive effect lets the model appear in its bind (A) pose for a moment.
+    useLayoutEffect(() => {
         if (idleRes?.animations?.[0]) clipCache.current[DEFAULT_ANIMS.idle] = idleRes.animations[0];
         // Thinking animation caching is temporarily disabled.
         // if (thinkingRes?.animations?.[0]) clipCache.current[DEFAULT_ANIMS.thinking] = thinkingRes.animations[0];
@@ -181,6 +190,7 @@ export const Character = React.memo(function Character() {
             const action = mixer.clipAction(clip);
             prepareAnimationAction(action, 'idle', 'm_idle_01');
             action.play();
+            mixer.update(0);
             currentActionRef.current = action;
             currentAnimIdRef.current = 'm_idle_01';
         }
