@@ -3,9 +3,9 @@
 import type { ComponentType, ReactNode } from 'react';
 
 import type { StorySentence } from '../types';
-import { Candle, Drops, Horse, Lantern, Shout, Thought, Wonder } from './dragonCharacters';
+import { Candle, Drops, Lantern, Shout, Thought, Wonder } from './dragonCharacters';
 import {
-  Attic, Barrack, Bed, BigStone, Cap, Carriage, CatAndMouse, Child, Cobbles, Coins, Desk, DOCTOR, Doorway, DoorBell,
+  Attic, Barrack, Bed, BigStone, CabHorse, Cap, Carriage, CatAndMouse, Child, Cobbles, Coins, Desk, DOCTOR, Doorway, DoorBell,
   DUNYA, Embankment, Facades, Flowers, GreatManIdea, Heartbeat, HeatLines, Journal, LANDLADY, Letter, LIZAVETA, Log,
   LUZHIN, MARMELADOV, Mug, OFFICER, OldSofa, PAINTER, Palisade, Papers, PAWNBROKER, PillowHead, PORFIRY, PRISONER, Purse,
   RAZUMIKHIN, RODION, Seated, SilverWatch, Snow, SONYA, Stairwell, Stall, StationHouse, StrongBox, Table, TavernBar,
@@ -194,11 +194,11 @@ function RoomScene({ beat, bubble }: SceneProps) {
               <g transform="translate(-60 -120)">
                 <Hotspot id="watch" label="watch" cx={0} cy={0} rx={70} ry={70}><SilverWatch s={0.9} /></Hotspot>
               </g>
-              <g transform="translate(40 -150)"><Heartbeat on /></g>
+              <g transform="translate(-80 -250)"><Heartbeat on /></g>
             </>
           ) : undefined} />
       </Place>
-      <SpeechAt bubble={bubble} at={{ Rodion: [beat === 3 ? 640 : 1000, 420] }} />
+      <SpeechAt bubble={bubble} at={{ Rodion: beat === 3 ? [1000, 640] : [1000, 420] }} />
     </Camera>
   );
 }
@@ -249,8 +249,8 @@ function TavernScene({ beat, bubble }: SceneProps) {
     <Camera fx={cam[0]} fy={cam[1]} s={cam[2]}>
       <Place on={place === 'tavern'}>
         <TavernBar />
-        <Hotspot id="tavern" label="tavern" cx={800} cy={150} rx={200} ry={90}>
-          <g transform="translate(800 110)">
+        <Hotspot id="tavern" label="tavern" cx={800} cy={230} rx={200} ry={90}>
+          <g transform="translate(800 190)">
             <path d="M-120 -80 L-120 -40 M120 -80 L120 -40" stroke={INK} strokeWidth={4} />
             <rect x={-170} y={-40} width={340} height={96} rx={10} fill="url(#st-wood)" stroke={INK} strokeWidth={5} />
             <text x={0} y={22} textAnchor="middle" fontSize={50} fontWeight={900} fill="#fff1c4" stroke={INK} strokeWidth={3} paintOrder="stroke">TAVERN</text>
@@ -265,7 +265,7 @@ function TavernScene({ beat, bubble }: SceneProps) {
         </g>
         <Actor x={480} y={880} {...RODION} mood="sad" />
         <Actor x={beat >= 1 ? 900 : 1300} y={880} o={beat >= 1 ? 1 : 0} {...MARMELADOV} mood="sad" flip anim={beat === 1 ? 'story-bob' : undefined} />
-        <g transform="translate(880 560)">
+        <g transform="translate(640 560)">
           <Thought on={beat === 2}>
             <Hotspot id="sonya" label="daughter" cx={-40} cy={-60} rx={90} ry={110}>
               <g transform="translate(-40 40) scale(0.55)"><Person {...SONYA} mood="sad" /></g>
@@ -297,7 +297,7 @@ function TavernScene({ beat, bubble }: SceneProps) {
         </Hotspot>
         <Actor x={beat === 5 ? 1120 : 980} y={860} {...RODION} mood="sad" flip={beat !== 5} />
       </Place>
-      <SpeechAt bubble={bubble} at={{ Marmeladov: [900, 430] }} />
+      <SpeechAt bubble={bubble} at={{ Marmeladov: [1060, 560] }} />
     </Camera>
   );
 }
@@ -316,12 +316,12 @@ function LetterScene({ beat, bubble }: SceneProps) {
         <Actor x={700} y={beat === 2 ? 860 : 830} {...RODION} mood={beat === 2 ? 'shout' : beat === 1 ? 'sad' : 'surprised'} armsUp={beat === 2}
           anim={beat === 0 ? 'story-tremble' : undefined}
           extra={beat < 2 ? (
-            <g transform="translate(46 -110)">
+            <g transform="translate(70 -70) scale(0.75)">
               <Hotspot id="letter" label="letter" cx={0} cy={0} rx={70} ry={80}><Letter /></Hotspot>
             </g>
           ) : undefined} />
         {beat === 2 ? <g transform="translate(860 840) scale(0.6)"><Letter open={false} /></g> : null}
-        <g transform="translate(720 300)"><Shout text="NO!" on={beat === 2} color="#ff8a5c" /></g>
+        <g transform="translate(1000 560)"><Shout text="NO!" on={beat === 2} color="#ff8a5c" /></g>
         <g transform="translate(760 560)">
           <Thought on={beat === 1}>
             <Hotspot id="dunya" label="sister" cx={-70} cy={-70} rx={80} ry={110}>
@@ -358,7 +358,7 @@ function LetterScene({ beat, bubble }: SceneProps) {
           <g transform="translate(760 830)"><OldSofa blanket /></g>
           <g transform="translate(420 380)"><g className="story-pulse"><WallClock hour={7} /></g></g>
         </Attic>
-        <Actor x={760} y={830} {...RODION} mood="surprised" extra={<g transform="translate(60 -160)"><Heartbeat on /></g>} />
+        <Actor x={760} y={830} {...RODION} mood="surprised" extra={<g transform="translate(80 -250)"><Heartbeat on /></g>} />
         <path d="M1050 300 L640 900 L900 900 L1130 300 Z" fill="#fff3c4" opacity={0.12} pointerEvents="none" />
       </Place>
       <SpeechAt bubble={bubble} at={{ Rodion: [700, 420] }} />
@@ -400,7 +400,7 @@ function CrimeScene({ beat, bubble }: SceneProps) {
           </g>
         </g>
         <Actor x={beat === 5 ? 1260 : 1080} y={800} {...RODION} mood="sad" flip o={beat === 4 || beat === 5 ? 0 : 1}
-          extra={<g transform="translate(60 -230)"><Heartbeat on={beat === 2} /></g>} />
+          extra={<g transform="translate(-80 -250)"><Heartbeat on={beat === 2} /></g>} />
         <Actor x={beat === 5 ? 520 : 200} y={800} o={beat === 5 ? 1 : 0} {...LIZAVETA} mood="surprised" armsUp />
       </Place>
 
@@ -409,7 +409,7 @@ function CrimeScene({ beat, bubble }: SceneProps) {
         <rect x={-800} y={-600} width={3200} height={2100} fill="#1a120c" opacity={0.45} pointerEvents="none" />
         <g transform="translate(980 764)"><Doorway bell={false} /></g>
         <Actor x={700} y={800} {...RODION} mood="surprised" anim="story-tremble" extra={<g transform="translate(-10 -200)"><Drops on /></g>} />
-        <g transform="translate(1000 330)"><Shout text="KNOCK! KNOCK!" on color="#ffd84d" /></g>
+        <g transform="translate(840 360) scale(0.8)"><Shout text="KNOCK! KNOCK!" on color="#ffd84d" /></g>
       </Place>
 
       <Place on={place === 'street'}>
@@ -435,8 +435,8 @@ function FeverScene({ beat, bubble }: SceneProps) {
         <Layer depth={-4}><Facades /></Layer>
         <path d="M-800 760 L2400 760 L2400 1500 L-800 1500 Z" fill="#8a8272" stroke={INK} strokeWidth={5} />
         <g transform="translate(860 860)">
+          <g transform="translate(-118 -2) scale(0.8)"><Purse /></g>
           <Hotspot id="stone" label="stone" cy={-60} rx={190} ry={90}><BigStone lifted /></Hotspot>
-          <g transform="translate(-40 -10)"><Purse /></g>
         </g>
         <Actor x={600} y={880} {...RODION} mood="surprised" r={14} extra={<g transform="translate(-20 -200)"><Drops on /></g>} />
       </Place>
@@ -444,9 +444,9 @@ function FeverScene({ beat, bubble }: SceneProps) {
       <Place on={place === 'office'}>
         <Wall color="#b8b29a" floor="#6b5a44" />
         <g transform="translate(1260 330)"><WallClock hour={11} /></g>
-        <g transform="translate(820 880)"><Desk w={460}><g transform="translate(-60 0)"><Papers /></g></Desk></g>
         <Hotspot id="officers" label="police" cx={900} cy={620} rx={300} ry={190}>
-          <Actor x={820} y={720} {...OFFICER} mood={beat === 2 ? 'surprised' : 'smile'} extra={<Cap />} />
+          <Actor x={820} y={830} {...OFFICER} mood={beat === 2 ? 'surprised' : 'smile'} extra={<Cap />} />
+          <g transform="translate(820 880)"><Desk w={460}><g transform="translate(-60 0)"><Papers /></g></Desk></g>
           <Actor x={1100} y={860} {...OFFICER} hair="#6b5138" mood={beat === 2 ? 'surprised' : 'shout'} flip extra={<Cap />} />
         </Hotspot>
         <Actor x={beat === 2 ? 500 : 460} y={beat === 2 ? 880 : 870} r={beat === 2 ? -78 : 0} {...RODION} mood={beat === 2 ? 'sad' : 'surprised'} dur={0.9} />
@@ -505,7 +505,7 @@ function SonyaScene({ beat, bubble }: SceneProps) {
       <Place on={place === 'accident'}>
         <Street time="night" />
         <LampPost x={380} />
-        <g transform="translate(1220 860)"><Carriage horse={<g transform="translate(260 0) scale(0.7)"><Horse /></g>} /></g>
+        <g transform="translate(1180 860)"><Carriage horse={<g transform="translate(250 0)"><CabHorse /></g>} /></g>
         <Hotspot id="crowd" label="crowd" cx={720} cy={720} rx={330} ry={170}>
           {[0, 1, 2, 3].map((i) => (
             <Actor key={i} x={470 + i * 170} y={860} s={0.9} {...TOWNSFOLK[i]} mood="surprised" flip={i > 1} anim="story-bob" delay={i * 0.1} />
@@ -518,7 +518,7 @@ function SonyaScene({ beat, bubble }: SceneProps) {
         <Wall color="#8f9480" floor="#5c4a36" />
         <Window x={1340} y={360} night />
         <g transform="translate(560 860)"><Bed blanket="#8a7a56" sleeper={<PillowHead hair="#9a9a9a" />} /></g>
-        <Actor x={300} y={860} o={beat === 1 ? 1 : 0} {...DOCTOR} mood="sad" />
+        <Actor x={240} y={860} o={beat === 1 ? 1 : 0} {...DOCTOR} mood="sad" />
         <Actor x={860} y={860} {...WIDOW} mood="sad" flip={beat !== 3}
           extra={<g transform="translate(0 -180)"><Drops on={beat === 2} tears /></g>} />
         {[0, 1].map((i) => (
@@ -531,7 +531,7 @@ function SonyaScene({ beat, bubble }: SceneProps) {
               <Hotspot id="money" label="money" cx={0} cy={-6} rx={60} ry={40}><Coins n={4} /></Hotspot>
             </g>
           ) : undefined} />
-        <Move x={1280} y={860} o={beat >= 4 ? 1 : 0}>
+        <Move x={1220} y={860} o={beat >= 4 ? 1 : 0}>
           <Hotspot id="sonya" label="green shawl" cy={-130} rx={80} ry={140}><Person {...SONYA} mood={beat === 5 ? 'smile' : 'sad'} /></Hotspot>
         </Move>
         <Move x={980} y={880} s={0.6} o={beat === 5 ? 1 : 0}>
@@ -590,7 +590,7 @@ function PorfiryScene({ beat, bubble }: SceneProps) {
           <Hotspot id="mouse" label="mouse" cx={0} cy={-40} rx={170} ry={90}><g transform="translate(-10 20) scale(0.8)"><CatAndMouse /></g></Hotspot>
         </Thought>
       </g>
-      <SpeechAt bubble={bubble} at={{ Porfiry: [700, 460], Painter: [380, 480] }} />
+      <SpeechAt bubble={bubble} at={{ Porfiry: [440, 520], Painter: [380, 480] }} />
     </Camera>
   );
 }
@@ -618,7 +618,7 @@ function TruthScene({ beat, bubble }: SceneProps) {
         <Seated seat="#6b4f33">
           <Hotspot id="sonya" label="Sonya" cy={-130} rx={80} ry={140}>
             <Person {...SONYA} mood={beat === 3 ? 'surprised' : beat === 4 ? 'sad' : 'smile'}
-              holding={beat === 6 ? <Hotspot id="cross" label="cross" cx={0} cy={-50} rx={50} ry={70}><WoodenCross /></Hotspot> : undefined} />
+              holding={beat === 6 ? <Hotspot id="cross" label="cross" cx={0} cy={-70} rx={60} ry={90}><WoodenCross s={1.5} /></Hotspot> : undefined} />
           </Hotspot>
         </Seated>
         <g transform="translate(0 -160)"><Drops on={beat === 4} tears /></g>
@@ -688,10 +688,10 @@ function ConfessionScene({ beat, bubble }: SceneProps) {
 
       <Place on={place === 'square'}>
         <Street time="hot" />
-        <Hotspot id="ground" label="ground" cx={800} cy={890} rx={240} ry={50}>
-          <ellipse cx={800} cy={900} rx={220} ry={34} fill="#8a7a62" stroke={INK} strokeWidth={4} />
+        <Actor x={790} y={935} r={22} {...RODION} mood="sad" />
+        <Hotspot id="ground" label="ground" cx={800} cy={950} rx={250} ry={46}>
+          <ellipse cx={800} cy={952} rx={240} ry={42} fill="#8a7a62" stroke={INK} strokeWidth={4} />
         </Hotspot>
-        <Actor x={800} y={920} r={32} {...RODION} mood="sad" />
         {[0, 1, 2, 3].map((i) => (
           <Actor key={i} x={[420, 560, 1060, 1200][i]} y={880} s={0.85} {...TOWNSFOLK[i]} mood="laugh" flip={i > 1} anim="story-bob" delay={i * 0.15} />
         ))}
@@ -709,8 +709,8 @@ function ConfessionScene({ beat, bubble }: SceneProps) {
       <Place on={place === 'inside'}>
         <Wall color="#b8b29a" floor="#6b5a44" />
         <path d="M600 -100 L420 900 L1000 900 L820 -100 Z" fill="#fff4c8" opacity={0.25} pointerEvents="none" />
+        <Actor x={1080} y={830} {...OFFICER} mood="surprised" flip extra={<Cap />} />
         <g transform="translate(1060 880)"><Desk w={380}><Papers /></Desk></g>
-        <Actor x={1080} y={720} {...OFFICER} mood="surprised" flip extra={<Cap />} />
         <Actor x={680} y={880} {...RODION} mood="smile" />
       </Place>
       <SpeechAt bubble={bubble} at={{ Porfiry: [980, 470], Rodion: [700, 470] }} />
@@ -761,13 +761,14 @@ function SiberiaScene({ beat, bubble }: SceneProps) {
           {[0, 1, 2].map((i) => <path key={i} d={`M${200 + i * 420} 640 q40 -10 80 0`} stroke="#ffffff" strokeWidth={4} fill="none" opacity={0.7} />)}
         </Hotspot>
         <path d="M-800 700 Q800 680 2400 700 L2400 1500 L-800 1500 Z" fill="url(#st-grass)" stroke={INK} strokeWidth={5} />
-        <g transform="translate(800 900)"><Log /></g>
-        <Move x={beat === 5 ? 860 : 900} y={beat === 5 ? 880 : 870}>
-          <Seated seat="transparent"><Person {...SONYA} mood={beat === 5 ? 'sad' : 'smile'} /></Seated>
+        <Move x={900} y={905}>
+          <Person {...SONYA} mood={beat === 5 ? 'sad' : 'smile'} />
           <g transform="translate(0 -170)"><Drops on={beat === 5} tears /></g>
         </Move>
-        <Actor x={beat === 5 ? 680 : 680} y={beat === 5 ? 950 : 930} r={beat === 5 ? 38 : 0} {...PRISONER} hair={RODION.hair} mood={beat === 5 ? 'sad' : 'smile'} flip
-          extra={<g transform="translate(0 -200)"><Drops on={beat === 5} tears /></g>} />
+        <Actor x={700} y={905} o={beat === 5 ? 0 : 1} {...PRISONER} hair={RODION.hair} mood="smile" flip />
+        <g transform="translate(800 920)"><Log /></g>
+        <Actor x={760} y={1010} r={30} o={beat === 5 ? 1 : 0} {...PRISONER} hair={RODION.hair} mood="sad"
+          extra={<g transform="translate(0 -200)"><Drops on tears /></g>} />
         <g transform="translate(800 540)"><Hearts on={beat >= 5} /></g>
         <g transform="translate(300 940)"><Flowers n={5} /></g>
         <g transform="translate(1300 960)"><Flowers n={6} /></g>

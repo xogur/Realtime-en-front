@@ -1,4 +1,5 @@
 import odysseyManifest from './audioManifest.json';
+import crimeManifest from './crimeAudioManifest.json';
 import dragonManifest from './dragonAudioManifest.json';
 import gulliverManifest from './gulliverAudioManifest.json';
 import type { Story, StoryChapter } from './types';
@@ -7,7 +8,9 @@ export type StoryAudioClip = { src: string; text: string; durationMs: number };
 type Manifest = { storyId: string; chapters: Record<string, { clips: readonly StoryAudioClip[] }> };
 
 // Chapter ids are only unique within a story, so recordings are looked up per story.
-const MANIFESTS: Record<string, Manifest> = { odyssey: odysseyManifest, 'reluctant-dragon': dragonManifest, gulliver: gulliverManifest };
+const MANIFESTS: Record<string, Manifest> = {
+  odyssey: odysseyManifest, 'reluctant-dragon': dragonManifest, gulliver: gulliverManifest, 'crime-and-punishment': crimeManifest,
+};
 
 /** Only reviewed local content can select a static recording. */
 export function getChapterAudio(storyId: string, chapter: StoryChapter): readonly StoryAudioClip[] {

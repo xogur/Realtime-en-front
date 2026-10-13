@@ -29,6 +29,12 @@ const REVIEW_OPTIONS = [
   { key: 'korean', label: '한국어 해석' },
 ] as const;
 
+/** 을 after a final consonant (죄와 벌을), 를 otherwise. */
+export function withObjectParticle(word: string): string {
+  const syllable = word.charCodeAt(word.length - 1) - 0xac00;
+  return `${word}${syllable >= 0 && syllable < 11172 && syllable % 28 ? '을' : '를'}`;
+}
+
 function supportLabel(support: StoryAvatar['support']): string | null {
   const parts = [support.speed === 'slow' ? '천천히' : null, support.english ? '영어 자막' : null, support.korean ? '한국어 해석' : null]
     .filter(Boolean);
@@ -106,7 +112,7 @@ export function StoryAvatarPanel({ avatar, onExit }: { avatar: StoryAvatar; onEx
         {phase === 'recap' ? (
           <section className={`${glass} w-full max-w-xl p-6 text-center`}>
             <h2 className="text-2xl font-black">이야기 끝! 잘 들었어요</h2>
-            <p className="mt-2 text-base font-semibold text-white/80">{story.titleKo}를 끝까지 들었어요.</p>
+            <p className="mt-2 text-base font-semibold text-white/80">{withObjectParticle(story.titleKo)} 끝까지 들었어요.</p>
             <div className="mt-5 flex flex-wrap justify-center gap-3">
               <button type="button" className={ghostPill} onClick={avatar.restart}><RotateCcw className="h-5 w-5" aria-hidden />처음부터</button>
               <button type="button" className={primaryPill} onClick={avatar.backToLibrary}><BookOpen className="h-5 w-5" aria-hidden />다른 이야기</button>

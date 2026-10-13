@@ -1,0 +1,884 @@
+{
+  "version": 1,
+  "storyId": "crime-and-punishment",
+  "source": "Qwen3 TTS (kiosk endpoint /tts/generate/en, speaker Serena, storyteller instruct with a mood per sentence; quotes removed from TTS input)",
+  "alignment": "One synthesized take per sentence, chosen only when Whisper large-v3-turbo and medium both transcribe it exactly, every ordinary word is confident and nothing trails the sentence; human listening not yet verified",
+  "chapters": {
+    "room": {
+      "sourceSha256": "393f9c9e8f1da4f7bfc06c65666717258693456dd379a63bda3d54398a966c1f",
+      "durationSeconds": 70.39,
+      "clips": [
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/room/s01.wav",
+          "text": "Long ago, in the busy city of Saint Petersburg, there lived a poor young man named Rodion Raskolnikov.",
+          "durationMs": 9140.0,
+          "startSeconds": 0.0,
+          "endSeconds": 9.14,
+          "sha256": "a839f3f5dcbee669417f2f82318539127f366f978e438cbaef23aabbf3da1487"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/room/s02.wav",
+          "text": "It was a hot summer, and the streets smelled of dust and paint.",
+          "durationMs": 5540.0,
+          "startSeconds": 9.14,
+          "endSeconds": 14.68,
+          "sha256": "4f384e3e61fd7405843161f4f1421c3306e4f7b8a2a7f015f6c499ff5ab89fc9"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/room/s03.wav",
+          "text": "Rodion lived in a tiny room under the roof, as small as a cupboard.",
+          "durationMs": 6570.0,
+          "startSeconds": 14.68,
+          "endSeconds": 21.25,
+          "sha256": "cb72b502ad32b2a93cc23faf93d008663c77b0ac1a64a20f88dc3384619b3a0f"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/room/s04.wav",
+          "text": "He had stopped going to university because he had no money left.",
+          "durationMs": 5360.0,
+          "startSeconds": 21.25,
+          "endSeconds": 26.61,
+          "sha256": "8d4ebecf3af43b4a12542e2464542b53d84fea566801263115d9ba5395ea9b5c"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/room/s05.wav",
+          "text": "He owed rent to his landlady, so he crept down the stairs like a thief.",
+          "durationMs": 6260.0,
+          "startSeconds": 26.61,
+          "endSeconds": 32.87,
+          "sha256": "cfb2d011b5a1c16d1fcb07a5fb5ca98b9aab02674015782932da1b1307e94e78"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/room/s06.wav",
+          "text": "Day and night, one dark idea kept growing in his mind.",
+          "durationMs": 5280.0,
+          "startSeconds": 32.87,
+          "endSeconds": 38.15,
+          "sha256": "ad17aeeeda48b091e34f9ca37fb5e700012e23f91a4b13746994287fe9e0ca32"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/room/s07.wav",
+          "text": "\"Great people may break the rules,\" he thought, \"if it helps the world.\"",
+          "durationMs": 5770.0,
+          "startSeconds": 38.15,
+          "endSeconds": 43.92,
+          "sha256": "5dfc61cdfc88ba378ef7ec181d2cf58947202dae3ef0a92bd610bd64293f57a4"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/room/s08.wav",
+          "text": "That day, he visited an old pawnbroker who lent money to poor people.",
+          "durationMs": 6740.0,
+          "startSeconds": 43.92,
+          "endSeconds": 50.66,
+          "sha256": "f4a5814c5eb7ee55e834ae2b24f9de95d07e3a848880f1fe5f07389c78d84d65"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/room/s09.wav",
+          "text": "She was greedy and mean, and she kept her money in a locked box.",
+          "durationMs": 6420.0,
+          "startSeconds": 50.66,
+          "endSeconds": 57.08,
+          "sha256": "6230b47da5b10b32501827f6ac24b26fadfa1b194d55270303dcda0ef460bd03"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/room/s10.wav",
+          "text": "Rodion gave her his father's old silver watch, and she paid him almost nothing.",
+          "durationMs": 7060.0,
+          "startSeconds": 57.08,
+          "endSeconds": 64.14,
+          "sha256": "a7904b9b6339219f00e41bff35e958aa4def20e4f43e3669f39243573205ecb4"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/room/s11.wav",
+          "text": "As he left, his heart beat fast. \"Could I really do it?\" he whispered.",
+          "durationMs": 6250.0,
+          "startSeconds": 64.14,
+          "endSeconds": 70.39,
+          "sha256": "0e6aebd64058fdd8df0e7539d2a2e2f14f2baa94849fab72f734a156e39220d8"
+        }
+      ]
+    },
+    "tavern": {
+      "sourceSha256": "f107b970012c31efd90026689baa131f2b2a020b0e2ec5c371148b380a88218b",
+      "durationSeconds": 54.74,
+      "clips": [
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/tavern/s01.wav",
+          "text": "On his way home, Rodion went into a dark, noisy tavern.",
+          "durationMs": 5620.0,
+          "startSeconds": 0.0,
+          "endSeconds": 5.62,
+          "sha256": "052e120e94fbae399a9c9a77c63ea4deb7cb1c54f2937c72918f07b1d55751aa"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/tavern/s02.wav",
+          "text": "There, a tired old clerk named Marmeladov sat down beside him.",
+          "durationMs": 6020.0,
+          "startSeconds": 5.62,
+          "endSeconds": 11.64,
+          "sha256": "636e3d3b0248729aba88d787f6064bbb2e38d0506c09133cb42a5146365795e4"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/tavern/s03.wav",
+          "text": "\"I lost my job because I drink too much,\" he said sadly.",
+          "durationMs": 6070.0,
+          "startSeconds": 11.64,
+          "endSeconds": 17.71,
+          "sha256": "f1027a97843ad9a46656db6e87a2ed33ed3a51fdd615517c39e8972597eee377"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/tavern/s04.wav",
+          "text": "\"My poor daughter Sonya works so hard to feed our little children.\"",
+          "durationMs": 5760.0,
+          "startSeconds": 17.71,
+          "endSeconds": 23.47,
+          "sha256": "648ab9243a5177282e9cf48282f6b9899c82c822ad66f0fb483013f12cdc4ab9"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/tavern/s05.wav",
+          "text": "\"People look down on her, but she has the kindest heart in the world.\"",
+          "durationMs": 5690.0,
+          "startSeconds": 23.47,
+          "endSeconds": 29.16,
+          "sha256": "9b6e4134e19f80978ddddff1c7379162ff8b038649b669f6cbbeb3ee914fdbcc"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/tavern/s06.wav",
+          "text": "Rodion helped the drunken man walk home.",
+          "durationMs": 3460.0,
+          "startSeconds": 29.16,
+          "endSeconds": 32.62,
+          "sha256": "d54ebb5c349bed03bacabd1c4adf9ebb31e8e7cb744466eb6ab10fce5c42f662"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/tavern/s07.wav",
+          "text": "His family lived in one cold, crowded room.",
+          "durationMs": 4340.0,
+          "startSeconds": 32.62,
+          "endSeconds": 36.96,
+          "sha256": "8de5373d29a52640a779b1ac72065bfb2b1c8d7523aae7cfafdbf6cee2112c83"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/tavern/s08.wav",
+          "text": "His wife was coughing, and three hungry children were crying.",
+          "durationMs": 4720.0,
+          "startSeconds": 36.96,
+          "endSeconds": 41.68,
+          "sha256": "d10491601da5900b710d7ef2d4b6e4eac6644e12ffc78adab444114060e390cc"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/tavern/s09.wav",
+          "text": "Before he left, Rodion quietly put a few coins on the windowsill.",
+          "durationMs": 6010.0,
+          "startSeconds": 41.68,
+          "endSeconds": 47.69,
+          "sha256": "47d2bcce861ac396e7e3450b49eb8895a379e842694168894ea5a8a2138acef7"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/tavern/s10.wav",
+          "text": "He did not have much money, but he could not just walk away.",
+          "durationMs": 7050.0,
+          "startSeconds": 47.69,
+          "endSeconds": 54.74,
+          "sha256": "a28da516e49bdb43da1fd3b03f0aa837e6d1f2ee0ebe15e894517efaf19539f2"
+        }
+      ]
+    },
+    "letter": {
+      "sourceSha256": "792fca54a98609c7d9319f1ec2cfad421f6ab6b91e58b28229a4f0854750585c",
+      "durationSeconds": 56.18,
+      "clips": [
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/letter/s01.wav",
+          "text": "The next morning, a letter arrived from his mother.",
+          "durationMs": 4500.0,
+          "startSeconds": 0.0,
+          "endSeconds": 4.5,
+          "sha256": "326184491c9b1d61eb21dd4b5562e8f88e732ede7505529d9bdefe60813b812d"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/letter/s02.wav",
+          "text": "Rodion opened it with shaking hands and began to read.",
+          "durationMs": 4490.0,
+          "startSeconds": 4.5,
+          "endSeconds": 8.99,
+          "sha256": "531b8099a097e35454a9510d8d928b9685edb775d1ff1f8ac2d44da255d00e11"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/letter/s03.wav",
+          "text": "His sister Dunya was going to marry a rich man named Luzhin.",
+          "durationMs": 6100.0,
+          "startSeconds": 8.99,
+          "endSeconds": 15.09,
+          "sha256": "2810002f57a8543920da87f8ce8e0f80f046837be38ce99ea239e552cf8b4034"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/letter/s04.wav",
+          "text": "Luzhin was cold and proud, but he promised to help Rodion's family.",
+          "durationMs": 6180.0,
+          "startSeconds": 15.09,
+          "endSeconds": 21.27,
+          "sha256": "a0cb9903f5c2900716786a96f7675a763812cad0bad964ce596d0fc8eb122cc7"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/letter/s05.wav",
+          "text": "\"Dunya is selling herself to save me!\" Rodion cried angrily.",
+          "durationMs": 4980.0,
+          "startSeconds": 21.27,
+          "endSeconds": 26.25,
+          "sha256": "5ef2043d5f9f5689481f3db5e2d7ec4074b5c891b5888002da062730e77b957c"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/letter/s06.wav",
+          "text": "\"I will never let this happen!\"",
+          "durationMs": 3140.0,
+          "startSeconds": 26.25,
+          "endSeconds": 29.39,
+          "sha256": "9fb85ac7474287325e96b48a3f2e0bd3d2d0f8d6c776a02d5f71c8720851a135"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/letter/s07.wav",
+          "text": "That evening, in the busy market, he heard a woman talking.",
+          "durationMs": 5460.0,
+          "startSeconds": 29.39,
+          "endSeconds": 34.85,
+          "sha256": "371c366fd97d802830a65ce7270cfca2314e11e782e33937514db4d64c513464"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/letter/s08.wav",
+          "text": "It was Lizaveta, the pawnbroker's gentle younger sister.",
+          "durationMs": 4900.0,
+          "startSeconds": 34.85,
+          "endSeconds": 39.75,
+          "sha256": "5dd1b6b2b8c01a47e5f16fcc8b49991fd655e90c679a817b7aa7c2aea3c4b47d"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/letter/s09.wav",
+          "text": "She said she would be away from home tomorrow at seven o'clock.",
+          "durationMs": 5460.0,
+          "startSeconds": 39.75,
+          "endSeconds": 45.21,
+          "sha256": "080e286d7ded64699155327120d6ed969b61d1588d68b6e954fad28a9194499b"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/letter/s10.wav",
+          "text": "So the old woman would be all alone. Rodion felt cold all over.",
+          "durationMs": 5920.0,
+          "startSeconds": 45.21,
+          "endSeconds": 51.13,
+          "sha256": "1963e0e1b1d3548a55ac2bb38a8818760f51bba1f323c6fe5c69af74ec33a604"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/letter/s11.wav",
+          "text": "It felt as if fate itself had chosen him.",
+          "durationMs": 5050.0,
+          "startSeconds": 51.13,
+          "endSeconds": 56.18,
+          "sha256": "88c34840ceeaf66dd68821bf44ce0d9e196cbe538ff5ce528644fc31e9d62022"
+        }
+      ]
+    },
+    "crime": {
+      "sourceSha256": "38a233c7a25ce99c4e720b6b38f892c7fb8f402b2aa417bc191376178a5b89d5",
+      "durationSeconds": 59.3,
+      "clips": [
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/crime/s01.wav",
+          "text": "The next day, at seven o'clock, Rodion climbed the dark stairs.",
+          "durationMs": 5540.0,
+          "startSeconds": 0.0,
+          "endSeconds": 5.54,
+          "sha256": "40594f5f815b3123dd489e45ba707203213cdc72235bbbc16974b7bab8e31b9e"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/crime/s02.wav",
+          "text": "Under his coat, he hid an axe that he had taken from a caretaker's room.",
+          "durationMs": 6900.0,
+          "startSeconds": 5.54,
+          "endSeconds": 12.44,
+          "sha256": "36320f526623e2ebb1d6078174df2fb3f96338cea407b4bbad093b0e85bcbba2"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/crime/s03.wav",
+          "text": "He rang the bell. His heart was pounding like a drum.",
+          "durationMs": 4420.0,
+          "startSeconds": 12.44,
+          "endSeconds": 16.86,
+          "sha256": "4e612bb59033059e6e08c9f782288f755b825bbd98eae12686b46acd98f7537e"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/crime/s04.wav",
+          "text": "The old woman opened the door and looked at him with suspicion.",
+          "durationMs": 5780.0,
+          "startSeconds": 16.86,
+          "endSeconds": 22.64,
+          "sha256": "f5e5a495576374133348e61e2d7b31a829af9d33af4c24f080ab74f61e362a56"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/crime/s05.wav",
+          "text": "\"What do you want?\" she asked sharply.",
+          "durationMs": 3460.0,
+          "startSeconds": 22.64,
+          "endSeconds": 26.1,
+          "sha256": "183518fddd0d4499b157ef9b7301a8ce6d60a12bd6d831b6faa23aa63933ea7d"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/crime/s06.wav",
+          "text": "In one terrible moment, Rodion did the awful thing he had planned.",
+          "durationMs": 6230.0,
+          "startSeconds": 26.1,
+          "endSeconds": 32.33,
+          "sha256": "f32f889658e04e9cbbd790e53eebcb5920938bb43c23087dbc4b7bec869950c2"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/crime/s07.wav",
+          "text": "Suddenly, Lizaveta came home early and saw everything.",
+          "durationMs": 4720.0,
+          "startSeconds": 32.33,
+          "endSeconds": 37.05,
+          "sha256": "fccb33ec48ff8bb38077f614fd7ff30c51b6a6af0627d01fc06af11d69252f05"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/crime/s08.wav",
+          "text": "In wild panic, he killed her too. Now two people were gone.",
+          "durationMs": 5750.0,
+          "startSeconds": 37.05,
+          "endSeconds": 42.8,
+          "sha256": "45d3a038f38b8698161a58cb5177b8b9abd18fd45ab771e146b71607de6d86eb"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/crime/s09.wav",
+          "text": "Then someone knocked hard on the door, and Rodion held his breath.",
+          "durationMs": 5130.0,
+          "startSeconds": 42.8,
+          "endSeconds": 47.93,
+          "sha256": "75d5d4eff1d001c9780ebda7dfbc349961eb79646b5c7fb6c953e4798ce9e0c9"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/crime/s10.wav",
+          "text": "The visitors went downstairs to get help, and he slipped away.",
+          "durationMs": 4880.0,
+          "startSeconds": 47.93,
+          "endSeconds": 52.81,
+          "sha256": "67391d20dafb7a19c473fcea1a71096b1445591b964c64ba84b58871cdbcb98d"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/crime/s11.wav",
+          "text": "He ran home through the crowded streets, shaking like a leaf.",
+          "durationMs": 6490.0,
+          "startSeconds": 52.81,
+          "endSeconds": 59.3,
+          "sha256": "17f22634df2e94a0966d6196609f9fe147c09d6686aaecb6f2c3fbfc582eec89"
+        }
+      ]
+    },
+    "fever": {
+      "sourceSha256": "7ee9c2af84652c36fe1540f8e01b394f1beb381431ca0f01deb8be40fe695f77",
+      "durationSeconds": 51.56,
+      "clips": [
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/fever/s01.wav",
+          "text": "Rodion hid the old woman's purse under a big stone in a quiet yard.",
+          "durationMs": 6570.0,
+          "startSeconds": 0.0,
+          "endSeconds": 6.57,
+          "sha256": "1b374bcb2dcad73907566180e4390fdb822a37b295e3c2165ba5dbd15caa3dfd"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/fever/s02.wav",
+          "text": "He never even looked inside it.",
+          "durationMs": 2980.0,
+          "startSeconds": 6.57,
+          "endSeconds": 9.55,
+          "sha256": "cac4c5bfd7f1a5bff15795eef20c0bd44bce9ba05fa5f3fbe419cb1d6ee8add3"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/fever/s03.wav",
+          "text": "The next day, the police called him to their office.",
+          "durationMs": 4420.0,
+          "startSeconds": 9.55,
+          "endSeconds": 13.97,
+          "sha256": "138d0fbc56ecaf397a03279d537c2fa7d5a190554c37ba0f37b03293d2899bd4"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/fever/s04.wav",
+          "text": "He thought they knew everything, but it was only about his rent.",
+          "durationMs": 6180.0,
+          "startSeconds": 13.97,
+          "endSeconds": 20.15,
+          "sha256": "f233b47d17f6309f5c78a0c7cdf1976def318f737c0c7739275e6e615bb7a366"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/fever/s05.wav",
+          "text": "Then he heard officers talking about the murder, and he fainted.",
+          "durationMs": 4880.0,
+          "startSeconds": 20.15,
+          "endSeconds": 25.03,
+          "sha256": "347a7f0cee872647ad479439588d144ebe19e4a4c613bd5b74e45c3e9de0905d"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/fever/s06.wav",
+          "text": "Back home, he fell into a terrible fever.",
+          "durationMs": 4010.0,
+          "startSeconds": 25.03,
+          "endSeconds": 29.04,
+          "sha256": "1fb13039208330bdab291070ff74482116abe5ea372cb2bc979fdde062647b24"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/fever/s07.wav",
+          "text": "For four days, he lay in bed, burning hot and talking in his sleep.",
+          "durationMs": 6880.0,
+          "startSeconds": 29.04,
+          "endSeconds": 35.92,
+          "sha256": "2b68444e76ddb37132b1ea75a9c0aeb959875a5bc52084acceb8f18c1a2771b2"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/fever/s08.wav",
+          "text": "His loyal friend Razumikhin came to take care of him.",
+          "durationMs": 4580.0,
+          "startSeconds": 35.92,
+          "endSeconds": 40.5,
+          "sha256": "330c8263be412709ed74088d8b5243a09ded7a44717052fc7d19edbbd6359f8e"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/fever/s09.wav",
+          "text": "\"What is wrong with you?\" Razumikhin asked. But Rodion only turned away.",
+          "durationMs": 5450.0,
+          "startSeconds": 40.5,
+          "endSeconds": 45.95,
+          "sha256": "d5bfe9be8b997fa74abc705f66a0eae49f7f4a3019702b98c6516b5a9cd90150"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/fever/s10.wav",
+          "text": "His secret felt heavier than the stone in the yard.",
+          "durationMs": 5610.0,
+          "startSeconds": 45.95,
+          "endSeconds": 51.56,
+          "sha256": "d2d16ffcd9f951ec97138ce056d326dd42e3ab363559f96ecaf6b4654652a787"
+        }
+      ]
+    },
+    "sonya": {
+      "sourceSha256": "eb6e5bbdd52f1f05a476631f2b9caf5ff1ef294cb48f2eb62373ecac62a8acee",
+      "durationSeconds": 53.73,
+      "clips": [
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/sonya/s01.wav",
+          "text": "One night, Rodion saw a crowd around a man hit by a horse carriage.",
+          "durationMs": 6880.0,
+          "startSeconds": 0.0,
+          "endSeconds": 6.88,
+          "sha256": "e12ccd14cc3e0824c50cf87595a47a58d6f5fa1d7b902656dd57f13cefeb87c0"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/sonya/s02.wav",
+          "text": "It was Marmeladov, the poor clerk from the tavern!",
+          "durationMs": 4340.0,
+          "startSeconds": 6.88,
+          "endSeconds": 11.22,
+          "sha256": "0404e7c4083c67988479807280e8f76e04d2f87d4dd87d9c86648d1fb8ac51af"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/sonya/s03.wav",
+          "text": "Rodion carried him home, but the doctor could not save him.",
+          "durationMs": 5040.0,
+          "startSeconds": 11.22,
+          "endSeconds": 16.26,
+          "sha256": "4295217bfdd44d235f6a28dcbf67caf3aa266e4eee8f59c4122dee2b0b994b67"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/sonya/s04.wav",
+          "text": "The whole family cried around his bed.",
+          "durationMs": 4320.0,
+          "startSeconds": 16.26,
+          "endSeconds": 20.58,
+          "sha256": "e4a917be81ebc5130c8d59d9054ac66161682d011eb6e6eb2721e51b96b50488"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/sonya/s05.wav",
+          "text": "Rodion gave the widow all the money he had for the funeral.",
+          "durationMs": 5140.0,
+          "startSeconds": 20.58,
+          "endSeconds": 25.72,
+          "sha256": "1bfe97536143a7f49d3ce756b2e6dd053323d89741077cb518e63f693e414773"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/sonya/s06.wav",
+          "text": "Then a shy young woman in a green shawl came in. It was Sonya.",
+          "durationMs": 5860.0,
+          "startSeconds": 25.72,
+          "endSeconds": 31.58,
+          "sha256": "6f09e44322107a71848b9ff754b2416c8d778abc278e72127d92baccdef5526f"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/sonya/s07.wav",
+          "text": "She was quiet and pale, but her eyes were full of kindness.",
+          "durationMs": 5460.0,
+          "startSeconds": 31.58,
+          "endSeconds": 37.04,
+          "sha256": "70b560593b07062a41138e03c773e43552bf59988d5f4393fcba8b883331a98f"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/sonya/s08.wav",
+          "text": "Sonya's little sister ran to Rodion and hugged him tightly.",
+          "durationMs": 5380.0,
+          "startSeconds": 37.04,
+          "endSeconds": 42.42,
+          "sha256": "fa2c24d2683d45613dc6cfe05d90986d40d3c339673c33267459b642d64793d1"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/sonya/s09.wav",
+          "text": "\"Thank you,\" she said. \"Please come and see us again.\"",
+          "durationMs": 4340.0,
+          "startSeconds": 42.42,
+          "endSeconds": 46.76,
+          "sha256": "9e9c37fd42149b15d6dc83afb0dc94656bcbd44f7bb62d6e7856fe97ccc4dcb4"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/sonya/s10.wav",
+          "text": "Walking home under the stars, Rodion felt alive for the first time in days.",
+          "durationMs": 6970.0,
+          "startSeconds": 46.76,
+          "endSeconds": 53.73,
+          "sha256": "455b3e9d36514ac80f40ddbe9e5ffbcffe46ca97114477ce0b3ed6a6a82a543c"
+        }
+      ]
+    },
+    "porfiry": {
+      "sourceSha256": "d32011faa92b3273a09663710e3f95ef51f39672bf1beb6f7d01f1b337e49fbe",
+      "durationSeconds": 54.07,
+      "clips": [
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/porfiry/s01.wav",
+          "text": "Soon, Rodion met Porfiry, the detective in charge of the case.",
+          "durationMs": 6580.0,
+          "startSeconds": 0.0,
+          "endSeconds": 6.58,
+          "sha256": "1a758354daed3215205b6f079b54bc198dc07f808cf07808a1ce202ee84e4318"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/porfiry/s02.wav",
+          "text": "He was a round, cheerful man who laughed a lot and blinked his eyes.",
+          "durationMs": 6020.0,
+          "startSeconds": 6.58,
+          "endSeconds": 12.6,
+          "sha256": "192da4204159b561e393c45dc69c44b8e191177686ed244f46ead1e0f69adf21"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/porfiry/s03.wav",
+          "text": "Porfiry had read an article that Rodion once wrote.",
+          "durationMs": 4660.0,
+          "startSeconds": 12.6,
+          "endSeconds": 17.26,
+          "sha256": "29dc03ea9e702e96eff8937fdc4cd052a72fda7f2d9008f6a36c9f61279230a2"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/porfiry/s04.wav",
+          "text": "In it, he wrote that extraordinary people have the right to break the law.",
+          "durationMs": 7060.0,
+          "startSeconds": 17.26,
+          "endSeconds": 24.32,
+          "sha256": "a63315a79757f69e01461c82f6d31746148c49923aa58e2dd718223e0b5cbf95"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/porfiry/s05.wav",
+          "text": "\"Do you think you are one of those people?\" Porfiry asked with a smile.",
+          "durationMs": 6100.0,
+          "startSeconds": 24.32,
+          "endSeconds": 30.42,
+          "sha256": "9798e0943ec32356a54fb953a4cbc01f2674e79255fb04586d3fbda288fe6c19"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/porfiry/s06.wav",
+          "text": "Rodion felt like a mouse being watched by a cat.",
+          "durationMs": 4820.0,
+          "startSeconds": 30.42,
+          "endSeconds": 35.24,
+          "sha256": "6fefebde1c0e5bcb4fd1691b2e9f7843f65bcbcd29e6116d87e4b58eb80c5a6c"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/porfiry/s07.wav",
+          "text": "Suddenly, a young painter burst in and cried, \"I did it! I am the killer!\"",
+          "durationMs": 7040.0,
+          "startSeconds": 35.24,
+          "endSeconds": 42.28,
+          "sha256": "30a6bfc76c9d3ecca0e4efef80c92f5efc1834c1dfaad13c5aabc922bfbbfffb"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/porfiry/s08.wav",
+          "text": "But Porfiry did not believe him. The painter was only scared and confused.",
+          "durationMs": 5700.0,
+          "startSeconds": 42.28,
+          "endSeconds": 47.98,
+          "sha256": "a6873d8e8984ff2d63c5ed32f0bf6d03e12bdeb19f9b0ef52f2f18fcf3e6c75c"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/porfiry/s09.wav",
+          "text": "\"We will meet again,\" Porfiry said softly, as Rodion hurried away.",
+          "durationMs": 6090.0,
+          "startSeconds": 47.98,
+          "endSeconds": 54.07,
+          "sha256": "010551676f4f86b5a740cee52d6c48787a8f565205ce22e1bc82888cdf6400c7"
+        }
+      ]
+    },
+    "truth": {
+      "sourceSha256": "364553504cc0730e474ab4a610f5b2032d58526eb5cfa192a2c984da4d5ad372",
+      "durationSeconds": 55.84,
+      "clips": [
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/truth/s01.wav",
+          "text": "One evening, Rodion went to Sonya's small, bare room.",
+          "durationMs": 4820.0,
+          "startSeconds": 0.0,
+          "endSeconds": 4.82,
+          "sha256": "4c91e7b6aace108e129251b17f426a75f1535120f4e4be21a16730084d0568bf"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/truth/s02.wav",
+          "text": "By candlelight, Sonya read him an old story about a man who came back to life.",
+          "durationMs": 6340.0,
+          "startSeconds": 4.82,
+          "endSeconds": 11.16,
+          "sha256": "8d42fce6831e945b80d699d38973a5fd0cb38f17e2507b54384577f08c36f621"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/truth/s03.wav",
+          "text": "Rodion listened in silence. Then he said, \"I have something to tell you.\"",
+          "durationMs": 6070.0,
+          "startSeconds": 11.16,
+          "endSeconds": 17.23,
+          "sha256": "14d40345dbce670ac9d8c21de50a96f31f696605a30adea32f36090f2af97400"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/truth/s04.wav",
+          "text": "\"I know who killed the old woman and Lizaveta.\"",
+          "durationMs": 4870.0,
+          "startSeconds": 17.23,
+          "endSeconds": 22.1,
+          "sha256": "b7b54111fa572ac0de1fffff09840a49fcca8cf96fdd8d28d211ba9d7121b5a3"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/truth/s05.wav",
+          "text": "Sonya looked into his eyes and suddenly understood.",
+          "durationMs": 3770.0,
+          "startSeconds": 22.1,
+          "endSeconds": 25.87,
+          "sha256": "21f3e308bd9ea162df591b5ae5e3affc1b97666c0d50a2d11832c77119074d13"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/truth/s06.wav",
+          "text": "\"What have you done to yourself?\" she cried, and she hugged him.",
+          "durationMs": 5440.0,
+          "startSeconds": 25.87,
+          "endSeconds": 31.31,
+          "sha256": "21ec7816169cc04109537c833f7cfa8f56c81be625d1eca726149c5204aabb87"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/truth/s07.wav",
+          "text": "Rodion was amazed. She did not hate him. She felt sorry for him.",
+          "durationMs": 6100.0,
+          "startSeconds": 31.31,
+          "endSeconds": 37.41,
+          "sha256": "724f1f940a481a9436bf95c8e18b107c705bd34281033660bdfade77f680be87"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/truth/s08.wav",
+          "text": "\"Go to the crossroads,\" Sonya said. \"Kneel down and kiss the earth.\"",
+          "durationMs": 6080.0,
+          "startSeconds": 37.41,
+          "endSeconds": 43.49,
+          "sha256": "963b1105f9e2bccfb083a568992dcf7fcd44b14073109411517f3c48595dfd61"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/truth/s09.wav",
+          "text": "\"Then tell everyone the truth, and you will find life again.\"",
+          "durationMs": 5620.0,
+          "startSeconds": 43.49,
+          "endSeconds": 49.11,
+          "sha256": "c0abf5dea8617e7923e1495486a1bfcf1cdee5a97662bd8f9bfd4ca09597d7a2"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/truth/s10.wav",
+          "text": "She gave him a small wooden cross. \"I will go with you,\" she promised.",
+          "durationMs": 6730.0,
+          "startSeconds": 49.11,
+          "endSeconds": 55.84,
+          "sha256": "72bf58ffa2503b855fc824b26caf004b222ed0251c9de2c917b9a5be887963e5"
+        }
+      ]
+    },
+    "confession": {
+      "sourceSha256": "c8eea17efdbd4e1ac5a9070ee4049ad67653b711e3e4a1b53c22454e7925e682",
+      "durationSeconds": 59.58,
+      "clips": [
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/confession/s01.wav",
+          "text": "A few days later, Porfiry came to Rodion's tiny room.",
+          "durationMs": 4820.0,
+          "startSeconds": 0.0,
+          "endSeconds": 4.82,
+          "sha256": "74c3c93c37845dfcb9afe131b649718a27777348f27fb268122417a980920f43"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/confession/s02.wav",
+          "text": "\"I know it was you,\" he said kindly. \"I have no doubt.\"",
+          "durationMs": 6080.0,
+          "startSeconds": 4.82,
+          "endSeconds": 10.9,
+          "sha256": "285b686252b5f5599504548398612e013c9e1504b40b2c7621b37d9555d32817"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/confession/s03.wav",
+          "text": "\"Go and confess. Your punishment will be lighter, and your heart will be free.\"",
+          "durationMs": 7830.0,
+          "startSeconds": 10.9,
+          "endSeconds": 18.73,
+          "sha256": "e7df4a0e2b6cdb77989c328d28016c08f063fac55f6002cff19f56a030f0dc5e"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/confession/s04.wav",
+          "text": "For a long time, Rodion walked by the river, fighting with himself.",
+          "durationMs": 5700.0,
+          "startSeconds": 18.73,
+          "endSeconds": 24.43,
+          "sha256": "f3b2ed05b398b54dc8b70c18bd12ee8249d0b8cb2e4992ef2ab1c0df5924f3f3"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/confession/s05.wav",
+          "text": "His pride said, \"Run away!\" But his heart was tired of lying.",
+          "durationMs": 5620.0,
+          "startSeconds": 24.43,
+          "endSeconds": 30.05,
+          "sha256": "984e335d36f80e1d8126eeba36c35adfd6ac4a4573589a49ba033eda80c222a4"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/confession/s06.wav",
+          "text": "At last, he went to the busy crossroads and knelt down.",
+          "durationMs": 6000.0,
+          "startSeconds": 30.05,
+          "endSeconds": 36.05,
+          "sha256": "62ea5508f41fce1a4417bf7ffe10716e6a51fee17082a42253463bb6ec47861c"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/confession/s07.wav",
+          "text": "He kissed the dirty ground, while people laughed at him.",
+          "durationMs": 4400.0,
+          "startSeconds": 36.05,
+          "endSeconds": 40.45,
+          "sha256": "4743bd31d7cb7ca2b54a5ba9c421a2135ba5c8af0535ffc4799bb1907bd70b80"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/confession/s08.wav",
+          "text": "At the police station, he almost turned back. Then he saw Sonya waiting outside.",
+          "durationMs": 7210.0,
+          "startSeconds": 40.45,
+          "endSeconds": 47.66,
+          "sha256": "be85ca0fa03a4de248fc6b590bdf7e20320a876337dc67367c4343e493e52aab"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/confession/s09.wav",
+          "text": "He walked back in and said clearly, \"It was I who killed the old woman.\"",
+          "durationMs": 7680.0,
+          "startSeconds": 47.66,
+          "endSeconds": 55.34,
+          "sha256": "10c3fd1860b7b562e2ff008abde5f663fc87ad1eff86f029f109a612f4b57155"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/confession/s10.wav",
+          "text": "The long, heavy secret was finally out.",
+          "durationMs": 4240.0,
+          "startSeconds": 55.34,
+          "endSeconds": 59.58,
+          "sha256": "15b9aa88c1204734d5c28a88362916ce279468e668a76e16c627d55787076cd0"
+        }
+      ]
+    },
+    "siberia": {
+      "sourceSha256": "5b41247a2c10bac6dbbe8b59c1ae2cb2bdb77dc5e28638dc525dab081f42b332",
+      "durationSeconds": 60.75,
+      "clips": [
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/siberia/s01.wav",
+          "text": "Rodion was sent to a prison camp in faraway Siberia for eight years.",
+          "durationMs": 6470.0,
+          "startSeconds": 0.0,
+          "endSeconds": 6.47,
+          "sha256": "1f7efb81690d5f473d96d0c082977a7eaa89a7a9c8ee378f8dfb77024b336c2d"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/siberia/s02.wav",
+          "text": "Sonya followed him there and visited him whenever she could.",
+          "durationMs": 4820.0,
+          "startSeconds": 6.47,
+          "endSeconds": 11.29,
+          "sha256": "fffde449a079ec48c4852e5cd6ad873aa3bc33297df363d8ad80e5e81df5569d"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/siberia/s03.wav",
+          "text": "At first, Rodion was cold to her. He was still too proud to be sorry.",
+          "durationMs": 6740.0,
+          "startSeconds": 11.29,
+          "endSeconds": 18.03,
+          "sha256": "c19c5aa1c620d3376c9287fcce01e07c4405fb0694ffd14762edc58f2b7d3c6e"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/siberia/s04.wav",
+          "text": "But the other prisoners loved Sonya, because she helped them all.",
+          "durationMs": 5210.0,
+          "startSeconds": 18.03,
+          "endSeconds": 23.24,
+          "sha256": "634fc0beaaf47cab22494de0f6bc69088e57997e7daf7166a3b6fc1462745aa3"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/siberia/s05.wav",
+          "text": "Then Rodion became very sick, and Sonya waited outside the hospital every day.",
+          "durationMs": 7040.0,
+          "startSeconds": 23.24,
+          "endSeconds": 30.28,
+          "sha256": "61a7440c2cc7a3c243bce001ccb5a53b495f4b2ff660f128c2a3f201d06dc319"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/siberia/s06.wav",
+          "text": "One bright spring morning, they sat together by the wide river.",
+          "durationMs": 5540.0,
+          "startSeconds": 30.28,
+          "endSeconds": 35.82,
+          "sha256": "667e21a750541ed5b7ba61ead57b023e13cb56806f6f2b2ab36f2d0421380c11"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/siberia/s07.wav",
+          "text": "Suddenly, Rodion fell at her feet and cried like a child.",
+          "durationMs": 6000.0,
+          "startSeconds": 35.82,
+          "endSeconds": 41.82,
+          "sha256": "6bd5933d10f02cc968f14b9bf2a175835663623a22320e3a7cb68c8c03a07a26"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/siberia/s08.wav",
+          "text": "Sonya understood. He loved her, and he was truly sorry at last.",
+          "durationMs": 6340.0,
+          "startSeconds": 41.82,
+          "endSeconds": 48.16,
+          "sha256": "445e5a62783151a9c6b25c59101339f0b33e06f3be89115359e950df286ab3cb"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/siberia/s09.wav",
+          "text": "Seven more years were left, but they felt like only seven days.",
+          "durationMs": 6020.0,
+          "startSeconds": 48.16,
+          "endSeconds": 54.18,
+          "sha256": "dedb58fe6917b8d4be563a1751bbc57e96811856b018f6aacfa349b1d7f07c8a"
+        },
+        {
+          "src": "/story-audio/crime-and-punishment/133fbc36efb2/siberia/s10.wav",
+          "text": "A new life was beginning for Rodion, as fresh as the spring sun.",
+          "durationMs": 6570.0,
+          "startSeconds": 54.18,
+          "endSeconds": 60.75,
+          "sha256": "add7477bab8f2e30fdd703a23eedfda4ce8d7ef03e124fc2aeecb1d76afdd5c0"
+        }
+      ]
+    }
+  }
+}

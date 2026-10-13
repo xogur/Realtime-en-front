@@ -524,7 +524,11 @@ export function Embankment({ evening = false }: { evening?: boolean }) {
       <path d="M200 560 Q600 360 1000 560" fill="none" stroke={evening ? '#6b5f58' : '#c9b48a'} strokeWidth={40} />
       <path d="M200 560 Q600 360 1000 560" fill="none" stroke={INK} strokeWidth={4} />
       <rect x={-800} y={640} width={3200} height={260} fill={evening ? '#2c4a6a' : '#4f86b0'} />
-      {[700, 760, 820].map((y, i) => <path key={y} d={`M-800 ${y} q100 -14 200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0`} fill="none" stroke="#ffffff" strokeWidth={3} opacity={0.25 + i * 0.1} className="story-wave" />)}
+      {[700, 760, 820].map((y, i) => (
+        <g key={y} opacity={0.25 + i * 0.1}>
+          <path d={`M-800 ${y} q100 -14 200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0 t200 0`} fill="none" stroke="#ffffff" strokeWidth={3} className="story-wave" />
+        </g>
+      ))}
       <rect x={-800} y={860} width={3200} height={640} fill="url(#st-stone)" {...ink(5)} />
       <rect x={-800} y={840} width={3200} height={24} fill="#8a9aa6" {...ink(4)} />
       {Array.from({ length: 30 }, (_, i) => <rect key={i} x={-760 + i * 110} y={780} width={14} height={62} fill="#3a3f48" {...ink(2.5)} />)}
@@ -646,4 +650,21 @@ export function Seated({ seat = '#6b4f33', children }: { seat?: string; children
 /** A child, smaller than an adult. */
 export function Child(props: PersonProps) {
   return <g transform="scale(0.62)"><Person {...props} /></g>;
+}
+
+/** A plain brown cab horse in harness, hooves on y = 0, facing right. */
+export function CabHorse() {
+  return (
+    <g>
+      <ellipse cx={0} cy={4} rx={130} ry={12} fill="#000000" opacity={0.18} />
+      {[-70, -40, 50, 80].map((x, i) => <rect key={x} x={x - 10} y={-110} width={20} height={110} rx={9} fill={i % 2 ? '#7a4a24' : '#8a5a2c'} {...ink(3.5)} />)}
+      <ellipse cx={0} cy={-130} rx={110} ry={50} fill="#8a5a2c" {...ink(4)} />
+      <path d="M70 -150 Q110 -230 150 -240 L180 -200 Q150 -190 120 -130 Z" fill="#8a5a2c" {...ink(4)} />
+      <ellipse cx={176} cy={-214} rx={34} ry={22} fill="#8a5a2c" {...ink(4)} transform="rotate(20 176 -214)" />
+      <path d="M120 -236 Q100 -200 92 -160" fill="none" stroke="#3b2a1c" strokeWidth={10} strokeLinecap="round" />
+      <circle cx={170} cy={-224} r={4} fill={INK} />
+      <path d="M-110 -140 q-30 20 -24 60" fill="none" stroke="#3b2a1c" strokeWidth={10} strokeLinecap="round" />
+      <path d="M-40 -170 L-40 -90 M60 -176 Q100 -150 130 -160" fill="none" stroke="#2b2118" strokeWidth={8} />
+    </g>
+  );
 }

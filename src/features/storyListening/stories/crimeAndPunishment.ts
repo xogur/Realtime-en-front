@@ -225,7 +225,7 @@ export const CRIME_AND_PUNISHMENT: Story = {
         { beat: 0, en: 'Soon, Rodion met Porfiry, the detective in charge of the case.', ko: '곧 로디온은 사건을 맡은 수사관 포르피리를 만났어요.' },
         { beat: 0, en: 'He was a round, cheerful man who laughed a lot and blinked his eyes.', ko: '그는 동글동글하고 쾌활한 사람으로, 잘 웃고 눈을 자주 깜빡였어요.' },
         { beat: 1, en: 'Porfiry had read an article that Rodion once wrote.', ko: '포르피리는 로디온이 예전에 쓴 글 한 편을 읽은 적이 있었어요.' },
-        { beat: 2, en: 'It said that extraordinary people have the right to break the law.', ko: '그 글에는 특별한 사람은 법을 어길 권리가 있다고 쓰여 있었어요.' },
+        { beat: 2, en: 'In it, he wrote that extraordinary people have the right to break the law.', ko: '그 글에는 특별한 사람은 법을 어길 권리가 있다고 쓰여 있었어요.' },
         { beat: 3, en: '"Do you think you are one of those people?" Porfiry asked with a smile.', ko: '"자네도 그런 사람 중 하나라고 생각하나?" 포르피리가 웃으며 물었어요.', bubble: { speaker: 'Porfiry', text: 'Are you one of them?' } },
         { beat: 3, en: 'Rodion felt like a mouse being watched by a cat.', ko: '로디온은 마치 고양이가 지켜보는 생쥐가 된 기분이었어요.' },
         { beat: 4, en: 'Suddenly, a young painter burst in and cried, "I did it! I am the killer!"', ko: '그때 갑자기 젊은 페인트공이 뛰어 들어와 외쳤어요. "제가 그랬어요! 제가 범인이에요!"', bubble: { speaker: 'Painter', text: 'I did it!' } },
