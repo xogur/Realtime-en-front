@@ -20,6 +20,8 @@ import { isTranslatorWindowMessage, TRANSLATOR_WINDOW_MESSAGE } from '@/lib/tran
 import { getKioskIdFromLocation } from '@/lib/kioskIdentity';
 import { publishStoryControl, subscribeStoryControl } from '@/features/storyListening/control';
 import { StoryAvatarMode } from '@/features/storyListening/StoryAvatarMode';
+import { LessonTalkMode } from '@/features/lessonTalk/LessonTalkMode';
+import { LESSON_TALK_ENABLED } from '@/features/lessonTalk/config';
 // import { LearningExperience } from '@/features/learning/LearningExperience';
 // import { buildKioskUrl } from '@/lib/kioskIdentity';
 
@@ -57,6 +59,7 @@ export function ControlPanel({
         prepareGuidedMicrophone,
         syncGuidedCapture,
         sendStoryCheck,
+        sendLessonTalk,
         setStoryMicrophone,
         stopAvatarSpeech,
         // 학습하기 UI를 다시 노출할 때 함께 복구합니다.
@@ -75,7 +78,9 @@ export function ControlPanel({
     const [entryStep, setEntryStep] = useState<'mode' | null>(null);
     const [modeError, setModeError] = useState<string | null>(null);
     const [learningRetryKey, setLearningRetryKey] = useState(0);
-    const learningAvailability = useMissionLearningAvailability(learningRetryKey);
+    const missionAvailability = useMissionLearningAvailability(learningRetryKey);
+    // With lesson talk the avatar teaches by itself; the guided /chat lesson service is not needed.
+    const learningAvailability = LESSON_TALK_ENABLED ? 'available' : missionAvailability;
     const missionEntry = useMissionLearningStore((state) => state.entry);
     const guidedSnapshot = useGuidedLearningStore((state) => state.snapshot);
     const learningEntryActive = Boolean(missionEntry?.open || (guidedSnapshot && !isGuidedTerminal(guidedSnapshot)));
@@ -83,13 +88,16 @@ export function ControlPanel({
     // The avatar tells the story and asks about it; the guide display (/chat) only mirrors the scene.
     const storyOpenRef = useRef(false);
     const [storyOpen, setStoryOpen] = useState(false);
+    // Learning as a spoken lesson with the avatar (lesson talk); /chat only mirrors it.
+    const [lessonOpen, setLessonOpen] = useState(false);
+    const pendingFreeTalkRef = useRef<{ topicId: TopicId; difficultyId: DifficultyId } | null>(null);
     useMissionRoleplayVoice({
-        enabled: learningAvailability === 'available',
+        enabled: missionAvailability === 'available',
         startLearningRoleplay,
         startListening,
         stopListening,
     });
-    useGuidedLessonVoice({ enabled: learningAvailability === 'available', connected: isConnected,
+    useGuidedLessonVoice({ enabled: missionAvailability === 'available', connected: isConnected,
         startVoice: startGuidedLearningVoice, syncCapture: syncGuidedCapture });
 
     // The avatar screen must stay connected while learning runs on the guide screen,
@@ -98,7 +106,7 @@ export function ControlPanel({
         if (!isConnected) connect({ role: 'controller', startRecording: false });
     }, [connect, isConnected]);
     useEffect(() => {
-        if (learningAvailability !== 'available' || isConnected) return;
+        if (missionAvailability !== 'available' || isConnected) return;
         let cancelled = false;
         getMissionHome()
             .then((home) => {
@@ -108,7 +116,7 @@ export function ControlPanel({
         return () => {
             cancelled = true;
         };
-    }, [connectForLearning, isConnected, learningAvailability]);
+    }, [connectForLearning, isConnected, missionAvailability]);
     const [isEndDialogOpen, setIsEndDialogOpen] = useState(false);
     // const [isLearningOpen, setIsLearningOpen] = useState(false);
     const [isEndingUsage, setIsEndingUsage] = useState(false);
@@ -176,6 +184,15 @@ export function ControlPanel({
             setStoryOpen(false);
             void publishStoryControl({ action: 'close' }, getKioskIdFromLocation());
         }
+        if (mode === 'learning' && LESSON_TALK_ENABLED) {
+            // The avatar runs the lesson; its server microphone opens once the first line is spoken.
+            preparedInput?.getTracks().forEach(track => track.stop());
+            pauseConversationForUsageEnd();
+            setEntryStep(null);
+            setLessonOpen(true);
+            if (!isConnected) connect({ role: 'controller', startRecording: false });
+            return;
+        }
         if (mode === 'learning') {
             if (learningAvailability !== 'available') {
                 preparedInput?.getTracks().forEach(track => track.stop());
@@ -196,6 +213,31 @@ export function ControlPanel({
         setEntryStep(null);
         setIsTopicSelectorOpen(true);
     }, [connect, connectForLearning, isConnected, isRecording, learningAvailability, pauseConversationForUsageEnd, prepareGuidedMicrophone, stopListening]);
+
+    const exitLesson = useCallback(() => {
+        setLessonOpen(false);
+        setEntryStep('mode');
+    }, []);
+
+    const lessonToFreeTalk = useCallback((topicId: string, difficultyId: string) => {
+        const topic = getConversationTopic(topicId as TopicId);
+        const difficulty = getConversationDifficulty(difficultyId as DifficultyId);
+        setLessonOpen(false);
+        if (topic && difficulty) {
+            // Started after the lesson closed its microphone (see the effect below).
+            pendingFreeTalkRef.current = { topicId: topic.id, difficultyId: difficulty.id };
+        } else {
+            setIsTopicSelectorOpen(true);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (lessonOpen || !pendingFreeTalkRef.current) return;
+        const next = pendingFreeTalkRef.current;
+        pendingFreeTalkRef.current = null;
+        const timer = window.setTimeout(() => startConversation(next.topicId, next.difficultyId), 0);
+        return () => window.clearTimeout(timer);
+    }, [lessonOpen, startConversation]);
 
     const exitStory = useCallback(() => {
         storyOpenRef.current = false;
@@ -374,6 +416,7 @@ export function ControlPanel({
     }, [closeConversationEntry, isRecording, startListening, stopListening]);
 
     const storyActive = storyOpen && !learningEntryActive;
+    const lessonActive = lessonOpen && !learningEntryActive && !storyActive;
 
     return (
         <>
@@ -387,7 +430,18 @@ export function ControlPanel({
                 onExit={exitStory}
             />
         ) : null}
-        {storyActive ? null : (
+        {lessonActive ? (
+            <LessonTalkMode
+                kioskId={getKioskIdFromLocation()}
+                isConnected={isConnected}
+                sendLessonTalk={sendLessonTalk}
+                setMicrophone={setStoryMicrophone}
+                stopAvatarSpeech={stopAvatarSpeech}
+                onExit={exitLesson}
+                onFreeTalk={lessonToFreeTalk}
+            />
+        ) : null}
+        {storyActive || lessonActive ? null : (
         <motion.div
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}

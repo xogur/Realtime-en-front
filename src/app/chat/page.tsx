@@ -26,6 +26,8 @@ import { MISSION_LEARNING_ENABLED } from '@/features/missionLearning/config';
 import { isTerminalSnapshot, useMissionLearningStore } from '@/features/missionLearning/store';
 import { StoryStageViewer } from '@/features/storyListening/StoryStageViewer';
 import { subscribeStoryControl, type StoryView } from '@/features/storyListening/control';
+import { LessonTalkViewer } from '@/features/lessonTalk/LessonTalkViewer';
+import { subscribeLessonControl, type LessonView } from '@/features/lessonTalk/control';
 // import { LearningExperience } from '@/features/learning/LearningExperience';
 
 const RECONNECT_INTERVAL_MS = 2000;
@@ -57,6 +59,12 @@ export default function ChatPopout() {
     const [story, setStory] = useState<{ storyId: string | null; view: StoryView | null } | null>(null);
     useEffect(() => subscribeStoryControl(getKioskIdFromLocation(), (state) => {
         setStory(state.action === 'open' ? { storyId: state.storyId, view: state.view } : null);
+    }), []);
+
+    // Lesson talk runs on the avatar screen; this screen only mirrors what is being taught.
+    const [lessonView, setLessonView] = useState<{ view: LessonView | null } | null>(null);
+    useEffect(() => subscribeLessonControl(getKioskIdFromLocation(), (state) => {
+        setLessonView(state.action === 'open' ? { view: state.view } : null);
     }), []);
 
     useEffect(() => {
@@ -213,6 +221,9 @@ export default function ChatPopout() {
         />
         {story && !learningOpen && !reservationIntro.active && !reservationFollowup.locked ? (
             <StoryStageViewer storyId={story.storyId} view={story.view} />
+        ) : null}
+        {lessonView && !story && !learningOpen && !reservationIntro.active && !reservationFollowup.locked ? (
+            <LessonTalkViewer view={lessonView.view} />
         ) : null}
         </>
     );

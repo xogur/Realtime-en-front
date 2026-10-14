@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 
 import type { MissionLearningAvailability } from '@/features/missionLearning/useMissionLearningAvailability';
 import { useVoiceModeSelection } from './useVoiceModeSelection';
+import { LESSON_TALK_ENABLED } from '@/features/lessonTalk/config';
 
 export type ConversationMode = 'free_talk' | 'learning' | 'story';
 
@@ -106,7 +107,7 @@ export function ModeSelector({
           />
           <ModeCard
             label="학습모드"
-            description="상황 미션으로 표현을 배우고 바로 써봐요."
+            description={LESSON_TALK_ENABLED ? 'AI 선생님과 말로 주고받으며 표현을 배워요.' : '상황 미션으로 표현을 배우고 바로 써봐요.'}
             icon={<GraduationCap className="h-7 w-7" strokeWidth={1.8} />}
             emphasis
             disabled={!learningReady}

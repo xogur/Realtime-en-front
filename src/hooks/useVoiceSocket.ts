@@ -32,6 +32,7 @@ import { parseMissionEntry, useMissionLearningStore } from '@/features/missionLe
 import type { MissionSnapshot } from '@/features/missionLearning/types';
 import { isGuidedTerminal, useGuidedLearningStore } from '@/features/missionLearning/guided/store';
 import { useStoryCheckStore } from '@/features/storyListening/storyCheck';
+import { useLessonTalkStore } from '@/features/lessonTalk/lessonTalk';
 import type { SttStartOptions } from './useSttAdapter';
 
 const EVALUATION_BATCH_DELAY_SECONDS = 30;
@@ -118,6 +119,7 @@ type SocketMessage = {
   createdAt?: string;
   isOpening?: boolean;
   storyCheckId?: string;
+  lessonTalkId?: string;
   segments?: TopicSegment[];
   lessonSessionId?: string;
   snapshot?: LearningSnapshot;
@@ -1254,7 +1256,7 @@ export function useVoiceSocket() {
       useStore.getState().setThinking(false);
       useStore.getState().setEmotion(emotion);
       // Story check questions are shown on their own card, not as a chat bubble.
-      if (data.storyCheckId === undefined) useStore.getState().setPartialMessage(displayMessage);
+      if (data.storyCheckId === undefined && data.lessonTalkId === undefined) useStore.getState().setPartialMessage(displayMessage);
     },
     [bindActiveGenerationToPendingUser, canAcceptGuidedRoleEvent, getGenerationId, isCurrentGeneration],
   );
@@ -1272,7 +1274,7 @@ export function useVoiceSocket() {
       const turnId = getTurnId(data) ?? undefined;
       // Guided ROLE lines belong to the lesson screen; keeping them out of the
       // chat timeline stops them from reappearing after the free-talk handoff.
-      if (data.guidedSessionId === undefined && data.storyCheckId === undefined) addMessage(
+      if (data.guidedSessionId === undefined && data.storyCheckId === undefined && data.lessonTalkId === undefined) addMessage(
         'assistant',
         formatAssistantDisplayMessage(displayMessage, data.korean_content),
         turnId,
@@ -2029,6 +2031,28 @@ export function useVoiceSocket() {
             break;
           case 'story_check_paused':
             break;
+          case 'lesson_talk_turn':
+          case 'lesson_talk_end':
+            if (roleRef.current !== 'controller') break;
+            // A new turn: drop what is left of the last one and accept the next scripted generation.
+            if (useLessonTalkStore.getState().receive(data.type, data as unknown as Record<string, unknown>)) {
+              activeGenerationIdRef.current = null;
+              flushActiveTts();
+            }
+            break;
+          case 'lesson_talk_line':
+            // The next line of the same turn is a new generation: accept its audio without a flush.
+            if (roleRef.current === 'controller' && useLessonTalkStore.getState().isCurrentLine(data as unknown as Record<string, unknown>)) {
+              activeGenerationIdRef.current = null;
+            }
+            break;
+          case 'lesson_talk_speech_done':
+          case 'lesson_talk_error':
+          case 'lesson_talk_partial':
+          case 'lesson_talk_heard':
+          case 'lesson_talk_paused':
+            if (roleRef.current === 'controller') useLessonTalkStore.getState().receive(data.type, data as unknown as Record<string, unknown>);
+            break;
           case 'conversation_start_error':
             pendingTopicStartRef.current = null;
             setConversationStartStatus(
@@ -2132,7 +2156,7 @@ export function useVoiceSocket() {
           case 'final_assistant_answer':
             handleFinalAssistantAnswer(data);
             // Story check lines have no learner turn, so their poll would never finish.
-            if (data.guidedSessionId === undefined && data.storyCheckId === undefined) {
+            if (data.guidedSessionId === undefined && data.storyCheckId === undefined && data.lessonTalkId === undefined) {
               scheduleSupplementaryPolling(getGenerationId(data), getTurnId(data));
             }
             break;
@@ -2651,6 +2675,14 @@ export function useVoiceSocket() {
     return true;
   }, []);
 
+  /** Sends one lesson talk message (lesson_talk_*); false when the socket is not open. */
+  const sendLessonTalk = useCallback((message: Record<string, unknown>) => {
+    if (typeof message.type !== 'string' || !message.type.startsWith('lesson_talk_')) return false;
+    if (socketRef.current?.readyState !== WebSocket.OPEN) return false;
+    socketRef.current.send(JSON.stringify(message));
+    return true;
+  }, []);
+
   /** Keeps the server microphone open for a story quiz; answers count only while the server is armed. */
   const setStoryMicrophone = useCallback((on: boolean) => {
     if (on) startListening();
@@ -2755,6 +2787,7 @@ export function useVoiceSocket() {
     startConversation,
     resumeConversation,
     sendStoryCheck,
+    sendLessonTalk,
     setStoryMicrophone,
     stopAvatarSpeech,
     stopListening,
