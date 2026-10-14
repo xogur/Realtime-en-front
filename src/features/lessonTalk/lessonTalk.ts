@@ -14,7 +14,16 @@ export type LessonProgress = {
   lessonId: string; titleKo: string; topicId: string; level: 'beginner' | 'intermediate' | 'advanced';
   turnIndex: number; turnTotal: number; expressionEn: string;
 };
-export type LessonDisplay = { en?: string; ko?: string; model?: string; hintKo?: string; frame?: string };
+export type LessonWord = { en: string; ko: string };
+export type LessonDisplay = {
+  en?: string; ko?: string; model?: string; hintKo?: string; frame?: string;
+  /** What to say next ("고맙다고 말해 봐."). */
+  guideKo?: string;
+  /** How the expression is used (beginners). */
+  howKo?: string;
+  /** Words the learner can use, with their meaning. */
+  words?: LessonWord[];
+};
 export type LessonStage = 'level' | 'topic' | 'warmup' | 'turn' | 'next' | 'end';
 export type LessonNext = 'LESSON' | 'FREE_TALK' | 'END';
 
@@ -103,8 +112,14 @@ function parseDisplay(value: unknown): LessonDisplay | null {
   const display = record(value);
   if (!display) return null;
   const result: LessonDisplay = {};
-  for (const key of ['en', 'ko', 'model', 'hintKo', 'frame'] as const) {
+  for (const key of ['en', 'ko', 'model', 'hintKo', 'frame', 'guideKo', 'howKo'] as const) {
     if (isText(display[key]) && display[key]) result[key] = display[key] as string;
+  }
+  if (Array.isArray(display.words)) {
+    const words = display.words.slice(0, 6).map(record)
+      .filter((word): word is Record<string, unknown> => Boolean(word && isText(word.en) && isText(word.ko) && word.en && word.ko))
+      .map((word) => ({ en: word.en as string, ko: word.ko as string }));
+    if (words.length) result.words = words;
   }
   return result;
 }

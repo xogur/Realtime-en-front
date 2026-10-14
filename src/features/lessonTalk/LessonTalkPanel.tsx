@@ -38,7 +38,8 @@ export function LessonTalkPanel({ lesson, onExit }: { lesson: LessonTalk; onExit
   // The avatar's current English line (the role line, else the model) and its Korean meaning.
   const shown = turn ? [...turn.lines].reverse().find((line) => line.lang === 'en' && line.role !== 'coach') : undefined;
   const lineEn = turn?.display?.en && turn.stage !== 'warmup' ? turn.display.en : shown?.text ?? '';
-  const lineKo = shown?.subtitleKo ?? (turn?.stage === 'turn' ? turn.display?.ko ?? '' : '');
+  const lineKo = shown?.subtitleKo ?? (turn?.stage === 'turn' || turn?.stage === 'warmup' ? turn.display?.ko ?? '' : '');
+  const display = turn?.stage === 'turn' ? turn.display : null;
   // Setup and wrap-up questions are Korean only: show the avatar's last Korean line instead.
   const questionKo = !lineEn && turn ? turn.lines.filter((line) => line.lang === 'ko').map((line) => line.text).join(' ') : '';
   const choices = turn?.expect.kind === 'choice' ? turn.expect.choices ?? [] : turn?.expect.choices ?? [];
@@ -76,8 +77,26 @@ export function LessonTalkPanel({ lesson, onExit }: { lesson: LessonTalk; onExit
             {lineEn ? <p lang="en" className="text-3xl font-black leading-snug">{lineEn}</p> : null}
             {questionKo ? <p lang="ko" className="text-2xl font-black leading-snug">{questionKo}</p> : null}
             {lineKo ? <p lang="ko" className="mt-1 text-lg font-bold leading-snug text-white/80">{lineKo}</p> : null}
-            {turn?.display?.frame && turn.stage === 'turn' ? (
-              <p lang="en" className="mt-3 rounded-2xl bg-amber-300/20 px-4 py-2 text-xl font-black text-amber-100">{turn.display.frame}</p>
+            {display?.guideKo && choices.length === 0 && !display.model ? (
+              <div className="mt-3 rounded-2xl bg-sky-300/20 px-4 py-2">
+                <p className="text-base font-bold text-sky-200">이렇게 말해 봐요</p>
+                <p lang="ko" className="text-xl font-black text-sky-50">{display.guideKo}</p>
+              </div>
+            ) : null}
+            {display?.frame ? (
+              <div className="mt-3 rounded-2xl bg-amber-300/20 px-4 py-2">
+                <p lang="en" className="text-xl font-black text-amber-100">{display.frame}</p>
+                {display.howKo ? <p className="mt-0.5 text-base font-bold text-amber-50/85">{display.howKo}</p> : null}
+              </div>
+            ) : null}
+            {display?.words && choices.length === 0 ? (
+              <ul aria-label="쓸 수 있는 단어" className="mt-3 flex flex-wrap gap-2">
+                {display.words.map((word) => (
+                  <li key={word.en} className="rounded-full bg-white/15 px-3 py-1 text-base font-bold">
+                    <span lang="en" className="font-black">{word.en}</span><span className="ml-1.5 text-white/75">{word.ko}</span>
+                  </li>
+                ))}
+              </ul>
             ) : null}
             {turn?.display?.model && turn.stage === 'turn' && choices.length === 0 ? (
               <p className="mt-3 rounded-2xl bg-emerald-300/20 px-4 py-2 text-xl font-black text-emerald-50">

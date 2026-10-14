@@ -14,6 +14,17 @@ describe('lesson talk messages', () => {
     expect(turn?.end).toBeNull();
   });
 
+  it('parses the guide, how-to and word list a beginner sees', () => {
+    const turn = parseLessonTurn({ ...TURN, display: {
+      en: 'Here you are.', guideKo: '고맙다고 말해 봐.', howKo: '뭔가 받으면 Thank you라고 해.', frame: 'Thank ___.',
+      words: [{ en: 'soup', ko: '수프' }, { en: 'tea' }, 'x', { en: 'juice', ko: '주스' }],
+    } });
+    expect(turn?.display).toEqual({
+      en: 'Here you are.', guideKo: '고맙다고 말해 봐.', howKo: '뭔가 받으면 Thank you라고 해.', frame: 'Thank ___.',
+      words: [{ en: 'soup', ko: '수프' }, { en: 'juice', ko: '주스' }],
+    });
+  });
+
   it('accepts setup turns with empty progress and choices for touch', () => {
     const turn = parseLessonTurn({
       talkId: 'talk-test01', seq: 1, stage: 'level', lines: [{ lang: 'ko', text: '처음이야?', role: 'coach' }],
