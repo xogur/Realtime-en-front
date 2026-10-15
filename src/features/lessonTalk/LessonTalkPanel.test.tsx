@@ -28,6 +28,15 @@ describe('LessonTalkPanel', () => {
     expect(screen.getByRole('list', { name: '쓸 수 있는 단어' }).textContent).toBe('soup수프pasta파스타');
   });
 
+  it('marks the avatar line and the learner answer apart so the question is not read back', () => {
+    render(<LessonTalkPanel onExit={vi.fn()} lesson={lessonWith({
+      en: 'Front desk. How can I help you?', guideKo: '방에 있는 물건이 고장 났다고 말해 봐.',
+      frame: "The ___ in my room isn't working.", words: [{ en: 'TV', ko: '텔레비전' }, { en: 'light', ko: '전등' }],
+    })} />);
+    expect(screen.getByText('AI 선생님이 하는 말')).toBeTruthy();
+    expect(screen.getByText('내 대답 · 위 말에 이렇게 대답해요')).toBeTruthy();
+  });
+
   it('shows only the sentence to repeat when the avatar models it', () => {
     render(<LessonTalkPanel onExit={vi.fn()} lesson={lessonWith({
       en: 'What do you need?', guideKo: '필요한 걸 공손하게 부탁해 봐.', model: 'Can I have soup, please?',
@@ -35,5 +44,6 @@ describe('LessonTalkPanel', () => {
     })} />);
     expect(screen.getByText('Can I have soup, please?')).toBeTruthy();
     expect(screen.queryByText('이렇게 말해 봐요')).toBeNull();
+    expect(screen.queryByText('내 대답 · 위 말에 이렇게 대답해요')).toBeNull();
   });
 });

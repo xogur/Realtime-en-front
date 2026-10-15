@@ -44,6 +44,9 @@ export function LessonTalkPanel({ lesson, onExit }: { lesson: LessonTalk; onExit
   const questionKo = !lineEn && turn ? turn.lines.filter((line) => line.lang === 'ko').map((line) => line.text).join(' ') : '';
   const choices = turn?.expect.kind === 'choice' ? turn.expect.choices ?? [] : turn?.expect.choices ?? [];
   const listening = status === 'listening' || status === 'hearing';
+  // Role-play: the big English line is the avatar's; learners read it aloud when that is unclear.
+  const rolePlay = turn?.stage === 'turn' && Boolean(lineEn);
+  const answerHelp = Boolean(display && choices.length === 0 && !display.model && (display.guideKo || display.frame || display.words));
 
   return (
     <>
@@ -74,11 +77,15 @@ export function LessonTalkPanel({ lesson, onExit }: { lesson: LessonTalk; onExit
           </section>
         ) : (
           <section aria-live="polite" className={`${glass} w-full max-w-2xl p-6`}>
+            {rolePlay ? <p className="mb-1 text-base font-black text-white/70">AI 선생님이 하는 말</p> : null}
             {lineEn ? <p lang="en" className="text-3xl font-black leading-snug">{lineEn}</p> : null}
             {questionKo ? <p lang="ko" className="text-2xl font-black leading-snug">{questionKo}</p> : null}
             {lineKo ? <p lang="ko" className="mt-1 text-lg font-bold leading-snug text-white/80">{lineKo}</p> : null}
+            {rolePlay && answerHelp ? (
+              <p className="mt-4 border-t border-white/15 pt-3 text-base font-black text-emerald-200">내 대답 · 위 말에 이렇게 대답해요</p>
+            ) : null}
             {display?.guideKo && choices.length === 0 && !display.model ? (
-              <div className="mt-3 rounded-2xl bg-sky-300/20 px-4 py-2">
+              <div className={`${rolePlay && answerHelp ? 'mt-2' : 'mt-3'} rounded-2xl bg-sky-300/20 px-4 py-2`}>
                 <p className="text-base font-bold text-sky-200">이렇게 말해 봐요</p>
                 <p lang="ko" className="text-xl font-black text-sky-50">{display.guideKo}</p>
               </div>
