@@ -39,6 +39,8 @@ describe('participant name speech parsing', () => {
     ['권태혁입니다', '권태혁'],
     ['권태혁이에요', '권태혁'],
     ['지수예요', '지수'],
+    ['김민수에요', '김민수'], ['제 이름은 김민수에요', '김민수'], ['저는 서연이에요', '서연'],
+    ['남 국민', '남국민'], ['정 보람이에요', '정보람'], ['엄지민이에요. 굳이 희원 지배를 삼한 제 가는', '엄지민'],
     ['권태혁이요', '권태혁'],
     ['나는 권태혁이야', '권태혁'],
     ['내 이름은 권태혁', '권태혁'],
@@ -52,6 +54,11 @@ describe('participant name speech parsing', () => {
     ['저를 태혁이라고 불러 주세요', '태혁'],
     ['마야', '마야'],
     ['Mary Jane', 'Mary Jane'],
+    ['그러니까 김민수예요', '김민수'],
+    ['음, 저 지수예요', '지수'],
+    ['어 어진이에요', '어진'],
+    ['어진', '어진'],
+    ['음진', '음진'],
   ])('extracts only the name from %s', (spoken, expected) => {
     expect(extractSpokenName(spoken)?.name).toBe(expected);
   });
@@ -61,6 +68,7 @@ describe('participant name speech parsing', () => {
     '그냥 편하게 불러주세요',
     '잘 못 들었어요 다시 말할게요',
     '내 이름은 권태혁이라고 하고 오늘 날씨가 좋아',
+    '네 맞아요', '저 몰라요', '아니요. 다시 할게요.',
   ])('rejects a sentence that is not a name: %s', (spoken) => {
     expect(extractSpokenName(spoken)).toBeNull();
   });

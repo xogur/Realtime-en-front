@@ -4,20 +4,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useVoiceModeSelection } from './useVoiceModeSelection';
 
 type Options = {
+  language?: string;
   onFinalTranscript: (result: { text: string }) => void;
-  onInterimTranscript: (text: string) => void;
   onError: (code: string) => void;
+  hint?: () => string | null;
 };
 const mocks = vi.hoisted(() => ({
   options: null as Options | null,
   prepare: vi.fn(async () => true), start: vi.fn(async () => true),
   takeAudioInput: vi.fn<() => Promise<MediaStream | null>>(async () => null),
-  stop: vi.fn(async () => undefined), speak: vi.fn(async () => true), cancel: vi.fn(),
+  pause: vi.fn(async () => undefined), stop: vi.fn(async () => undefined), speak: vi.fn(async () => true), cancel: vi.fn(),
 }));
-vi.mock('@/hooks/useBrowserStt', () => ({
-  useBrowserStt: (options: Options) => {
+const browserStt = vi.hoisted(() => vi.fn());
+vi.mock('@/hooks/useBrowserStt', () => ({ useBrowserStt: browserStt }));
+vi.mock('@/hooks/useOnboardingStt', () => ({
+  useOnboardingStt: (options: Options) => {
     mocks.options = options;
-    return { prepare: mocks.prepare, takeAudioInput: mocks.takeAudioInput, startAndWaitUntilReady: mocks.start, stop: mocks.stop, isRecording: true };
+    return { prepare: mocks.prepare, takeAudioInput: mocks.takeAudioInput, startAndWaitUntilReady: mocks.start, pause: mocks.pause, stop: mocks.stop, isRecording: true };
   },
 }));
 vi.mock('@/hooks/useBrowserTts', () => ({
@@ -55,11 +58,31 @@ describe('voice mode selection', () => {
     expect(mocks.start).not.toHaveBeenCalled();
     act(() => finish(true));
     await waitFor(() => expect(result.current.status).toBe('listening'));
-    act(() => mocks.options?.onInterimTranscript('학습모드'));
-    expect(onSelect).not.toHaveBeenCalled();
     act(() => mocks.options?.onFinalTranscript({ text: '학습모드 말고 프리토킹' }));
     await waitFor(() => expect(onSelect).toHaveBeenCalledWith('free_talk'));
     expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it('listens with the kiosk Korean STT server, never browser recognition', async () => {
+    const { result } = renderHook(() => useVoiceModeSelection({ enabled: true, learningReady: true, onSelect: vi.fn() }));
+    await waitFor(() => expect(result.current.status).toBe('listening'));
+    expect(mocks.options?.language).toBe('ko');
+    expect(mocks.options?.hint?.()).toBe('mode');
+    expect(browserStt).not.toHaveBeenCalled();
+  });
+
+  it('keeps listening after an empty or busy STT result and falls back to touch when the server fails', async () => {
+    const onSelect = vi.fn();
+    const { result } = renderHook(() => useVoiceModeSelection({ enabled: true, learningReady: true, onSelect }));
+    await waitFor(() => expect(result.current.status).toBe('listening'));
+    act(() => { mocks.options?.onError('STT_NO_RESULT'); mocks.options?.onError('STT_BUSY'); });
+    expect(result.current.status).toBe('listening');
+    act(() => mocks.options?.onFinalTranscript({ text: '음, 3번이요' }));
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith('story'));
+    const second = renderHook(() => useVoiceModeSelection({ enabled: true, learningReady: true, onSelect: vi.fn() }));
+    await waitFor(() => expect(second.result.current.status).toBe('listening'));
+    act(() => mocks.options?.onError('STT_UNAVAILABLE'));
+    expect(second.result.current.status).toBe('unavailable');
   });
 
   it('never selects unavailable learning mode and asks again', async () => {
@@ -71,6 +94,20 @@ describe('voice mode selection', () => {
     expect(onSelect).not.toHaveBeenCalled();
     await act(async () => result.current.select('learning'));
     expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it('stops asking after three misheard answers and leaves touch selection', async () => {
+    const onSelect = vi.fn();
+    const { result } = renderHook(() => useVoiceModeSelection({ enabled: true, learningReady: true, onSelect }));
+    for (let miss = 1; miss <= 3; miss += 1) {
+      await waitFor(() => expect(result.current.status).toBe('listening'));
+      act(() => mocks.options?.onFinalTranscript({ text: '바나나' }));
+    }
+    await waitFor(() => expect(result.current.status).toBe('unavailable'));
+    expect(result.current.error).toContain('잘 알아듣지 못했어요');
+    expect(mocks.speak).toHaveBeenCalledTimes(3);
+    await act(async () => result.current.select('story'));
+    expect(onSelect).toHaveBeenCalledWith('story');
   });
 
   it('allows touch after permission denial without publishing conversation mic state', async () => {

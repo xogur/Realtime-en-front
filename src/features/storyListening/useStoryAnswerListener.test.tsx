@@ -1,23 +1,14 @@
 // @vitest-environment jsdom
 import { act, renderHook } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { useStoryCheckStore } from './storyCheck';
 import { isAvatarEcho, isFillerOnly, useStoryAnswerListener } from './useStoryAnswerListener';
 
-type SttOptions = { onFinalTranscript: (transcript: { text: string }) => void; onInterimTranscript: (text: string) => void };
-const stt = vi.hoisted(() => ({ options: null as null | SttOptions, stop: vi.fn(async () => undefined) }));
-
-vi.mock('@/hooks/useBrowserStt', () => ({
-  useBrowserStt: (options: SttOptions) => {
-    stt.options = options;
-    return { startAndWaitUntilReady: async () => true, stop: stt.stop };
-  },
-}));
+const browserStt = vi.hoisted(() => vi.fn());
+vi.mock('@/hooks/useBrowserStt', () => ({ useBrowserStt: browserStt }));
 
 describe('story answer listener', () => {
-  beforeEach(() => { stt.options = null; stt.stop.mockClear(); });
-
   it('recognises thinking sounds only', () => {
     expect(isFillerOnly('음...')).toBe(true);
     expect(isFillerOnly('어 음')).toBe(true);
@@ -26,22 +17,14 @@ describe('story answer listener', () => {
     expect(isFillerOnly('')).toBe(false);
   });
 
-  it('keeps listening after "음" and sends the real answer, remembering it to show back', async () => {
-    const onAnswer = vi.fn();
-    const { result } = renderHook(() => useStoryAnswerListener({ onAnswer, onUnavailable: vi.fn(), avatarLine: () => '' }));
+  it('without the server STT reports unavailable instead of starting browser recognition', async () => {
+    useStoryCheckStore.getState().clear();
+    const onUnavailable = vi.fn();
+    const { result } = renderHook(() => useStoryAnswerListener({ onAnswer: vi.fn(), onUnavailable, avatarLine: () => '' }));
     await act(async () => { await result.current.listen(); });
-
-    act(() => stt.options!.onFinalTranscript({ text: '음…' }));
-    expect(onAnswer).not.toHaveBeenCalled();
-    expect(stt.stop).not.toHaveBeenCalled();
-    expect(result.current.state).toBe('listening');
-
-    act(() => stt.options!.onFinalTranscript({ text: '영 봤어요' }));
-    expect(onAnswer).toHaveBeenCalledWith('영 봤어요');
-    expect(result.current.answer).toBe('영 봤어요');
-
-    act(() => result.current.forget());
-    expect(result.current.answer).toBe('');
+    expect(onUnavailable).toHaveBeenCalledOnce();
+    expect(result.current.state).toBe('idle');
+    expect(browserStt).not.toHaveBeenCalled();
   });
 
   describe('server STT (Korean Whisper)', () => {
@@ -59,7 +42,7 @@ describe('story answer listener', () => {
       return { ...hook, server, onAnswer, onUnavailable };
     }
 
-    it('arms the server for the prompt and answers with its final, not the browser recognizer', async () => {
+    it('arms the server for the prompt and answers with its final, remembering it to show back', async () => {
       const { result, server, onAnswer } = setup();
       await act(async () => { await result.current.listen(); });
       expect(server.arm).toHaveBeenCalledWith('check-srv0001', 2);
@@ -71,7 +54,8 @@ describe('story answer listener', () => {
       say('story_check_heard', '나무 말 안에요');
       expect(onAnswer).toHaveBeenCalledWith('나무 말 안에요');
       expect(result.current.answer).toBe('나무 말 안에요');
-      expect(stt.stop).not.toHaveBeenCalled();
+      act(() => result.current.forget());
+      expect(result.current.answer).toBe('');
     });
 
     it('re-arms after a thinking sound or the avatar echo and disarms on stop', async () => {

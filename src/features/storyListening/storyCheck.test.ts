@@ -87,4 +87,18 @@ describe('spoken choice', () => {
   it.each(['', '음', '모르겠어', '용 아니면 양', '4번', '이에요'])('"%s" is unclear', (text) => {
     expect(matchSpokenChoice(text, choices)).toBeNull();
   });
+  it.each([
+    ['이번', 1], ['이번이요', 1], ['이 번이요', 1], ['음, 이번이요', 1], ['어 그 2번', 1], ['정답은 삼번', 2],
+    ['둘이요', 1], ['저기 하나요', 0], ['이번엔 2번이요', 1],
+  ])('standalone ordinal "%s" picks %i', (text, index) => {
+    expect(matchSpokenChoice(text, choices)).toBe(index);
+  });
+  it.each([
+    ['이번엔 양이요', 1], ['이번에는 말이요', 2], ['음 이번엔 용이요', 0], ['일단 양이요', 1], ['사실 말이에요', 2],
+  ])('"이번"/"일" used as a word in "%s" does not pick a number (picks %i by content)', (text, index) => {
+    expect(matchSpokenChoice(text, choices)).toBe(index);
+  });
+  it.each(['이번엔 모르겠어', '하나도 모르겠어', '12번'])('"%s" is not a numbered choice', (text) => {
+    expect(matchSpokenChoice(text, choices)).toBeNull();
+  });
 });

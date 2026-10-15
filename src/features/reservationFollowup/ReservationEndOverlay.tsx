@@ -13,6 +13,9 @@ import { BookingSuccessScene } from './BookingTransitionElements';
 import { bookingMotion, type BookingVisualSnapshot } from './bookingMotion';
 import type { DurationMinutes, UsageSession } from './types';
 
+// An unattended end screen must not keep the booth locked for the next visitor.
+export const END_OVERLAY_IDLE_DISMISS_MS = 180_000;
+
 type Props = {
   role: ReservationIntroRole;
   session: UsageSession | null;
@@ -40,8 +43,13 @@ export function ReservationEndOverlay({
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [returnCountdown, setReturnCountdown] = useState<number | null>(null);
   const [bookingSnapshot, setBookingSnapshot] = useState<BookingVisualSnapshot | null>(null);
+  const [idleTick, setIdleTick] = useState(0);
   const reduceMotion = useReducedMotion();
   const followupReservationId = session?.followup?.reservationId;
+  const autoDismissReservationId = role === 'avatar' && session?.status === 'ended'
+    ? session.reservationId
+    : null;
+  const autoDismissKioskId = session?.kioskId;
 
   useEffect(() => {
     setMode('choices');
@@ -95,8 +103,26 @@ export function ReservationEndOverlay({
     };
   }, [followupReservationId, session?.kioskId, session?.reservationId, session?.status]);
 
+  useEffect(() => {
+    if (autoDismissReservationId === null || !autoDismissKioskId) return;
+    const timer = window.setTimeout(() => {
+      const request = onDismiss
+        ? onDismiss()
+        : fetch(`${getReservationSessionApiUrl(autoDismissKioskId)}/dismiss`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reservationId: autoDismissReservationId }),
+        }).then((response) => {
+          if (!response.ok) throw new Error('이용 종료를 저장하지 못했습니다.');
+        });
+      void request.catch(() => setError('이용 종료를 저장하지 못했습니다. 아래 버튼을 눌러 주세요.'));
+    }, END_OVERLAY_IDLE_DISMISS_MS);
+    return () => window.clearTimeout(timer);
+  }, [autoDismissKioskId, autoDismissReservationId, idleTick, onDismiss]);
+
   if (!session || session.status === 'active') return null;
   const isController = role === 'avatar';
+  const noteActivity = () => setIdleTick((value) => value + 1);
 
   const dismiss = async () => {
     setLoading(true);
@@ -133,7 +159,7 @@ export function ReservationEndOverlay({
   };
 
   return (
-    <div className="fixed inset-0 z-[2147483646] flex min-h-[100dvh] items-center justify-center bg-zinc-950/35 p-0 backdrop-blur-[18px] sm:p-6" role="dialog" aria-modal="true" aria-label="예약 이용 종료">
+    <div className="fixed inset-0 z-[2147483646] flex min-h-[100dvh] items-center justify-center bg-zinc-950/35 p-0 backdrop-blur-[18px] sm:p-6" role="dialog" aria-modal="true" aria-label="예약 이용 종료" onPointerDown={noteActivity} onKeyDown={noteActivity}>
       <LayoutGroup id="reservation-followup">
       <motion.section layout transition={reduceMotion ? { duration: 0.01 } : bookingMotion.springSoft} className={`max-h-[100dvh] min-h-[100dvh] w-full overflow-y-auto border border-white/70 bg-[#fbf8f4] px-5 py-6 text-center shadow-[0_30px_110px_rgba(24,24,27,0.3)] sm:min-h-0 sm:max-h-[92dvh] sm:rounded-[2rem] sm:px-12 sm:py-8 ${mode === 'booking' ? 'max-w-6xl' : 'max-w-3xl'}`}>
         <AnimatePresence mode="wait" initial={false}>

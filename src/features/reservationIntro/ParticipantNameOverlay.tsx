@@ -100,6 +100,8 @@ export function ParticipantNameOverlay({
       role="dialog"
       aria-modal="true"
       aria-labelledby="participant-name-title"
+      onPointerDown={capture.noteActivity}
+      onKeyDown={capture.noteActivity}
     >
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
         <motion.div
@@ -240,6 +242,26 @@ export function ParticipantNameOverlay({
           )}
         </section>
 
+        {capture.alternatives.length > 0 && !isWelcome && capture.phase !== 'submitting' ? (
+          <section aria-label="비슷한 이름" className="mt-4 rounded-2xl bg-amber-50 px-5 py-4 text-left ring-1 ring-amber-100">
+            <h3 className="text-sm font-extrabold text-amber-900">혹시 이 이름인가요? 눌러서 고를 수 있어요</h3>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {capture.alternatives.map((name) => (
+                <motion.button
+                  key={name}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void capture.chooseAlternative(name)}
+                  className="rounded-full border border-amber-300 bg-white px-5 py-2.5 text-lg font-black text-zinc-900 hover:bg-amber-100 disabled:opacity-45"
+                  whileTap={reduceMotion ? undefined : { scale: 0.97 }}
+                >
+                  {name}
+                </motion.button>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         {!isWelcome && capture.phase !== 'submitting' ? (
         <div className="mt-7 rounded-2xl bg-white p-4 ring-1 ring-zinc-200">
           <label className="block text-left text-sm font-extrabold text-zinc-600" htmlFor="participant-name-input">
@@ -250,7 +272,7 @@ export function ParticipantNameOverlay({
               id="participant-name-input"
               value={typedName}
               maxLength={30}
-              onChange={(event) => { setTypedName(event.target.value); setTypedError(null); }}
+              onChange={(event) => { setTypedName(event.target.value); setTypedError(null); capture.noteActivity(); }}
               placeholder="이름 또는 닉네임"
               className="min-w-0 flex-1 rounded-xl border border-zinc-300 px-4 py-3 text-lg font-bold text-zinc-900 outline-none focus:border-blue-500"
             />
@@ -296,6 +318,14 @@ export function ParticipantNameOverlay({
             className="inline-flex items-center gap-2 rounded-full border border-zinc-300 bg-white px-6 py-3.5 text-lg font-extrabold text-zinc-800 transition hover:bg-zinc-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
           >
             <RotateCcw className="h-5 w-5" aria-hidden="true" /> 다시 시도
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void capture.skip('user_skipped')}
+            className="rounded-full border border-zinc-300 bg-white px-6 py-3.5 text-lg font-extrabold text-zinc-600 transition hover:bg-zinc-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            이름 없이 시작
           </button>
         </div>
         ) : null}

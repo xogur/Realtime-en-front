@@ -16,6 +16,14 @@ const DETECTION_INTERVAL_MS = 250;
 const MAX_CONSECUTIVE_DETECTION_FAILURES = 3;
 const FROZEN_VIDEO_TIMEOUT_MS = 2_000;
 const DETECTOR_AUTO_RETRY_MS = 3_000;
+const DETECTOR_START_RETRY_MAX_MS = 30_000;
+
+// A camera that is late to enumerate, busy or not yet permitted must not leave
+// the detector unavailable for the whole reservation. Back off up to 30 s.
+export function presenceDetectorStartRetryDelayMs(failureCount: number) {
+  const exponent = Math.max(0, Math.floor(failureCount) - 1);
+  return Math.min(DETECTOR_AUTO_RETRY_MS * (2 ** exponent), DETECTOR_START_RETRY_MAX_MS);
+}
 
 const EMPTY_EVIDENCE: PresenceEvidenceSummary = {
   confirmed: false,
@@ -31,6 +39,7 @@ export function usePresenceDetector(enabled: boolean) {
   const [status, setStatus] = useState<PresenceStatus>(enabled ? 'starting' : 'disabled');
   const [present, setPresent] = useState(false);
   const evidenceRef = useRef<PresenceEvidenceSummary>(EMPTY_EVIDENCE);
+  const startFailureCountRef = useRef(0);
   const [retryToken, setRetryToken] = useState(0);
 
   const retry = useCallback(() => setRetryToken((value) => value + 1), []);
@@ -134,6 +143,7 @@ export function usePresenceDetector(enabled: boolean) {
           stop();
           return;
         }
+        startFailureCountRef.current = 0;
         setStatus('ready');
 
         timer = window.setInterval(() => {
@@ -181,13 +191,20 @@ export function usePresenceDetector(enabled: boolean) {
           }
         }, DETECTION_INTERVAL_MS);
       } catch (error) {
+        stop();
         if (!disposed) {
           console.warn('[presence] unavailable', error);
           setStatus('unavailable');
           setPresent(false);
           evidenceRef.current = EMPTY_EVIDENCE;
+          startFailureCountRef.current += 1;
+          if (retryTimer === null) {
+            retryTimer = window.setTimeout(() => {
+              retryTimer = null;
+              setRetryToken((value) => value + 1);
+            }, presenceDetectorStartRetryDelayMs(startFailureCountRef.current));
+          }
         }
-        stop();
       }
     };
 

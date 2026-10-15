@@ -138,6 +138,8 @@ export function TopicSelector({
   const voiceLabel = voiceSelection.error ? '터치로 선택'
     : voiceSelection.phase === 'starting' ? '선택 완료'
     : listening ? '지금 말씀하세요'
+    // The kiosk STT returns once per utterance; say so instead of "preparing".
+    : voiceSelection.sttStatus === 'transcribing' ? '알아듣는 중'
     : announcing ? '안내 중' : '마이크 준비 중';
 
   return (

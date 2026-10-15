@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useBrowserStt } from '@/hooks/useBrowserStt';
 import { useBrowserTts } from '@/hooks/useBrowserTts';
+import { useOnboardingStt } from '@/hooks/useOnboardingStt';
 import type { DifficultyId } from '@/lib/conversationDifficulties';
 import type { TopicId } from '@/lib/conversationTopics';
 import { parseSpokenConversationSelection } from './voiceTopicSelection';
@@ -13,6 +13,8 @@ export type VoiceTopicSelectionPhase =
 
 const DIFFICULTY_PROMPT = '안내가 끝나면 초급, 중급, 고급 또는 화면의 번호를 말씀해 주세요. 터치로도 선택할 수 있어요.';
 const TOPIC_PROMPT = '안내가 끝나면 화면의 주제 이름이나 번호를 말씀해 주세요. 터치로도 선택할 수 있어요.';
+// Misheard answers per step before voice gives way to touch instead of asking again.
+const VOICE_SELECTION_MAX_MISSES = 3;
 
 type Props = {
   enabled: boolean;
@@ -23,6 +25,7 @@ type Props = {
 type SttControls = {
   prepare: () => Promise<boolean>;
   startAndWaitUntilReady: (timeoutMs?: number) => Promise<boolean>;
+  pause: () => Promise<void>;
   stop: () => Promise<void>;
 };
 
@@ -39,9 +42,9 @@ export function useVoiceTopicSelection({ enabled, onDifficultySelect, onSelect }
   const activeRef = useRef(false);
   const completingRef = useRef(false);
   const generationRef = useRef(0);
+  const missesRef = useRef(0);
   const sttControlsRef = useRef<SttControls | null>(null);
   const finalHandlerRef = useRef<(transcript: { text: string }) => void>(() => undefined);
-  const interimHandlerRef = useRef<(transcript: string) => void>(() => undefined);
   const callbacksRef = useRef({ onDifficultySelect, onSelect });
   const { speak, cancel, isSpeaking } = useBrowserTts('topic-selector');
 
@@ -63,24 +66,25 @@ export function useVoiceTopicSelection({ enabled, onDifficultySelect, onSelect }
     void sttControlsRef.current?.stop();
     setError(code === 'MICROPHONE_DENIED'
       ? '마이크 권한이 없어 음성 선택을 사용할 수 없어요. 화면을 터치해 선택해 주세요.'
-      : '음성 선택을 사용할 수 없어요. 화면을 터치해 선택해 주세요.');
+      : code === 'VOICE_MISSES'
+        ? '음성을 잘 알아듣지 못했어요. 화면을 터치해 선택해 주세요.'
+        : '음성 선택을 사용할 수 없어요. 화면을 터치해 선택해 주세요.');
     updatePhase('unavailable');
   }, [cancel, updatePhase]);
 
-  const stt = useBrowserStt({
-    language: 'ko-KR',
-    publishRecordingState: false,
+  // The kiosk's own Korean STT server: one final transcript per utterance, no
+  // interim text. An empty or busy result keeps listening.
+  const stt = useOnboardingStt({
+    language: 'ko',
+    hint: () => (phaseRef.current === 'topic' ? 'topic' : phaseRef.current === 'difficulty' ? 'difficulty' : null),
     onFinalTranscript: (transcript) => finalHandlerRef.current(transcript),
-    onInterimTranscript: (transcript) => interimHandlerRef.current(transcript),
     onReadyChange: () => undefined,
     onError: (code) => {
       if (!activeRef.current) return;
-      if (['MICROPHONE_DENIED', 'MICROPHONE_UNAVAILABLE', 'BROWSER_STT_UNSUPPORTED', 'STT_UNAVAILABLE'].includes(code)) {
+      if (['MICROPHONE_DENIED', 'MICROPHONE_UNAVAILABLE', 'STT_UNAVAILABLE'].includes(code)) {
         failToTouch(code);
       }
     },
-    onUnavailable: () => { if (activeRef.current) failToTouch(); },
-    onSpeechStarted: () => undefined,
     getPlaybackState: () => ({ isPlaying: isSpeaking, text: promptTextRef.current }),
   });
 
@@ -88,9 +92,10 @@ export function useVoiceTopicSelection({ enabled, onDifficultySelect, onSelect }
     sttControlsRef.current = {
       prepare: stt.prepare,
       startAndWaitUntilReady: stt.startAndWaitUntilReady,
+      pause: stt.pause,
       stop: stt.stop,
     };
-  }, [stt.prepare, stt.startAndWaitUntilReady, stt.stop]);
+  }, [stt.prepare, stt.startAndWaitUntilReady, stt.pause, stt.stop]);
 
   const announce = useCallback(async (text: string) => {
     const generation = ++generationRef.current;
@@ -100,9 +105,10 @@ export function useVoiceTopicSelection({ enabled, onDifficultySelect, onSelect }
     setPromptStatus('preparing');
     promptTextRef.current = text;
     cancel();
-    await sttControlsRef.current?.stop();
+    // Keep the microphone open across prompts; only listening stops.
+    await sttControlsRef.current?.pause();
     if (!current()) return;
-    // Acquiring microphone permission does not start SpeechRecognition.
+    // Acquiring the microphone does not start capture.
     const prepared = await sttControlsRef.current?.prepare();
     if (!current()) return;
     if (!prepared) { failToTouch(); return; }
@@ -153,24 +159,25 @@ export function useVoiceTopicSelection({ enabled, onDifficultySelect, onSelect }
     const generation = generationRef.current + 1;
     generationRef.current = generation;
     difficultyRef.current = difficultyId;
+    missesRef.current = 0;
     callbacksRef.current.onDifficultySelect(difficultyId);
     acceptingRef.current = false;
     setInterim('');
     cancel();
     updatePhase('switching-to-topic');
-    await sttControlsRef.current?.stop();
+    await sttControlsRef.current?.pause();
     if (!activeRef.current || generation !== generationRef.current) return;
     updatePhase('topic');
   }, [cancel, updatePhase]);
 
-  const handleTranscript = useCallback((text: string, final: boolean) => {
+  const handleTranscript = useCallback((text: string) => {
     if (!activeRef.current || completingRef.current || !acceptingRef.current) return;
     setInterim(text);
     const apply = () => {
       if (!activeRef.current || completingRef.current) return;
       const stage = phaseRef.current;
       const parsed = parseSpokenConversationSelection(text, stage === 'topic' ? 'topic' : 'difficulty');
-      if (final && (stage === 'difficulty' || stage === 'topic')) {
+      if (stage === 'difficulty' || stage === 'topic') {
         setRecognizedSpeech((current) => ({
           ...current, [stage]: text,
           ...(stage === 'difficulty' && parsed.topicId ? { topic: text } : {}),
@@ -181,24 +188,26 @@ export function useVoiceTopicSelection({ enabled, onDifficultySelect, onSelect }
           void finish(parsed.topicId, parsed.difficultyId, true);
         } else if (parsed.difficultyId) {
           void selectDifficulty(parsed.difficultyId);
-        } else if (final) {
+        } else if (++missesRef.current >= VOICE_SELECTION_MAX_MISSES) {
+          failToTouch('VOICE_MISSES');
+        } else {
           void announce('난이도를 잘 듣지 못했어요. 안내가 끝나면 초급, 중급, 고급 중 하나를 말씀해 주세요.');
         }
       } else if (phaseRef.current === 'topic') {
         if (parsed.topicId && difficultyRef.current) {
           void finish(parsed.topicId, difficultyRef.current, true);
-        } else if (final) {
+        } else if (++missesRef.current >= VOICE_SELECTION_MAX_MISSES) {
+          failToTouch('VOICE_MISSES');
+        } else {
           void announce('주제를 잘 듣지 못했어요. 안내가 끝나면 음식점, 공항, 여행처럼 원하는 주제를 말씀해 주세요.');
         }
       }
     };
-    if (final) apply();
-    // Interim text is display-only. Never commit before the utterance ends.
-  }, [announce, finish, selectDifficulty]);
+    apply();
+  }, [announce, failToTouch, finish, selectDifficulty]);
 
   useEffect(() => {
-    interimHandlerRef.current = (text) => handleTranscript(text, false);
-    finalHandlerRef.current = (transcript) => handleTranscript(transcript.text.trim(), true);
+    finalHandlerRef.current = (transcript) => handleTranscript(transcript.text.trim());
   }, [handleTranscript]);
 
   const stop = useCallback(async () => {
@@ -228,7 +237,7 @@ export function useVoiceTopicSelection({ enabled, onDifficultySelect, onSelect }
     setInterim('');
     cancel();
     updatePhase('preparing-difficulty');
-    await sttControlsRef.current?.stop();
+    await sttControlsRef.current?.pause();
     if (!activeRef.current || generation !== generationRef.current) return;
     updatePhase('difficulty');
   }, [cancel, updatePhase]);
@@ -248,6 +257,7 @@ export function useVoiceTopicSelection({ enabled, onDifficultySelect, onSelect }
     activeRef.current = true;
     acceptingRef.current = false;
     completingRef.current = false;
+    missesRef.current = 0;
     difficultyRef.current = null;
     const generation = generationRef.current + 1;
     generationRef.current = generation;

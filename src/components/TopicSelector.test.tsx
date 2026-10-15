@@ -46,6 +46,13 @@ describe('visible speech recognition', () => {
     expect(mocks.selection.selectDifficulty).toHaveBeenCalledWith('beginner');
   });
 
+  it('says the answer is being recognised while the kiosk STT works', () => {
+    Object.assign(mocks.selection, { isRecording: false, sttStatus: 'transcribing' });
+    render(<TopicSelector isOpen onSelect={vi.fn()} onClose={vi.fn()} />);
+    const timing = screen.getByRole('status', { name: '말할 타이밍' });
+    expect(within(timing).getByText('알아듣는 중')).toBeTruthy();
+  });
+
   it('does not signal a speaking turn during TTS and keeps touch available', () => {
     Object.assign(mocks.selection, { isRecording: false, sttStatus: 'prompting' });
     render(<TopicSelector isOpen onSelect={vi.fn()} onClose={vi.fn()} />);

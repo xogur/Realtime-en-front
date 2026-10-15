@@ -23,6 +23,7 @@ import { ParticipantNameOverlay } from '@/features/reservationIntro/ParticipantN
 import { useReservationFollowup } from '@/features/reservationFollowup/useReservationFollowup';
 import { ReservationEndOverlay } from '@/features/reservationFollowup/ReservationEndOverlay';
 import { PresenceStatusBadge } from '@/features/presence/PresenceStatusBadge';
+import { PresenceTouchFallback } from '@/features/presence/PresenceTouchFallback';
 
 export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -209,6 +210,10 @@ export default function Home() {
     <TranslatorOverlay
       isOpen={isTranslatorOpen}
       onClose={handleCloseTranslator}
+    />
+    <PresenceTouchFallback
+      visible={reservationIntro.touchPresenceAvailable && !reservationFollowup.locked}
+      onStart={reservationIntro.reportTouchPresence}
     />
     <ReservationIntroOverlay
       role="avatar"

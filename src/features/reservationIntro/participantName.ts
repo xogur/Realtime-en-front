@@ -1,3 +1,5 @@
+import { stripKoreanFillers } from '@/lib/koreanFillers';
+
 const INTRODUCTION_PREFIX = /^(?:(?:음|어|저기|안녕하세요)[,\s]*)*(?:(?:제|내|저의)\s*이름(?:은|이|을)?|이름(?:은|이)?|닉네임(?:은|이)?|별명(?:은|이)?|저는|나는|난|전|저를|나를)\s*/;
 const WRAPPING_QUOTES = /^["'“”‘’]+|["'“”‘’]+$/g;
 
@@ -6,8 +8,9 @@ export type SpokenNameExtraction = {
   confidence: 'high' | 'medium';
 };
 
-const LEADING_FILLERS = /^(?:(?:음|어|저기|안녕하세요|그냥)[,\s]*)+/;
-const RESIDUAL_SPEECH = /(?:이름|닉네임|별명|말이야|이?\s*라고|불러|부르면|말해|말할|들었|해\s*줘|해주세요|할게요|좋아요|입니다|이에요|예요)/;
+// Whole words only: "어진" is a name, not "어" + "진".
+const LEADING_FILLERS = /^(?:(?:음|어|저기|안녕하세요|그냥)(?:[,\s]+|$))+/;
+const RESIDUAL_SPEECH = /(?:이름|닉네임|별명|말이야|이?\s*라고|불러|부르면|말해|말할|들었|해\s*줘|해주세요|할게요|좋아요|입니다|이에요|예요|에요|몰라|모르)/;
 
 const SPOKEN_NAME_PATTERNS: RegExp[] = [
   // "내 이름은 권태혁이라고 하고, 아마 그렇게 불러주면 될 거 같아"
@@ -17,20 +20,21 @@ const SPOKEN_NAME_PATTERNS: RegExp[] = [
   // "권태혁이라고 하고 그렇게 불러주면 될 거 같아"
   /^(.+?)\s*(?:이라고|라고)\s*하고[,\s]*(?:(?:아마|그냥)\s*)?(?:(?:그냥|그렇게)\s*)*불러\s*(?:주면|주시면)\s*(?:될\s*(?:거|것)\s*같(?:아|아요)|돼(?:요)?|됩니다)$/,
   // "내 이름 말이야, 권태혁이야", "닉네임은 Sunny라고 해요"
-  /^(?:(?:제|내|저의)\s*)?(?:이름|닉네임|별명)(?:은|이|을)?(?:\s*말이야)?[,\s]+(.+?)(?:\s*(?:이라고|라고)\s*(?:해|해요|합니다|말해요)?)?(?:입니다|이에요|예요|이야|야)?$/,
+  /^(?:(?:제|내|저의)\s*)?(?:이름|닉네임|별명)(?:은|이|을)?(?:\s*말이야)?[,\s]+(.+?)(?:\s*(?:이라고|라고)\s*(?:해|해요|합니다|말해요)?)?(?:입니다|이에요|예요|에요|이야|야)?$/,
   // "나는 권태혁이야"
-  /^(?:저는|나는|난|전)\s+(.+?)(?:입니다|이에요|예요|이야|야)$/,
+  /^(?:저는|나는|난|전)\s+(.+?)(?:입니다|이에요|예요|에요|이야|야)$/,
   // "저를 태혁이라고 불러 주세요", "태혁이라고 부르면 돼"
   /^(?:(?:저|나)를\s+)?(.+?)(?:이라고|라고|으로)\s*(?:불러(?:\s*(?:줘요?|주세요|요))?|부르면\s*(?:돼|돼요|됩니다))$/,
   // "권태혁이라고", "권태혁이라고 해"
   /^(.+?)(?:이라고|라고)(?:\s*(?:해|해요|해줘요?|합니다|말해요))?$/,
-  // "권태혁입니다", "지수예요", "권태혁이요"
-  /^(.+?)(?:입니다|이에요|예요|이요)$/,
+  // "권태혁입니다", "지수예요", "권태혁이요", "김민수에요" (STT often spells 예요 as 에요)
+  /^(.+?)(?:입니다|이에요|예요|에요|이요)$/,
 ];
 
 function normalizeSpeechText(transcript: string) {
-  return transcript
-    .normalize('NFKC')
+  // Leading thinking sounds as separate words ("그러니까 김민수예요"); a name
+  // such as "어진" stays because only whole words are dropped.
+  return stripKoreanFillers(transcript, { leadingOnly: true })
     .replace(/\s+/g, ' ')
     .trim()
     .replace(LEADING_FILLERS, '')
@@ -46,23 +50,43 @@ function cleanNameCandidate(candidate: string) {
     .trim();
 }
 
+// One-syllable words that open a sentence, never a surname spoken on its own.
+const NOT_A_SURNAME = new Set(['네', '예', '응', '어', '음', '아', '저', '제', '난', '전', '그', '내', '너', '뭐', '왜', '또', '좀', '막', '더', '다', '못', '잘', '헐', '흠', '와']);
+
+/** STT splits a surname off a short name ("남 국민", "풍 여름"): join it back. */
+function joinSplitSurname(candidate: string) {
+  const match = candidate.match(/^(\p{Script=Hangul})\s+(\p{Script=Hangul}{1,3})$/u);
+  return match && !NOT_A_SURNAME.has(match[1]) ? match[1] + match[2] : candidate;
+}
+
 function isSafeExtractedCandidate(candidate: string) {
   return isPlausibleSpokenName(candidate) && !RESIDUAL_SPEECH.test(candidate);
+}
+
+function matchNamePattern(normalized: string): SpokenNameExtraction | null | undefined {
+  for (const pattern of SPOKEN_NAME_PATTERNS) {
+    const match = normalized.match(pattern);
+    if (!match) continue;
+    const name = joinSplitSurname(cleanNameCandidate(match[1]));
+    return isSafeExtractedCandidate(name) ? { name, confidence: 'high' } : null;
+  }
+  return undefined;
 }
 
 export function extractSpokenName(transcript: string): SpokenNameExtraction | null {
   const normalized = normalizeSpeechText(transcript);
   if (!normalized) return null;
 
-  for (const pattern of SPOKEN_NAME_PATTERNS) {
-    const match = normalized.match(pattern);
-    if (!match) continue;
-    const name = cleanNameCandidate(match[1]);
-    if (isSafeExtractedCandidate(name)) return { name, confidence: 'high' };
-    return null;
-  }
+  const matched = matchNamePattern(normalized);
+  if (matched) return matched;
+  // STT sometimes adds a made-up sentence after the answer ("엄지민이에요. 굳이 희원…"):
+  // a first sentence that is itself a full introduction still counts.
+  const firstSentence = normalized.match(/^(.+?)[.?!]\s+\S/u)?.[1];
+  const introduced = firstSentence ? matchNamePattern(normalizeSpeechText(firstSentence)) : undefined;
+  if (introduced) return introduced;
+  if (matched === null) return null;
 
-  const bareName = cleanNameCandidate(normalized);
+  const bareName = joinSplitSurname(cleanNameCandidate(normalized));
   if (!isSafeExtractedCandidate(bareName)) return null;
 
   const containsHangul = /[\p{Script=Hangul}]/u.test(bareName);

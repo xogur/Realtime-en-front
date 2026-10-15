@@ -42,6 +42,14 @@ function supportLabel(support: StoryAvatar['support']): string | null {
   return parts.length ? parts.join(' · ') : null;
 }
 
+/** Relisten button text names the picked help so it is clearly tied to that button. */
+export function relistenLabel(choice: StoryAvatar['reviewChoice']): string {
+  const parts = REVIEW_OPTIONS
+    .filter(({ key }) => (key === 'slow' ? choice.speed === 'slow' : choice[key]))
+    .map(({ label }) => label);
+  return parts.length ? `다시 듣기 (${parts.join(' · ')})` : '그대로 다시 듣기';
+}
+
 const STATUS_TEXT: Record<string, string> = {
   starting: 'AI 선생님이 질문을 준비하고 있어요',
   speaking: 'AI 선생님이 묻고 있어요',
@@ -166,20 +174,30 @@ function CheckCard({ avatar }: { avatar: StoryAvatar }) {
       <section aria-live="polite" className={`${glass} w-full max-w-2xl p-6 text-center`}>
         <p className="text-sm font-black text-emerald-300">이번 장 통과!</p>
         <p lang="ko" className="mt-1 text-xl font-black leading-snug">{check.decision?.speechKo ?? '다시 듣기 끝! 다음 장으로 갈까요?'}</p>
-        <div role="group" aria-label="다시 들을 때 도움" className="mt-5 flex flex-wrap justify-center gap-2">
-          {REVIEW_OPTIONS.map(({ key, label }) => {
-            const on = key === 'slow' ? avatar.reviewChoice.speed === 'slow' : avatar.reviewChoice[key];
-            return (
-              <button key={key} type="button" aria-pressed={on} onClick={() => avatar.toggleReview(key)}
-                className={`${toggleChip} ${on ? 'border-amber-300 bg-amber-400 text-zinc-900' : 'border-white/40 bg-white/10 text-white hover:bg-white/20'}`}>
-                {on ? <Check className="h-4 w-4" aria-hidden /> : null}{label}
-              </button>
-            );
-          })}
+        {/* Help options apply only to hearing this chapter again, so they sit inside that box, apart from 다음 장으로. */}
+        <div role="group" aria-labelledby="story-relisten-title" className="mt-5 rounded-2xl border border-white/25 bg-white/5 p-4">
+          <p id="story-relisten-title" className="flex items-center justify-center gap-1.5 text-base font-black">
+            <RotateCcw className="h-4 w-4" aria-hidden />이 장 다시 듣기
+          </p>
+          <p className="mt-0.5 text-sm font-bold text-white/70">켠 도움은 다시 들을 때만 적용돼요</p>
+          <div className="mt-3 flex flex-wrap justify-center gap-2">
+            {REVIEW_OPTIONS.map(({ key, label }) => {
+              const on = key === 'slow' ? avatar.reviewChoice.speed === 'slow' : avatar.reviewChoice[key];
+              return (
+                <button key={key} type="button" aria-pressed={on} onClick={() => avatar.toggleReview(key)}
+                  className={`${toggleChip} ${on ? 'border-amber-300 bg-amber-400 text-zinc-900' : 'border-white/40 bg-white/10 text-white hover:bg-white/20'}`}>
+                  {on ? <Check className="h-4 w-4" aria-hidden /> : null}{label}
+                </button>
+              );
+            })}
+          </div>
+          <button type="button" className={`${ghostPill} mt-3`} onClick={avatar.listenAgain}>
+            <RotateCcw className="h-5 w-5" aria-hidden />{relistenLabel(avatar.reviewChoice)}
+          </button>
         </div>
-        <div className="mt-4 flex flex-wrap justify-center gap-3">
-          <button type="button" className={ghostPill} onClick={avatar.listenAgain}><RotateCcw className="h-5 w-5" aria-hidden />이 장 다시 듣기</button>
+        <div className="mt-4 flex flex-col items-center gap-1">
           <button type="button" className={primaryPill} onClick={avatar.goNext}><SkipForward className="h-5 w-5" aria-hidden />다음 장으로</button>
+          <p className="text-sm font-bold text-white/70">다음 장은 보통 속도, 자막 없이 들려요</p>
         </div>
         <p className="mt-3 text-sm font-bold text-white/70">
           {paused ? '잠깐 멈췄어요' : <>고르지 않으면 <span className="tabular-nums text-base font-black text-white">{avatar.passedLeft}</span>초 뒤 다음 장으로 넘어가요</>}

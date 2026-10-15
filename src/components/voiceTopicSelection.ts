@@ -1,5 +1,6 @@
 import type { DifficultyId } from '@/lib/conversationDifficulties';
 import type { TopicId } from '@/lib/conversationTopics';
+import { stripKoreanFillers } from '@/lib/koreanFillers';
 import type { ConversationMode } from './ModeSelector';
 
 const DIFFICULTY_KEYWORDS: Record<DifficultyId, readonly string[]> = {
@@ -23,9 +24,10 @@ export const DIFFICULTY_VOICE_ORDER: readonly DifficultyId[] = ['beginner', 'int
 export const TOPIC_VOICE_ORDER: readonly TopicId[] = ['restaurant', 'airport', 'travel', 'hobby', 'school', 'family', 'daily'];
 
 function normalize(text: string) {
-  return text
+  // "음, 2번이요" is "2번이요": thinking sounds are dropped as whole words.
+  return stripKoreanFillers(text
     .toLocaleLowerCase('ko-KR')
-    .replace(/[.,!?~·…'"“”‘’()[\]{}]/g, ' ')
+    .replace(/[.,!?~·…'"“”‘’()[\]{}]/g, ' '))
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -54,12 +56,72 @@ function findChoice<T extends string>(
     }
   }
   // Listing alternatives is not a choice. Ask again instead of picking the last.
-  return matches.size === 1 ? [...matches][0] : null;
+  if (matches.size) return matches.size === 1 ? [...matches][0] : null;
+  return /(?:말고|아니|싫|빼고|제외)/.test(compact) ? null : soundAlikeChoice(compact, dictionary);
 }
 
+// Korean STT often hears a choice one sound off (취미 → 쉬미/추미, 학습 → 박습, 식당 → 시땅).
+// Fallback when no keyword matched: the choice whose keyword is within a quarter of its
+// letters (jamo) of part of the answer, clearly closer than any other choice. On 2026-10-14
+// transcripts this recovered every one-sound miss; up to 0.30 none of ~4,300 other answers
+// (names, story answers, unrelated speech) selected anything, at 0.34 there were 172.
+const SOUND_ALIKE_MAX_DISTANCE = 0.25;
+const SOUND_ALIKE_MARGIN = 0.15;
+// Only short answers: a long sentence has many near-misses ("무서워했는데" holds "서워" ≈ "쉬워").
+const SOUND_ALIKE_MAX_SYLLABLES = 6;
+// Choice names only, not everyday adjectives ("쉬워", "어렵게") that any answer may contain.
+const EVERYDAY_WORD_ENDING = /(?:운|게|워|움)$/;
+
+function jamo(text: string): number[] {
+  const out: number[] = [];
+  for (const char of text) {
+    const code = char.charCodeAt(0) - 0xac00;
+    if (code < 0 || code > 11171) continue;
+    out.push(Math.floor(code / 588), 100 + Math.floor((code % 588) / 28));
+    if (code % 28) out.push(200 + (code % 28));
+  }
+  return out;
+}
+
+function editDistance(a: number[], b: number[]): number {
+  let previous = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+function soundAlikeChoice<T extends string>(compact: string, dictionary: Record<T, readonly string[]>): T | null {
+  const syllables = [...compact.replace(/[^가-힣]/g, '')];
+  if (syllables.length > SOUND_ALIKE_MAX_SYLLABLES) return null;
+  const best = new Map<T, number>();
+  for (const [value, keywords] of Object.entries(dictionary) as [T, readonly string[]][]) {
+    for (const keyword of keywords) {
+      const term = [...keyword.replace(/\s+/g, '')];
+      if (term.length < 2 || term.some((char) => !/[가-힣]/.test(char)) || EVERYDAY_WORD_ENDING.test(keyword)) continue;
+      const target = jamo(term.join(''));
+      for (let start = 0; start < syllables.length; start += 1) {
+        for (const length of [term.length - 1, term.length, term.length + 1]) {
+          if (length < 1 || start + length > syllables.length) continue;
+          const score = editDistance(jamo(syllables.slice(start, start + length).join('')), target) / target.length;
+          if (score < (best.get(value) ?? Infinity)) best.set(value, score);
+        }
+      }
+    }
+  }
+  const [first, second] = [...best.entries()].sort((a, b) => a[1] - b[1]);
+  if (!first || first[1] > SOUND_ALIKE_MAX_DISTANCE) return null;
+  return second && second[1] - first[1] < SOUND_ALIKE_MARGIN ? null : first[0];
+}
+
+// "일번이요" is often heard as "일본이요".
 function spokenNumber(text: string): number | null {
   if (/^[1-7]$/.test(text)) return Number(text);
-  const match = text.replace(/\s+/g, '').match(/^(?:저는|저|그럼)?([1-7]|일|이|삼|사|오|육|칠|첫|두|세|네|다섯|여섯|일곱)(?:번째|번)(?:으로|로|이요|요)?(?:할게요|해주세요|선택할게요|선택)?$/);
+  const match = text.replace(/\s+/g, '').match(/^(?:저는|저|그럼)?([1-7]|일|이|삼|사|오|육|칠|첫|두|세|네|다섯|여섯|일곱)(?:번째|번|본)(?:으로|로|이요|요)?(?:할게요|해주세요|선택할게요|선택)?$/);
   if (!match) return null;
   const numbers: Record<string, number> = { 일: 1, 이: 2, 삼: 3, 사: 4, 오: 5, 육: 6, 칠: 7, 첫: 1, 두: 2, 세: 3, 네: 4, 다섯: 5, 여섯: 6, 일곱: 7 };
   return numbers[match[1]] ?? Number(match[1]);

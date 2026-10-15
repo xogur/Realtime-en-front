@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+import { stripKoreanFillers } from '@/lib/koreanFillers';
+
 /*
  * Chapter comprehension check messages from the server (story_check_*). The
  * server owns questions, scoring and the decision; this store only keeps the
@@ -177,12 +179,29 @@ export function listenSupport(attempt: number): ListenSupport {
   return { speed: attempt >= 1 ? 'slow' : 'normal', english: attempt >= 2, korean: attempt >= 3 };
 }
 
+/** Digits and native ordinals ("2번", "두 번째") only ever mean a choice, wherever they are said. */
 const ORDINALS: ReadonlyArray<RegExp> = [
-  /(?:1|일)번|첫(?:번)?째|^하나$/,
-  /(?:2|이)번|두번째|둘째|^둘$/,
-  /(?:3|삼)번|세번째|셋째|^셋$/,
-  /(?:4|사)번|네번째|넷째|^넷$/,
+  /(?<!\d)1번|첫(?:번)?째/,
+  /(?<!\d)2번|두번째|둘째/,
+  /(?<!\d)3번|세번째|셋째/,
+  /(?<!\d)4번|네번째|넷째/,
 ];
+/**
+ * Sino-Korean numbers and counts are also everyday words ("이번엔 양이요" is
+ * "this time, the sheep"), so they pick a choice only as the whole reply,
+ * with at most a particle or ending ("이번이요", "둘", "정답은 삼번").
+ */
+const SPOKEN_ORDINALS: ReadonlyArray<RegExp> = [/^(?:일번|하나)/, /^(?:이번|둘)/, /^(?:삼번|셋)/, /^(?:사번|넷)/];
+const ANSWER_PREFIX = /^(?:정답은|답은|저는|나는)/;
+const ORDINAL_TAIL = /^(?:이|가|은|는|을|를|요|야|예|에|거|것|으로|로|이에요|에요|예요|입니다|이죠|죠|할게요)*$/;
+
+function spokenOrdinal(said: string): number {
+  const rest = said.replace(ANSWER_PREFIX, '');
+  return SPOKEN_ORDINALS.findIndex((pattern) => {
+    const match = rest.match(pattern);
+    return Boolean(match) && ORDINAL_TAIL.test(rest.slice(match![0].length));
+  });
+}
 /** Particles, endings and fillers that say nothing about which choice was meant. */
 const NEUTRAL_SYLLABLES = new Set('이가은는을를에의요야예거것게그냥뿐일도만고어아음해했지네요'.split(''));
 
@@ -196,9 +215,10 @@ function compactKo(text: string): string {
  * so a vague reply never picks for the learner.
  */
 export function matchSpokenChoice(text: string, choices: readonly string[]): number | null {
-  const said = compactKo(text);
+  const said = compactKo(stripKoreanFillers(text));
   if (!said) return null;
-  const byNumber = ORDINALS.findIndex((pattern) => pattern.test(said));
+  const digit = ORDINALS.findIndex((pattern) => pattern.test(said));
+  const byNumber = digit >= 0 ? digit : spokenOrdinal(said);
   if (byNumber >= 0) return byNumber < choices.length ? byNumber : null;
   const syllables = choices.map((choice) => new Set([...compactKo(choice)].filter((c) => !NEUTRAL_SYLLABLES.has(c))));
   const scores = syllables.map((own, index) => [...own].filter((c) => (

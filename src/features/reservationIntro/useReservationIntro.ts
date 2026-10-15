@@ -26,6 +26,8 @@ const SUPPORTED_KIOSKS = new Set(['A02', 'A03', 'A04', 'A05']);
 const PRESENCE_REPORT_TIMEOUT_MS = 5_000;
 const PRESENCE_REPORT_RETRY_BASE_MS = 500;
 const PRESENCE_REPORT_RETRY_MAX_MS = 4_000;
+// Offer the touch fallback when the camera has not confirmed anyone by then.
+export const PRESENCE_TOUCH_FALLBACK_DELAY_MS = 8_000;
 const subscribeClientReady = () => () => undefined;
 
 export function useReservationIntro(role: ReservationIntroRole) {
@@ -36,6 +38,7 @@ export function useReservationIntro(role: ReservationIntroRole) {
   const [confirmingEventId, setConfirmingEventId] = useState<string | null>(null);
   const [introPresentationPending, setIntroPresentationPending] = useState(false);
   const [presenceReportRetryToken, setPresenceReportRetryToken] = useState(0);
+  const [touchFallbackEventId, setTouchFallbackEventId] = useState<string | null>(null);
   const clientReady = useSyncExternalStore(subscribeClientReady, () => true, () => false);
   const reservationSessionRef = useRef<ReservationIntroEvent | null>(null);
   const participantMutationRevisionRef = useRef(0);
@@ -155,12 +158,18 @@ export function useReservationIntro(role: ReservationIntroRole) {
       const stored = readStoredIntro(event.eventId);
       if (stored?.completedAtMs) {
         updateActive(null);
-        if (role === 'guide' && !completingRef.current) {
+        // The displays use separate browser profiles, so each one reports its
+        // own local completion. The avatar report keeps a crashed guide window
+        // from leaving the server intro open.
+        if (!completingRef.current) {
           void fetch(`${getReservationIntroApiUrl(kioskId)}/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ eventId: event.eventId, reason: 'ended' }),
-          });
+            body: JSON.stringify({
+              eventId: event.eventId,
+              reason: role === 'guide' ? 'ended' : 'timeout',
+            }),
+          }).catch(() => undefined);
         }
         return;
       }
@@ -173,15 +182,13 @@ export function useReservationIntro(role: ReservationIntroRole) {
       if (elapsedMs >= event.maxDurationMs) {
         rememberIntroCompleted(event.eventId, startedAtMs);
         updateActive(null);
-        if (role === 'guide') {
-          const timeoutEvent: ActiveReservationIntro = {
-            event,
-            elapsedMs,
-            phase: phaseForElapsed(event, elapsedMs),
-          };
-          activeRef.current = timeoutEvent;
-          void complete('timeout');
-        }
+        const timeoutEvent: ActiveReservationIntro = {
+          event,
+          elapsedMs,
+          phase: phaseForElapsed(event, elapsedMs),
+        };
+        activeRef.current = timeoutEvent;
+        void complete('timeout');
         return;
       }
 
@@ -268,6 +275,9 @@ export function useReservationIntro(role: ReservationIntroRole) {
 
   useEffect(() => {
     const session = reservationSession;
+    if (presenceReportWasLost(session, presenceReportEventRef.current)) {
+      presenceReportEventRef.current = null;
+    }
     const evidence = getPresenceEvidence();
     const nowMs = performance.now();
     if (nowMs < presenceReportRetryAtRef.current || !session || !shouldReportPresence({
@@ -354,6 +364,38 @@ export function useReservationIntro(role: ReservationIntroRole) {
     updateReservationSession,
   ]);
 
+  const waitingEventId = role === 'avatar' && reservationSession?.status === 'waiting_for_presence'
+    ? reservationSession.eventId
+    : null;
+  useEffect(() => {
+    if (!waitingEventId) return;
+    const timer = window.setTimeout(
+      () => setTouchFallbackEventId(waitingEventId),
+      PRESENCE_TOUCH_FALLBACK_DELAY_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [waitingEventId]);
+  const touchPresenceAvailable = waitingEventId !== null && touchFallbackEventId === waitingEventId;
+
+  const reportTouchPresence = useCallback(async () => {
+    const session = reservationSessionRef.current;
+    if (role !== 'avatar' || session?.status !== 'waiting_for_presence') return false;
+    const response = await fetch(`${getReservationIntroApiUrl(session.kioskId)}/presence`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ eventId: session.eventId, source: 'touch' }),
+    });
+    if (!response.ok) throw new Error(`touch presence failed: ${response.status}`);
+    const updated = await response.json() as ReservationIntroEvent;
+    if (
+      updated.eventId !== session.eventId
+      || reservationSessionRef.current?.eventId !== session.eventId
+    ) return false;
+    presenceReportEventRef.current = session.eventId;
+    updateReservationSession(updated);
+    return true;
+  }, [role, updateReservationSession]);
+
   const activeEventId = active?.event.eventId;
   useEffect(() => {
     if (!activeEventId) return;
@@ -363,8 +405,7 @@ export function useReservationIntro(role: ReservationIntroRole) {
       if (!current || startedAtMs === null) return;
       const elapsedMs = Math.max(0, Date.now() - startedAtMs);
       if (elapsedMs >= current.event.maxDurationMs) {
-        if (role === 'guide') void complete('timeout');
-        else markLocalComplete(current.event.eventId);
+        void complete('timeout');
         return;
       }
       const phase = phaseForElapsed(current.event, elapsedMs);
@@ -373,7 +414,7 @@ export function useReservationIntro(role: ReservationIntroRole) {
       }
     }, 100);
     return () => window.clearInterval(timer);
-  }, [activeEventId, complete, markLocalComplete, role, updateActive]);
+  }, [activeEventId, complete, updateActive]);
 
   const updateParticipant = useCallback(async (
     body: { action: 'confirm'; name: string } | { action: 'skip'; reason: ParticipantSkipReason },
@@ -461,7 +502,19 @@ export function useReservationIntro(role: ReservationIntroRole) {
     skipParticipantName,
     presenceStatus,
     retryPresence,
+    touchPresenceAvailable,
+    reportTouchPresence,
   };
+}
+
+export function presenceReportWasLost(
+  session: ReservationIntroEvent | null,
+  reportedEventId: string | null,
+) {
+  return session !== null
+    && reportedEventId === session.eventId
+    && session.status === 'waiting_for_presence'
+    && session.presenceDetectedAt === null;
 }
 
 export function isReservationProgramReady(

@@ -8,19 +8,20 @@ const mocks = vi.hoisted(() => ({
   start: vi.fn(async () => true),
   stop: vi.fn(async () => undefined),
   translateText: vi.fn(),
+  status: 'idle',
   sttOptions: null as null | {
     language?: string;
-    onFinalTranscript: (transcript: {
-      text: string;
-      speechEvidence: { version: 1; provider: 'browser'; finalSegments: string[] };
-    }) => void;
+    onFinalTranscript: (transcript: { text: string }) => void;
+    onError: (code: string) => void;
   },
 }));
 
-vi.mock('@/hooks/useBrowserStt', () => ({
-  useBrowserStt: (options: typeof mocks.sttOptions) => {
+const browserStt = vi.hoisted(() => vi.fn());
+vi.mock('@/hooks/useBrowserStt', () => ({ useBrowserStt: browserStt }));
+vi.mock('@/hooks/useOnboardingStt', () => ({
+  useOnboardingStt: (options: typeof mocks.sttOptions) => {
     mocks.sttOptions = options;
-    return { start: mocks.start, stop: mocks.stop, isRecording: false };
+    return { startAndWaitUntilReady: mocks.start, stop: mocks.stop, status: mocks.status };
   },
 }));
 
@@ -36,6 +37,7 @@ describe('TranslatorOverlay', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.sttOptions = null;
+    mocks.status = 'idle';
     mocks.translateText.mockResolvedValue({
       translated_text: 'Hello',
       source_language: 'ko',
@@ -109,13 +111,13 @@ describe('TranslatorOverlay', () => {
     );
   });
 
-  it('uses the selected Web Speech language and auto-translates a final transcript', async () => {
+  it('uses the kiosk STT in the selected language and auto-translates a final transcript', async () => {
     render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
-    expect(mocks.sttOptions?.language).toBe('ko-KR');
+    expect(mocks.sttOptions?.language).toBe('ko');
+    expect(browserStt).not.toHaveBeenCalled();
 
     act(() => mocks.sttOptions?.onFinalTranscript({
       text: '좋은 아침이에요',
-      speechEvidence: { version: 1, provider: 'browser', finalSegments: ['좋은 아침이에요'] },
     }));
 
     await waitFor(() => expect(mocks.translateText).toHaveBeenCalledWith(
@@ -126,13 +128,27 @@ describe('TranslatorOverlay', () => {
     ));
   });
 
-  it('does not send an oversized Web Speech final to the backend', async () => {
+  it('listens in English after swapping languages', () => {
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '번역 방향 바꾸기' }));
+    expect(mocks.sttOptions?.language).toBe('en');
+  });
+
+  it('shows that an utterance is being recognised and keeps the stop control', () => {
+    mocks.status = 'transcribing';
+    render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
+    expect(screen.getByText('말씀을 알아듣는 중…')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '음성 입력 중지' }));
+    expect(mocks.stop).toHaveBeenCalled();
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it('does not send an oversized spoken final to the backend', async () => {
     render(<TranslatorOverlay isOpen onClose={vi.fn()} />);
     const oversizedTranscript = 'a'.repeat(161);
 
     act(() => mocks.sttOptions?.onFinalTranscript({
       text: oversizedTranscript,
-      speechEvidence: { version: 1, provider: 'browser', finalSegments: [oversizedTranscript] },
     }));
 
     expect(mocks.translateText).not.toHaveBeenCalled();
@@ -157,7 +173,6 @@ describe('TranslatorOverlay', () => {
     const oversizedTranscript = 'a'.repeat(161);
     act(() => mocks.sttOptions?.onFinalTranscript({
       text: oversizedTranscript,
-      speechEvidence: { version: 1, provider: 'browser', finalSegments: [oversizedTranscript] },
     }));
     await act(async () => {
       resolveFirst?.({
@@ -274,7 +289,6 @@ describe('TranslatorOverlay', () => {
     fireEvent.click(clear);
     act(() => mocks.sttOptions?.onFinalTranscript({
       text: '늦게 도착한 문장',
-      speechEvidence: { version: 1, provider: 'browser', finalSegments: ['늦게 도착한 문장'] },
     }));
 
     expect(mocks.stop).toHaveBeenCalled();
@@ -309,7 +323,6 @@ describe('TranslatorOverlay', () => {
 
     act(() => mocks.sttOptions?.onFinalTranscript({
       text: '너는 치킨을 좋아해',
-      speechEvidence: { version: 1, provider: 'browser', finalSegments: ['너는 치킨을 좋아해'] },
     }));
     fireEvent.click(screen.getByRole('button', { name: '질문 ?' }));
 
@@ -328,7 +341,6 @@ describe('TranslatorOverlay', () => {
 
     act(() => mocks.sttOptions?.onFinalTranscript({
       text: '치킨을 좋아합니까',
-      speechEvidence: { version: 1, provider: 'browser', finalSegments: ['치킨을 좋아합니까'] },
     }));
 
     await waitFor(() => expect(mocks.translateText).toHaveBeenCalledWith(

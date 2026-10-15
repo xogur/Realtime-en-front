@@ -9,6 +9,7 @@ vi.mock('./useBrowserTts', () => ({ getBrowserTtsPlaybackState: () => ({ state: 
 const track = { stop: vi.fn(), onended: null };
 class Context {
   sampleRate = 16000;
+  state = 'running';
   destination = {};
   audioWorklet = { addModule: vi.fn(async () => undefined) };
   resume = vi.fn(async () => undefined);
@@ -27,7 +28,7 @@ const options = () => ({
 });
 const frames = (voice = true) => {
   state.nodes.at(-1)?.port.onmessage?.({ data: new Float32Array(4000).fill(voice ? 0.1 : 0) });
-  state.nodes.at(-1)?.port.onmessage?.({ data: new Float32Array(14000) });
+  state.nodes.at(-1)?.port.onmessage?.({ data: new Float32Array(18000) });
 };
 
 describe('isolated Korean STT capture', () => {
@@ -47,9 +48,103 @@ describe('isolated Korean STT capture', () => {
     const { result, unmount } = renderHook(() => useOnboardingStt(callbacks));
     await act(async () => { expect(await result.current.startAndWaitUntilReady()).toBe(true); });
     await act(async () => { frames(); });
-    expect(fetch).toHaveBeenCalledWith('/api/onboarding-stt', expect.objectContaining({ method: 'POST' }));
+    expect(fetch).toHaveBeenCalledWith('/api/onboarding-stt?language=ko', expect.objectContaining({ method: 'POST' }));
     expect(callbacks.onFinalTranscript).toHaveBeenCalledExactlyOnceWith({ text: '초급' });
     expect(callbacks.onInterimTranscript).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it('names the Korean step of each utterance so the server can give Crisper its question', async () => {
+    let step: 'difficulty' | null = 'difficulty';
+    const callbacks = { ...options(), hint: () => step };
+    const { result, unmount } = renderHook(() => useOnboardingStt(callbacks));
+    await act(async () => { await result.current.startAndWaitUntilReady(); frames(); });
+    expect(fetch).toHaveBeenLastCalledWith('/api/onboarding-stt?language=ko&hint=difficulty', expect.anything());
+    step = null;
+    await act(async () => { frames(); });
+    expect(fetch).toHaveBeenLastCalledWith('/api/onboarding-stt?language=ko', expect.anything());
+    unmount();
+  });
+
+  it('never sends a Korean step hint with English audio', async () => {
+    const callbacks = { ...options(), language: 'en' as const, hint: () => 'name' as const };
+    const { result, unmount } = renderHook(() => useOnboardingStt(callbacks));
+    await act(async () => { await result.current.startAndWaitUntilReady(); frames(); });
+    expect(fetch).toHaveBeenCalledWith('/api/onboarding-stt?language=en', expect.anything());
+    unmount();
+  });
+
+  it('sends English replies to the English endpoint of the same server', async () => {
+    const callbacks = { ...options(), language: 'en' as const };
+    const { result, unmount } = renderHook(() => useOnboardingStt(callbacks));
+    await act(async () => { await result.current.startAndWaitUntilReady(); frames(); });
+    expect(fetch).toHaveBeenCalledWith('/api/onboarding-stt?language=en', expect.anything());
+    unmount();
+  });
+
+  it('retries an empty result once before reporting it, and keeps listening', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ text: ' ' }) } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ text: '이야기 듣기' }) } as Response);
+    const callbacks = options();
+    const { result, unmount } = renderHook(() => useOnboardingStt(callbacks));
+    await act(async () => { await result.current.startAndWaitUntilReady(); frames(); });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(callbacks.onFinalTranscript).toHaveBeenCalledExactlyOnceWith({ text: '이야기 듣기' });
+    expect(callbacks.onError).not.toHaveBeenCalled();
+
+    vi.mocked(fetch).mockResolvedValue({ ok: true, status: 200, json: async () => ({ text: '' }) } as Response);
+    await act(async () => { frames(); });
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(callbacks.onError).toHaveBeenCalledExactlyOnceWith('STT_NO_RESULT');
+    expect(result.current.status).toBe('listening');
+    unmount();
+  });
+
+  it('waits and retries once when the shared STT server is busy', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(fetch).mockResolvedValue({ ok: false, status: 429 } as Response);
+      const callbacks = options();
+      const { result, unmount } = renderHook(() => useOnboardingStt(callbacks));
+      await act(async () => { await result.current.startAndWaitUntilReady(); frames(); });
+      expect(fetch).toHaveBeenCalledOnce();
+      await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(callbacks.onError).toHaveBeenCalledExactlyOnceWith('STT_BUSY');
+      unmount();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('never retries after stop()', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(fetch).mockResolvedValue({ ok: false, status: 429 } as Response);
+      const callbacks = options();
+      const { result, unmount } = renderHook(() => useOnboardingStt(callbacks));
+      await act(async () => { await result.current.startAndWaitUntilReady(); frames(); });
+      await act(async () => { await result.current.stop(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+      expect(fetch).toHaveBeenCalledOnce();
+      expect(callbacks.onError).not.toHaveBeenCalled();
+      unmount();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('hands the open microphone over without stopping it', async () => {
+    track.stop.mockClear();
+    const callbacks = options();
+    const { result, unmount } = renderHook(() => useOnboardingStt(callbacks));
+    await act(async () => { await result.current.startAndWaitUntilReady(); });
+    let stream: MediaStream | null = null;
+    await act(async () => { stream = await result.current.takeAudioInput(); });
+    expect(stream).not.toBeNull();
+    expect(track.stop).not.toHaveBeenCalled();
+    expect(state.nodes.at(-1)?.port.onmessage).toBeNull();
+    expect(result.current.status).toBe('idle');
+    await act(async () => { await result.current.stop(); });
+    expect(track.stop).not.toHaveBeenCalled();
+    await act(async () => { expect(await result.current.takeAudioInput()).toBeNull(); });
     unmount();
   });
 
@@ -135,5 +230,74 @@ describe('isolated Korean STT capture', () => {
       channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true,
     } });
     unmount();
+  });
+
+  it('keeps the microphone open across a re-prompt and only stops listening', async () => {
+    track.stop.mockClear();
+    const callbacks = options();
+    const { result, unmount } = renderHook(() => useOnboardingStt(callbacks));
+    await act(async () => { await result.current.startAndWaitUntilReady(); });
+    await act(async () => { await result.current.pause(); });
+    expect(track.stop).not.toHaveBeenCalled();
+    expect(result.current.status).toBe('idle');
+    // Speech while paused is never sent.
+    await act(async () => { frames(); });
+    expect(fetch).not.toHaveBeenCalled();
+    await act(async () => { await result.current.startAndWaitUntilReady(); frames(); });
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledOnce();
+    await act(async () => { await result.current.stop(); });
+    expect(track.stop).toHaveBeenCalledOnce();
+    unmount();
+  });
+
+  it('keeps the first syllable spoken just before listening starts', async () => {
+    const callbacks = options();
+    const { result, unmount } = renderHook(() => useOnboardingStt(callbacks));
+    await act(async () => { await result.current.prepare(); });
+    const node = state.nodes.at(-1)!;
+    await act(async () => { node.port.onmessage?.({ data: new Float32Array(1600).fill(0.1) }); });
+    await act(async () => {
+      await result.current.startAndWaitUntilReady();
+      node.port.onmessage?.({ data: new Float32Array(4000).fill(0.1) });
+      node.port.onmessage?.({ data: new Float32Array(18000) });
+    });
+    const body = vi.mocked(fetch).mock.calls[0][1]?.body as ArrayBuffer;
+    expect(body.byteLength / 2).toBe(1600 + 4000 + 18000);
+    unmount();
+  });
+
+  it('drops a transcript requested before a re-prompt', async () => {
+    let resolve!: (value: Response) => void;
+    vi.mocked(fetch).mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const callbacks = options();
+    const { result, unmount } = renderHook(() => useOnboardingStt(callbacks));
+    await act(async () => { await result.current.startAndWaitUntilReady(); frames(); });
+    await act(async () => { await result.current.pause(); await result.current.startAndWaitUntilReady(); });
+    await act(async () => { resolve({ ok: true, json: async () => ({ text: '지난 답' }) } as Response); });
+    expect(callbacks.onFinalTranscript).not.toHaveBeenCalled();
+    expect(result.current.status).toBe('listening');
+    unmount();
+  });
+
+  it('asks for a touch instead of waiting forever when Chrome keeps audio suspended', async () => {
+    vi.useFakeTimers();
+    try {
+      track.stop.mockClear();
+      class Suspended extends Context {
+        state = 'suspended';
+        resume = vi.fn(() => new Promise<undefined>(() => undefined));
+      }
+      vi.stubGlobal('AudioContext', Suspended);
+      const callbacks = options();
+      const { result, unmount } = renderHook(() => useOnboardingStt(callbacks));
+      let prepared: Promise<boolean> | undefined;
+      act(() => { prepared = result.current.prepare(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(2600); });
+      await expect(prepared).resolves.toBe(false);
+      expect(callbacks.onError).toHaveBeenCalledWith('AUDIO_GESTURE_REQUIRED');
+      expect(track.stop).toHaveBeenCalled();
+      unmount();
+    } finally { vi.useRealTimers(); }
   });
 });

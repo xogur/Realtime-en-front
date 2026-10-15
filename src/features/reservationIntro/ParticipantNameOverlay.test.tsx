@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   capture: {
     phase: 'listening',
     candidate: '',
+    alternatives: [] as string[],
+    chooseAlternative: vi.fn(async () => true),
     interim: '',
     recognizedSpeech: { name: '', confirmation: '' },
     error: null as string | null,
@@ -18,6 +20,7 @@ const mocks = vi.hoisted(() => ({
     submitName: vi.fn(async () => undefined),
     retry: vi.fn(async () => undefined),
     skip: vi.fn(async () => undefined),
+    noteActivity: vi.fn(),
   },
 }));
 
@@ -40,6 +43,7 @@ describe('ParticipantNameOverlay', () => {
     Object.assign(mocks.capture, {
       phase: 'listening',
       candidate: '',
+      alternatives: [],
       interim: '',
       recognizedSpeech: { name: '', confirmation: '' },
       error: null,
@@ -126,6 +130,19 @@ describe('ParticipantNameOverlay', () => {
 
     expect(screen.getByRole('heading', { name: '권태혁님, 환영합니다' })).toBeTruthy();
     expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('lets the guest skip the name step with one touch', () => {
+    render(<ParticipantNameOverlay {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: '이름 없이 시작' }));
+    expect(mocks.capture.skip).toHaveBeenCalledWith('user_skipped');
+  });
+
+  it('shows sound-alike names as touch buttons that save the chosen name', () => {
+    Object.assign(mocks.capture, { phase: 'confirming', candidate: '손아린', alternatives: ['손하린', '소나린'] });
+    render(<ParticipantNameOverlay {...props} />);
+    fireEvent.click(screen.getByRole('button', { name: '손하린' }));
+    expect(mocks.capture.chooseAlternative).toHaveBeenCalledWith('손하린');
   });
 
   it('routes keyboard input through the same welcome sequence as voice input', () => {

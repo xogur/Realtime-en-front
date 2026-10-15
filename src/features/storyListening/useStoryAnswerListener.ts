@@ -1,22 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useBrowserStt } from '@/hooks/useBrowserStt';
-import { useStore } from '@/stores/useStore';
+import { isFillerOnly } from '@/lib/koreanFillers';
 
 import { useStoryCheckStore } from './storyCheck';
 
-/** Korean answers to the avatar's story questions; never sent to the free-talk pipeline. */
-export const STORY_ANSWER_LANGUAGE = 'ko-KR';
-
-/** Thinking sounds; a pause after "음…" must not send that as the answer. */
-const FILLERS = new Set(['음', '음음', '으음', '흠', '어', '어어', '아', '그', '저', '저기', '그러니까', '그니까', '뭐지', '뭐더라', '있잖아', '응']);
-
-export function isFillerOnly(text: string): boolean {
-  const words = text.normalize('NFKC').replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(Boolean);
-  return words.length > 0 && words.every((word) => FILLERS.has(word));
-}
+export { isFillerOnly };
 
 function compact(text: string): string {
   return text.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
@@ -44,7 +34,11 @@ type Options = {
   onUnavailable: () => void;
   /** The avatar's own line, so a playback echo is not taken as the learner's answer. */
   avatarLine: () => string;
-  /** When given, answers come from the server STT; the browser recognizer is the fallback. */
+  /**
+   * Answers come only from the kiosk's server STT. Without it the listener
+   * reports unavailable (touch still answers); browser recognition would send
+   * the child's voice to an outside service.
+   */
   server?: ServerAnswerStt;
 };
 
@@ -59,12 +53,10 @@ export function useStoryAnswerListener({ onAnswer, onUnavailable, avatarLine, se
   /** The prompt the server is armed for, and since when (older transcripts are ignored). */
   const armedRef = useRef<{ checkId: string; seq: number; since: number } | null>(null);
 
-  const sttRef = useRef<{ stop: () => Promise<void> } | null>(null);
   const finish = useCallback(() => {
     activeRef.current = false;
     armedRef.current = null;
     setState('idle');
-    if (!callbacks.current.server) void sttRef.current?.stop();
   }, []);
 
   const arm = useCallback((checkId: string, seq: number) => {
@@ -100,70 +92,17 @@ export function useStoryAnswerListener({ onAnswer, onUnavailable, avatarLine, se
     callbacks.current.onAnswer(text);
   }), [arm, finish]);
 
-  const stt = useBrowserStt(useMemo(() => ({
-    language: STORY_ANSWER_LANGUAGE,
-    publishRecordingState: false,
-    onFinalTranscript: (transcript) => {
-      if (!activeRef.current) return;
-      const text = transcript.text.trim();
-      if (!text) return;
-      if (isFillerOnly(text)) {
-        // Keep listening for the real answer.
-        setHeard('');
-        setState('listening');
-        return;
-      }
-      setHeard(text);
-      setAnswer(text);
-      finish();
-      callbacks.current.onAnswer(text);
-    },
-    onInterimTranscript: (text) => {
-      if (!activeRef.current) return;
-      setHeard(text);
-      if (text) setState('hearing');
-    },
-    onReadyChange: (ready) => {
-      if (ready && activeRef.current) setState((current) => (current === 'hearing' ? current : 'listening'));
-    },
-    onError: () => {
-      if (!activeRef.current) return;
-      finish();
-      callbacks.current.onUnavailable();
-    },
-    onUnavailable: () => {
-      if (!activeRef.current) return;
-      finish();
-      callbacks.current.onUnavailable();
-    },
-    onSpeechStarted: () => {
-      if (activeRef.current) setState('hearing');
-    },
-    getPlaybackState: () => ({ isPlaying: useStore.getState().isPlaying, text: callbacks.current.avatarLine() }),
-  }), [finish]));
-  useEffect(() => { sttRef.current = stt; }, [stt]);
-
   const listen = useCallback(async () => {
     if (activeRef.current) return;
     activeRef.current = true;
     setHeard('');
-    if (callbacks.current.server) {
-      const prompt = useStoryCheckStore.getState().prompt;
-      setState('listening');
-      if (!prompt || !arm(prompt.checkId, prompt.seq)) {
-        finish();
-        callbacks.current.onUnavailable();
-      }
-      return;
-    }
-    setState('starting');
-    const started = await stt.startAndWaitUntilReady();
-    if (!activeRef.current) return;
-    if (!started) {
+    const prompt = useStoryCheckStore.getState().prompt;
+    setState('listening');
+    if (!callbacks.current.server || !prompt || !arm(prompt.checkId, prompt.seq)) {
       finish();
       callbacks.current.onUnavailable();
     }
-  }, [arm, finish, stt]);
+  }, [arm, finish]);
 
   const stop = useCallback(() => {
     if (!activeRef.current) return;

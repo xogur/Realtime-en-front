@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isReservationProgramReady,
   presenceReportRetryDelayMs,
+  presenceReportWasLost,
   shouldReportPresence,
 } from './useReservationIntro';
 import type { ReservationIntroEvent } from './types';
@@ -60,6 +61,27 @@ describe('reservation intro presence report policy', () => {
     expect(presenceReportRetryDelayMs(2)).toBe(1_000);
     expect(presenceReportRetryDelayMs(4)).toBe(4_000);
     expect(presenceReportRetryDelayMs(20)).toBe(4_000);
+  });
+});
+
+describe('presence report recovery', () => {
+  const lostSession = { ...waitingSession, presenceDetectedAt: null } as ReservationIntroEvent;
+
+  it('forgets an earlier report when the server is waiting again without presence', () => {
+    expect(presenceReportWasLost(lostSession, lostSession.eventId)).toBe(true);
+  });
+
+  it('keeps the report for other events, ready sessions or recorded presence', () => {
+    expect(presenceReportWasLost(lostSession, 'cocoon:1:intro')).toBe(false);
+    expect(presenceReportWasLost(null, lostSession.eventId)).toBe(false);
+    expect(presenceReportWasLost(
+      { ...lostSession, status: 'ready' } as ReservationIntroEvent,
+      lostSession.eventId,
+    )).toBe(false);
+    expect(presenceReportWasLost(
+      { ...lostSession, presenceDetectedAt: '2026-10-13T01:00:00Z' } as ReservationIntroEvent,
+      lostSession.eventId,
+    )).toBe(false);
   });
 });
 

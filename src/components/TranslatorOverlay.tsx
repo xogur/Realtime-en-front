@@ -3,8 +3,8 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRightLeft, Headphones, Languages, Loader2, Mic, MicOff, Trash2, X } from 'lucide-react';
 
-import { useBrowserStt } from '@/hooks/useBrowserStt';
 import { useBrowserTts } from '@/hooks/useBrowserTts';
+import { useOnboardingStt } from '@/hooks/useOnboardingStt';
 import {
   applySentenceType,
   MAX_TRANSLATION_TEXT_LENGTH,
@@ -32,10 +32,10 @@ const SPEECH_LANGUAGE: Record<TranslationLanguage, string> = {
 };
 
 const STT_ERROR_MESSAGES: Record<string, string> = {
-  BROWSER_STT_UNSUPPORTED: '이 브라우저는 음성 인식을 지원하지 않습니다. Chrome 또는 Edge를 사용해 주세요.',
   MICROPHONE_DENIED: '마이크 권한이 차단되었습니다. 브라우저 설정에서 권한을 허용해 주세요.',
   MICROPHONE_UNAVAILABLE: '사용 가능한 마이크를 찾지 못했습니다.',
   STT_NO_RESULT: '음성을 인식하지 못했습니다. 다시 말해 주세요.',
+  STT_BUSY: '음성 인식이 잠시 바쁩니다. 다시 말해 주세요.',
   STT_UNAVAILABLE: '음성 인식 서비스를 사용할 수 없습니다.',
 };
 
@@ -45,7 +45,6 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
   const [sourceText, setSourceText] = useState('');
   const [translatedText, setTranslatedText] = useState('');
   const [translationProvider, setTranslationProvider] = useState<TranslationProvider | null>(null);
-  const [interimText, setInterimText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [speechRate, setSpeechRate] = useState(1);
@@ -97,20 +96,17 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     }
   }, [sourceLanguage, targetLanguage]);
 
-  const { start: startStt, stop: stopStt, isRecording } = useBrowserStt({
-    language: SPEECH_LANGUAGE[sourceLanguage],
-    publishRecordingState: false,
+  // The kiosk's own STT server in the source language (Korean or English): one
+  // final transcript per utterance and no interim text.
+  const { startAndWaitUntilReady: startStt, stop: stopStt, status: sttStatus } = useOnboardingStt({
+    language: sourceLanguage,
     onFinalTranscript: (transcript) => {
       if (ignoreSttResultsRef.current) return;
       const normalized = normalizeSpeechTranscript(transcript.text, sourceLanguage);
-      setInterimText('');
       setSourceText(normalized.text.slice(0, MAX_TRANSLATION_TEXT_LENGTH));
       setSentenceType(normalized.sentenceType);
       setShowSentenceTypeControls(true);
       void runTranslation(normalized.text);
-    },
-    onInterimTranscript: (text) => {
-      if (!ignoreSttResultsRef.current) setInterimText(text);
     },
     onReadyChange: () => undefined,
     onError: (code) => {
@@ -118,12 +114,10 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
         setError(STT_ERROR_MESSAGES[code] ?? '음성 인식 중 오류가 발생했습니다.');
       }
     },
-    onUnavailable: () => undefined,
-    onSpeechStarted: () => {
-      cancelSpeech();
-    },
     getPlaybackState: () => ({ isPlaying: isSpeaking, text: translatedText }),
   });
+  // The microphone stays on between utterances, including while one is transcribed.
+  const isRecording = sttStatus !== 'idle';
 
   const stopTranslatorActivity = useCallback(() => {
     activityTokenRef.current += 1;
@@ -132,7 +126,6 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     requestControllerRef.current = null;
     void stopStt();
     cancelSpeech();
-    setInterimText('');
     setIsTranslating(false);
   }, [cancelSpeech, stopStt]);
 
@@ -173,7 +166,6 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     setSourceText('');
     setTranslatedText('');
     setTranslationProvider(null);
-    setInterimText('');
     setError(null);
     setSentenceType('original');
     setShowSentenceTypeControls(false);
@@ -204,7 +196,6 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
       activityTokenRef.current += 1;
       ignoreSttResultsRef.current = false;
       cancelSpeech();
-      setInterimText('');
       void startStt();
     }
   };
@@ -225,7 +216,6 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
     }
     if (activityTokenRef.current !== activityToken || !isOpen) return;
 
-    setInterimText('');
     const played = await speak(translatedText, SPEECH_LANGUAGE[targetLanguage], speechRate);
     if (!played && activityTokenRef.current === activityToken) {
       setError('문장을 재생하지 못했습니다.');
@@ -290,7 +280,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
                   <button
                     type="button"
                     onClick={handleClear}
-                    disabled={!sourceText && !translatedText && !interimText && !error && !showSentenceTypeControls && !isTranslating && !isRecording && !isSpeaking}
+                    disabled={!sourceText && !translatedText && !error && !showSentenceTypeControls && !isTranslating && !isRecording && !isSpeaking}
                     className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-extrabold text-zinc-600 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
                     aria-label="입력과 번역 결과 모두 지우기"
                   >
@@ -321,7 +311,7 @@ export function TranslatorOverlay({ isOpen, onClose }: TranslatorOverlayProps) {
               <p className="mb-3 text-xs font-semibold text-zinc-500">
                 새로 입력하면 이전 번역 결과가 지워집니다. 음성 입력은 현재 입력 문장을 교체합니다.
               </p>
-              {interimText && <p className="mb-3 rounded-xl bg-blue-50 px-3 py-2 text-base font-semibold text-blue-700">듣는 중: {interimText}</p>}
+              {sttStatus === 'transcribing' && <p role="status" className="mb-3 rounded-xl bg-blue-50 px-3 py-2 text-base font-semibold text-blue-700">말씀을 알아듣는 중…</p>}
               {showSentenceTypeControls && (
                 <fieldset className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
                   <legend className="px-1 text-sm font-extrabold text-amber-900">음성의 문장 유형을 확인해 주세요</legend>
